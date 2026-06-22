@@ -26,6 +26,17 @@ const formatBirthDateForDisplay = (dateStr: string | null | undefined) => {
   return dateStr;
 };
 
+const safeFormatDate = (dateVal: any, formatStr: string, options?: any) => {
+  if (!dateVal) return "—";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "—";
+  try {
+    return format(d, formatStr, options);
+  } catch (e) {
+    return "—";
+  }
+};
+
 interface AnamneseFormDialogProps {
   pacienteId: string;
   agendamentoId?: string;
@@ -126,6 +137,7 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data;
     },
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Fetch responsible people
@@ -140,6 +152,7 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Fetch existing anamnese
@@ -167,6 +180,7 @@ export function AnamneseFormDialog({
       
       return data;
     },
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Populate data when loaded
@@ -967,7 +981,7 @@ export function AnamneseFormDialog({
                   Paciente: <span className="font-semibold text-foreground">{paciente?.nome}</span>
                 </div>
                 <div>
-                  Última atualização: {existingAnamnese?.atualizado_em ? format(new Date(existingAnamnese.atualizado_em), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }) : "Não salvo"}
+                  Última atualização: {existingAnamnese?.atualizado_em ? safeFormatDate(existingAnamnese.atualizado_em, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }) : "Não salvo"}
                 </div>
               </div>
             </div>
@@ -999,7 +1013,7 @@ export function AnamneseFormDialog({
                 <div className="col-span-2"><span className="font-semibold">Endereço:</span> {respostas.endereco || "—"}</div>
                 <div><span className="font-semibold">Escola:</span> {respostas.escola || "—"}</div>
                 <div><span className="font-semibold">Ano/Série:</span> {respostas.ano_serie || "—"}</div>
-                <div><span className="font-semibold">Data de Avaliação:</span> {respostas.data_avaliacao ? format(new Date(respostas.data_avaliacao), "dd/MM/yyyy") : "—"}</div>
+                <div><span className="font-semibold">Data de Avaliação:</span> {respostas.data_avaliacao ? safeFormatDate(respostas.data_avaliacao, "dd/MM/yyyy") : "—"}</div>
               </div>
             </div>
 
