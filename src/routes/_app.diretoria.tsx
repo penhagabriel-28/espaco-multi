@@ -1127,6 +1127,16 @@ Agradecemos a atenção!
     especialidade: "",
   });
 
+  const availableSpecialties = useMemo(() => {
+    if (!faturaForm.profissional_id) return [];
+    const prof = (profissionais || []).find((p: any) => p.id === faturaForm.profissional_id);
+    if (!prof?.especialidade) return [];
+    return prof.especialidade
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+  }, [faturaForm.profissional_id, profissionais]);
+
   const handleOpenConfirmPayment = (fatura: any) => {
     setPayForm({
       pago_em: format(new Date(), "yyyy-MM-dd"),
@@ -2729,7 +2739,22 @@ Agradecemos a atenção!
                 <Label>Profissional</Label>
                 <Select
                   value={faturaForm.profissional_id || "none"}
-                  onValueChange={(val) => setFaturaForm({ ...faturaForm, profissional_id: val === "none" ? "" : val })}
+                  onValueChange={(val) => {
+                    const pId = val === "none" ? "" : val;
+                    const prof = (profissionais || []).find((p: any) => p.id === pId);
+                    const specs = prof?.especialidade
+                      ? prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean)
+                      : [];
+                    const currentSpec = faturaForm.especialidade;
+                    const nextSpec = specs.includes(currentSpec)
+                      ? currentSpec
+                      : (specs.length > 0 ? specs[0] : "");
+                    setFaturaForm({
+                      ...faturaForm,
+                      profissional_id: pId,
+                      especialidade: nextSpec,
+                    });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione..." />
@@ -2755,13 +2780,11 @@ Agradecemos a atenção!
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhuma</SelectItem>
-                    <SelectItem value="Psicologia">Psicologia</SelectItem>
-                    <SelectItem value="Psicopedagogia">Psicopedagogia</SelectItem>
-                    <SelectItem value="Fonoaudiologia">Fonoaudiologia</SelectItem>
-                    <SelectItem value="Terapia Ocupacional">Terapia Ocupacional</SelectItem>
-                    <SelectItem value="Psicomotricidade">Psicomotricidade</SelectItem>
-                    <SelectItem value="Musicoterapia">Musicoterapia</SelectItem>
-                    <SelectItem value="Outro">Outro</SelectItem>
+                    {availableSpecialties.map((spec: string) => (
+                      <SelectItem key={spec} value={spec}>
+                        {spec}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -2921,7 +2944,22 @@ Agradecemos a atenção!
                 <Label>Profissional</Label>
                 <Select
                   value={faturaForm.profissional_id || "none"}
-                  onValueChange={(val) => setFaturaForm({ ...faturaForm, profissional_id: val === "none" ? "" : val })}
+                  onValueChange={(val) => {
+                    const pId = val === "none" ? "" : val;
+                    const prof = (profissionais || []).find((p: any) => p.id === pId);
+                    const specs = prof?.especialidade
+                      ? prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean)
+                      : [];
+                    const currentSpec = faturaForm.especialidade;
+                    const nextSpec = specs.includes(currentSpec)
+                      ? currentSpec
+                      : (specs.length > 0 ? specs[0] : "");
+                    setFaturaForm({
+                      ...faturaForm,
+                      profissional_id: pId,
+                      especialidade: nextSpec,
+                    });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione..." />
@@ -2947,13 +2985,11 @@ Agradecemos a atenção!
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhuma</SelectItem>
-                    <SelectItem value="Psicologia">Psicologia</SelectItem>
-                    <SelectItem value="Psicopedagogia">Psicopedagogia</SelectItem>
-                    <SelectItem value="Fonoaudiologia">Fonoaudiologia</SelectItem>
-                    <SelectItem value="Terapia Ocupacional">Terapia Ocupacional</SelectItem>
-                    <SelectItem value="Psicomotricidade">Psicomotricidade</SelectItem>
-                    <SelectItem value="Musicoterapia">Musicoterapia</SelectItem>
-                    <SelectItem value="Outro">Outro</SelectItem>
+                    {availableSpecialties.map((spec: string) => (
+                      <SelectItem key={spec} value={spec}>
+                        {spec}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
