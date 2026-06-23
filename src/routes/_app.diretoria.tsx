@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
+const supabase = supabaseClient as any;
 import { useState, useMemo } from "react";
 import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
@@ -166,7 +167,7 @@ function DiretoriaPageContent() {
   };
 
   // Fetch Patients
-  const { data: pacientes = [] } = useQuery({
+  const { data: pacientes = [] } = useQuery<any[]>({
     queryKey: ["dir-pacientes-min"],
     queryFn: async () => {
       const { data, error } = await supabase.from("pacientes").select("id, nome, valor_mensal").order("nome");
@@ -184,7 +185,7 @@ function DiretoriaPageContent() {
   }, [pacientes]);
 
   // Fetch all responsaveis to map their contacts
-  const { data: responsaveis = [] } = useQuery({
+  const { data: responsaveis = [] } = useQuery<any[]>({
     queryKey: ["dir-responsaveis-all"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -206,13 +207,13 @@ function DiretoriaPageContent() {
   }, [responsaveis]);
 
   // Fetch Invoices
-  const { data: faturas = [], isLoading: loadingFaturas } = useQuery({
+  const { data: faturas = [], isLoading: loadingFaturas } = useQuery<any[]>({
     queryKey: ["dir-faturas", inicio, fim],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("faturas")
         .select(
-          "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id, profissional_id, especialidade",
+           "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id, profissional_id, especialidade",
         )
         .gte("competencia", inicio)
         .lte("competencia", fim)
@@ -352,11 +353,47 @@ function DiretoriaPageContent() {
   // Delete individual billing item mutation
   const deleteFaturaItemMutation = useMutation({
     mutationFn: async (itemId: string) => {
-      const { error } = await supabase
+      // 1. Fetch the item to know its parent fatura_id
+      const { data: itemToDelete, error: getError } = await supabase
+        .from("fatura_itens")
+        .select("fatura_id")
+        .eq("id", itemId)
+        .single();
+      if (getError) throw getError;
+      const faturaId = itemToDelete?.fatura_id;
+
+      // 2. Delete the item
+      const { error: deleteError } = await supabase
         .from("fatura_itens")
         .delete()
         .eq("id", itemId);
-      if (error) throw error;
+      if (deleteError) throw deleteError;
+
+      // 3. Recalculate or delete parent fatura
+      if (faturaId) {
+        const { data: remainingItems, error: fetchError } = await supabase
+          .from("fatura_itens")
+          .select("total")
+          .eq("fatura_id", faturaId);
+        if (fetchError) throw fetchError;
+
+        if (!remainingItems || remainingItems.length === 0) {
+          // Delete parent fatura if empty
+          const { error: deleteFaturaError } = await supabase
+            .from("faturas")
+            .delete()
+            .eq("id", faturaId);
+          if (deleteFaturaError) throw deleteFaturaError;
+        } else {
+          // Recalculate total and update parent fatura
+          const newTotal = remainingItems.reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
+          const { error: updateFaturaError } = await supabase
+            .from("faturas")
+            .update({ valor: newTotal })
+            .eq("id", faturaId);
+          if (updateFaturaError) throw updateFaturaError;
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
@@ -369,7 +406,7 @@ function DiretoriaPageContent() {
   });
 
   // Fetch Expenses
-  const { data: despesas = [], isLoading: loadingDespesas } = useQuery({
+  const { data: despesas = [], isLoading: loadingDespesas } = useQuery<any[]>({
     queryKey: ["dir-despesas", inicio, fim],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -479,7 +516,7 @@ function DiretoriaPageContent() {
   };
 
   // Fetch active professionals
-  const { data: profissionais = [] } = useQuery({
+  const { data: profissionais = [] } = useQuery<any[]>({
     queryKey: ["dir-profissionais"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -510,7 +547,7 @@ function DiretoriaPageContent() {
   };
 
   // Fetch all agendamentos for professional payment calculation
-  const { data: agendamentosRepasses = [], isLoading: loadingAgendamentos } = useQuery({
+  const { data: agendamentosRepasses = [], isLoading: loadingAgendamentos } = useQuery<any[]>({
     queryKey: ["dir-agendamentos-repasses", inicio, fim],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -550,7 +587,7 @@ function DiretoriaPageContent() {
   });
 
   // Fetch all fatura_itens to link them to agendamentos in memory (avoids missing relation schema constraint join issue)
-  const { data: faturaItens = [], isLoading: loadingFaturaItens } = useQuery({
+  const { data: faturaItens = [], isLoading: loadingFaturaItens } = useQuery<any[]>({
     queryKey: ["dir-fatura-itens-all"],
     queryFn: async () => {
       const { data, error } = await supabase.from("fatura_itens").select(`
@@ -565,7 +602,12 @@ function DiretoriaPageContent() {
             status,
             pago_em,
             metodo,
-            vencimento
+            vencimento,
+            profissional_id,
+            especialidade,
+            paciente_id,
+            competencia,
+            valor
           )
         `);
       if (error) throw error;
@@ -1099,6 +1141,73 @@ function DiretoriaPageContent() {
       .sort((a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime());
   }, [faturas, patientFaturasDialog.pacienteId, profFilter, faturaProfIdsMap]);
 
+  const patientDetailedRows = useMemo(() => {
+    const rows: any[] = [];
+    (patientFaturas || []).forEach((f) => {
+      const items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
+      if (items.length === 0) {
+        // Manual fatura or fatura with no items
+        const rowProfId = f.profissional_id;
+        if (profFilter !== "all" && rowProfId !== profFilter) return;
+
+        rows.push({
+          id: `fatura-${f.id}`,
+          faturaId: f.id,
+          paciente_id: f.paciente_id,
+          competencia: f.competencia,
+          vencimento: f.vencimento,
+          pago_em: f.pago_em,
+          status: f.status,
+          metodo: f.metodo,
+          valor: Number(f.valor) || 0,
+          descricao: f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual"),
+          profissionalNome: f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—",
+          especialidade: f.especialidade || null,
+          fatura: f,
+          isFaturaOnly: true,
+        });
+      } else {
+        // Session items
+        items.forEach((item: any) => {
+          const rowProfId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
+          if (profFilter !== "all" && rowProfId !== profFilter) return;
+
+          const profName = item.agendamento_id ? agendamentoProfMap.get(item.agendamento_id) : null;
+          const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
+          
+          rows.push({
+            id: `item-${item.id}`,
+            faturaId: f.id,
+            paciente_id: f.paciente_id,
+            competencia: f.competencia,
+            vencimento: f.vencimento,
+            pago_em: f.pago_em,
+            status: f.status,
+            metodo: f.metodo,
+            valor: Number(item.total || 0),
+            descricao: item.descricao || "Sessão",
+            profissionalNome: finalProfName,
+            especialidade: f.especialidade || null,
+            fatura: f,
+            item: item,
+            isFaturaOnly: false,
+          });
+        });
+      }
+    });
+
+    // Sort by competence date descending, then vencimento date descending
+    return rows.sort((a, b) => {
+      const compA = a.competencia ? new Date(a.competencia).getTime() : 0;
+      const compB = b.competencia ? new Date(b.competencia).getTime() : 0;
+      if (compB !== compA) return compB - compA;
+      
+      const vencA = a.vencimento ? new Date(a.vencimento).getTime() : 0;
+      const vencB = b.vencimento ? new Date(b.vencimento).getTime() : 0;
+      return vencB - vencA;
+    });
+  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, profFilter]);
+
   const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
     const resps = responsaveisMap.get(pacienteId) || [];
     const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
@@ -1593,6 +1702,7 @@ Agradecemos a atenção!
                     vencimento: "",
                     valor: "",
                     status: "aberta",
+                    pago_em: "",
                     observacoes: "",
                     profissional_id: "",
                     especialidade: "",
@@ -2771,61 +2881,7 @@ Agradecemos a atenção!
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Profissional</Label>
-                <Select
-                  value={faturaForm.profissional_id || "none"}
-                  onValueChange={(val) => {
-                    const pId = val === "none" ? "" : val;
-                    const prof = (profissionais || []).find((p: any) => p.id === pId);
-                    const specs = prof?.especialidade
-                      ? prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean)
-                      : [];
-                    const currentSpec = faturaForm.especialidade;
-                    const nextSpec = specs.includes(currentSpec)
-                      ? currentSpec
-                      : (specs.length > 0 ? specs[0] : "");
-                    setFaturaForm({
-                      ...faturaForm,
-                      profissional_id: pId,
-                      especialidade: nextSpec,
-                    });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhum</SelectItem>
-                    {(profissionais || []).map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Especialidade</Label>
-                <Select
-                  value={faturaForm.especialidade || "none"}
-                  onValueChange={(val) => setFaturaForm({ ...faturaForm, especialidade: val === "none" ? "" : val })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Nenhuma</SelectItem>
-                    {availableSpecialties.map((spec: string) => (
-                      <SelectItem key={spec} value={spec}>
-                        {spec}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+
 
             {faturaForm.status === "paga" && (
               <div className="space-y-1.5 animate-in fade-in duration-200">
@@ -3084,6 +3140,7 @@ Agradecemos a atenção!
                   vencimento: "",
                   valor: "",
                   status: "aberta",
+                  pago_em: "",
                   observacoes: "",
                   profissional_id: "",
                   especialidade: "",
@@ -3095,8 +3152,8 @@ Agradecemos a atenção!
             </Button>
           </DialogHeader>
 
-            <div className="py-4">
-            {patientFaturas.length === 0 ? (
+          <div className="py-4">
+            {patientDetailedRows.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground border border-dashed rounded-lg">
                 Nenhuma fatura cadastrada para este paciente no período selecionado.
               </div>
@@ -3106,7 +3163,7 @@ Agradecemos a atenção!
                   <TableHeader className="bg-muted/40 font-semibold text-foreground">
                     <TableRow>
                       <TableHead>Competência</TableHead>
-                      <TableHead>Sessão</TableHead>
+                      <TableHead>Sessão / Descrição</TableHead>
                       <TableHead>Profissional</TableHead>
                       <TableHead>Vencimento</TableHead>
                       <TableHead>Valor</TableHead>
@@ -3117,82 +3174,77 @@ Agradecemos a atenção!
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {patientFaturas.map((f: any) => {
-                      const daysDelayed = getDaysDelayed(f);
+                    {patientDetailedRows.map((row: any) => {
+                      const daysDelayed = getDaysDelayed(row.fatura);
                       return (
-                        <TableRow key={f.id}>
+                        <TableRow key={row.id}>
                           <TableCell>
-                            {f.competencia
-                              ? format(new Date(f.competencia + "T12:00:00"), "MM/yyyy")
+                            {row.competencia
+                              ? format(new Date(row.competencia + "T12:00:00"), "MM/yyyy")
                               : "—"}
                           </TableCell>
                           <TableCell>
-                            {renderSessionDates(f, true)}
+                            <span className="font-medium text-xs break-all max-w-[200px] inline-block">{row.descricao}</span>
                           </TableCell>
                           <TableCell>
-                            <div className="flex flex-wrap gap-1 max-w-[150px]">
-                              {getProfessionalsForFatura(f).length > 0 ? (
-                                getProfessionalsForFatura(f).map((name) => (
-                                  <Badge
-                                    key={name}
-                                    variant="secondary"
-                                    className="text-[10px] px-1.5 py-0.5 font-medium whitespace-nowrap"
-                                  >
-                                    {name}
-                                  </Badge>
-                                ))
-                              ) : (
-                                <span className="text-xs text-muted-foreground italic">—</span>
-                              )}
-                            </div>
+                            {row.profissionalNome && row.profissionalNome !== "—" ? (
+                              <Badge
+                                variant="secondary"
+                                className="text-[10px] px-1.5 py-0.5 font-medium whitespace-nowrap"
+                              >
+                                {row.profissionalNome}
+                              </Badge>
+                            ) : (
+                              <span className="text-xs text-muted-foreground italic">—</span>
+                            )}
                           </TableCell>
                           <TableCell>
-                            {f.vencimento
-                              ? format(new Date(f.vencimento + "T12:00:00"), "dd/MM/yyyy")
+                            {row.vencimento
+                              ? format(new Date(row.vencimento + "T12:00:00"), "dd/MM/yyyy")
                               : "—"}
                           </TableCell>
-                          <TableCell className="font-semibold">{brl(Number(f.valor))}</TableCell>
+                          <TableCell className="font-semibold">{brl(Number(row.valor))}</TableCell>
                           <TableCell>
                             <Badge
                               variant={
-                                f.status === "paga"
+                                row.status === "paga"
                                   ? "default"
-                                  : f.status === "vencida" ||
-                                      (f.status === "aberta" && daysDelayed > 0)
+                                  : row.status === "vencida" ||
+                                      (row.status === "aberta" && daysDelayed > 0)
                                     ? "destructive"
-                                    : f.status === "cancelada"
+                                    : row.status === "cancelada"
                                       ? "secondary"
                                       : "outline"
                               }
                               className={
-                                f.status === "paga"
+                                row.status === "paga"
                                   ? "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent"
-                                  : f.status === "aberta" && daysDelayed > 0
+                                  : row.status === "aberta" && daysDelayed > 0
                                     ? "bg-rose-500 hover:bg-rose-600 text-white border-transparent"
-                                    : f.status === "aberta"
+                                    : row.status === "aberta"
                                       ? "bg-sky-500 hover:bg-sky-600 text-white border-transparent"
                                       : ""
                               }
                             >
-                              {f.status === "aberta" && daysDelayed > 0
+                              {row.status === "aberta" && daysDelayed > 0
                                 ? "Vencida (Atrasada)"
-                                : f.status === "aberta"
+                                : row.status === "aberta"
                                   ? "Em Aberto"
-                                  : f.status === "paga"
+                                  : row.status === "paga"
                                     ? "Pago"
-                                    : f.status === "vencida"
+                                    : row.status === "vencida"
                                       ? "Vencida"
                                       : "Cancelada"}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            {f.status === "paga" ? (
+                            {row.status === "paga" ? (
                               <div className="space-y-0.5">
                                 <div>
-                                  {f.pago_em ? format(new Date(f.pago_em), "dd/MM/yyyy") : "—"}
+                                  {row.pago_em ? format(new Date(row.pago_em), "dd/MM/yyyy") : "—"}
                                 </div>
                                 <div className="font-semibold uppercase tracking-wider text-[10px] text-emerald-600 dark:text-emerald-400">
-                                  {f.metodo || ""}
+                                  {row.metodo || ""}
                                 </div>
                               </div>
                             ) : (
@@ -3200,7 +3252,7 @@ Agradecemos a atenção!
                             )}
                           </TableCell>
                           <TableCell>
-                            {f.status === "paga" ? (
+                            {row.status === "paga" ? (
                               daysDelayed > 0 ? (
                                 <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
                                   Pago com {daysDelayed}d de atraso
@@ -3210,9 +3262,9 @@ Agradecemos a atenção!
                                   <Check className="h-3 w-3" /> Pago em dia
                                 </span>
                               )
-                            ) : f.status === "cancelada" ? (
+                            ) : row.status === "cancelada" ? (
                               "—"
-                            ) : f.vencimento ? (
+                            ) : row.vencimento ? (
                               daysDelayed > 0 ? (
                                 <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
                                   <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {daysDelayed}{" "}
@@ -3234,13 +3286,13 @@ Agradecemos a atenção!
                               className="flex justify-end gap-1.5"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              {f.status !== "paga" && (
+                              {row.status !== "paga" && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   title="Confirmar Pagamento"
                                   className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                                  onClick={() => handleOpenConfirmPayment(f)}
+                                  onClick={() => handleOpenConfirmPayment(row.fatura)}
                                 >
                                   <Check className="h-4 w-4" />
                                 </Button>
@@ -3250,7 +3302,7 @@ Agradecemos a atenção!
                                 size="icon"
                                 title="Editar Cobrança"
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                onClick={() => handleOpenEdit(f)}
+                                onClick={() => handleOpenEdit(row.fatura)}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -3259,7 +3311,7 @@ Agradecemos a atenção!
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    title="Excluir Cobrança"
+                                    title={row.isFaturaOnly ? "Excluir Cobrança" : "Excluir Sessão"}
                                     className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                   >
                                     <Trash2 className="h-4 w-4" />
@@ -3267,18 +3319,24 @@ Agradecemos a atenção!
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                   <AlertDialogHeader>
-                                    <AlertDialogTitle>Excluir Cobrança</AlertDialogTitle>
+                                    <AlertDialogTitle>Excluir {row.isFaturaOnly ? "Cobrança" : "Sessão"}</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      Tem certeza que deseja excluir esta cobrança? Todos os itens
-                                      de faturamento associados a agendamentos serão mantidos, mas a
-                                      cobrança em si será excluída.
+                                      {row.isFaturaOnly
+                                        ? "Tem certeza que deseja excluir esta cobrança manual? Esta ação não pode ser desfeita."
+                                        : `Tem certeza que deseja excluir a sessão "${row.descricao}" desta cobrança? O valor da cobrança pai será recalculado automaticamente.`}
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
                                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
                                     <AlertDialogAction
                                       className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                      onClick={() => deleteFaturaMutation.mutate(f.id)}
+                                      onClick={() => {
+                                        if (row.isFaturaOnly) {
+                                          deleteFaturaMutation.mutate(row.faturaId);
+                                        } else {
+                                          deleteFaturaItemMutation.mutate(row.item.id);
+                                        }
+                                      }}
                                     >
                                       Excluir
                                     </AlertDialogAction>
