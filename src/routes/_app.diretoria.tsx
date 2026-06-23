@@ -422,16 +422,16 @@ function DiretoriaPageContent() {
 
     if (dates.length === 0) return <span className="text-muted-foreground italic">—</span>;
 
-    if (dates.length === 1) {
-      return <span className="text-xs font-medium text-foreground">{dates[0]}</span>;
-    }
-
     return (
-      <div className="flex flex-col gap-0.5" title={dates.join(", ")}>
-        <span className="text-xs font-medium text-foreground">{dates[0]}</span>
-        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
-          + {dates.length - 1} {dates.length - 1 === 1 ? "sessão" : "sessões"}
-        </span>
+      <div className="flex flex-col gap-1 max-h-[85px] overflow-y-auto pr-2 scrollbar-thin">
+        {dates.map((date, idx) => (
+          <span
+            key={idx}
+            className="text-[10px] font-medium text-foreground bg-muted/65 px-1.5 py-0.5 rounded border border-border/50 whitespace-nowrap block w-max hover:bg-muted transition duration-150"
+          >
+            {date}
+          </span>
+        ))}
       </div>
     );
   };
