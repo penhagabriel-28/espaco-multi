@@ -408,6 +408,34 @@ function DiretoriaPageContent() {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
+  const renderSessionDates = (faturaId: string) => {
+    const items = faturaItens.filter((item: any) => item.fatura_id === faturaId);
+    if (items.length === 0) return <span className="text-muted-foreground italic">—</span>;
+
+    const dates = items
+      .map((item: any) => {
+        if (!item.descricao) return null;
+        const parts = item.descricao.split(" - ");
+        return parts.length > 1 ? parts[parts.length - 1] : item.descricao;
+      })
+      .filter(Boolean);
+
+    if (dates.length === 0) return <span className="text-muted-foreground italic">—</span>;
+
+    if (dates.length === 1) {
+      return <span className="text-xs font-medium text-foreground">{dates[0]}</span>;
+    }
+
+    return (
+      <div className="flex flex-col gap-0.5" title={dates.join(", ")}>
+        <span className="text-xs font-medium text-foreground">{dates[0]}</span>
+        <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">
+          + {dates.length - 1} {dates.length - 1 === 1 ? "sessão" : "sessões"}
+        </span>
+      </div>
+    );
+  };
+
   // Fetch active professionals
   const { data: profissionais = [] } = useQuery({
     queryKey: ["dir-profissionais"],
@@ -475,6 +503,7 @@ function DiretoriaPageContent() {
           total,
           valor_unitario,
           agendamento_id,
+          descricao,
           faturas (
             id,
             status,
@@ -1565,6 +1594,7 @@ Agradecemos a atenção!
                       <TableRow>
                         <TableHead>Paciente</TableHead>
                         <TableHead>Competência</TableHead>
+                        <TableHead>Sessão</TableHead>
                         <TableHead>Profissional</TableHead>
                         <TableHead>Vencimento</TableHead>
                         <TableHead>Valor</TableHead>
@@ -1588,6 +1618,9 @@ Agradecemos a atenção!
                               {f.competencia
                                 ? format(new Date(f.competencia + "T12:00:00"), "MM/yyyy")
                                 : "—"}
+                            </TableCell>
+                            <TableCell>
+                              {renderSessionDates(f.id)}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1 max-w-[150px]">
@@ -2808,6 +2841,7 @@ Agradecemos a atenção!
                   <TableHeader className="bg-muted/40 font-semibold text-foreground">
                     <TableRow>
                       <TableHead>Competência</TableHead>
+                      <TableHead>Sessão</TableHead>
                       <TableHead>Profissional</TableHead>
                       <TableHead>Vencimento</TableHead>
                       <TableHead>Valor</TableHead>
@@ -2826,6 +2860,9 @@ Agradecemos a atenção!
                             {f.competencia
                               ? format(new Date(f.competencia + "T12:00:00"), "MM/yyyy")
                               : "—"}
+                          </TableCell>
+                          <TableCell>
+                            {renderSessionDates(f.id)}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1 max-w-[150px]">
