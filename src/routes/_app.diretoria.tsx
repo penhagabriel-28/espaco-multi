@@ -66,6 +66,7 @@ import {
   ExternalLink,
   ArrowLeft,
   ChevronLeft,
+  X,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/diretoria")({
@@ -348,6 +349,25 @@ function DiretoriaPageContent() {
     },
   });
 
+  // Delete individual billing item mutation
+  const deleteFaturaItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const { error } = await supabase
+        .from("fatura_itens")
+        .delete()
+        .eq("id", itemId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      toast.success("Sessão excluída da cobrança com sucesso!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao excluir sessão: " + err.message);
+    },
+  });
+
   // Fetch Expenses
   const { data: despesas = [], isLoading: loadingDespesas } = useQuery({
     queryKey: ["dir-despesas", inicio, fim],
@@ -411,7 +431,7 @@ function DiretoriaPageContent() {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
-  const renderSessionDates = (fatura: any) => {
+  const renderSessionDates = (fatura: any, allowDelete = false) => {
     const items = faturaItens.filter((item: any) => item.fatura_id === fatura.id);
     if (items.length === 0) {
       if (fatura.especialidade) {
@@ -430,12 +450,28 @@ function DiretoriaPageContent() {
           if (!item.descricao) return null;
           const valBrl = brl(Number(item.total || 0));
           return (
-            <span
-              key={idx}
-              className="text-[10px] font-medium text-foreground bg-muted/65 px-1.5 py-0.5 rounded border border-border/50 whitespace-nowrap block w-max hover:bg-muted transition duration-150"
+            <div
+              key={item.id || idx}
+              className="text-[10px] font-medium text-foreground bg-muted/65 px-1.5 py-0.5 rounded border border-border/50 whitespace-nowrap flex items-center gap-1.5 w-max hover:bg-muted transition duration-150"
             >
-              {item.descricao}: {valBrl}
-            </span>
+              <span>{item.descricao}: {valBrl}</span>
+              {allowDelete && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive transition-colors cursor-pointer ml-1 bg-transparent border-0 p-0 leading-none flex items-center justify-center"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (confirm(`Tem certeza que deseja excluir a sessão "${item.descricao}" desta cobrança?`)) {
+                      deleteFaturaItemMutation.mutate(item.id);
+                    }
+                  }}
+                  title="Excluir esta sessão"
+                >
+                  <X className="h-3 w-3 shrink-0" />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -518,6 +554,7 @@ function DiretoriaPageContent() {
     queryKey: ["dir-fatura-itens-all"],
     queryFn: async () => {
       const { data, error } = await supabase.from("fatura_itens").select(`
+          id,
           fatura_id,
           total,
           valor_unitario,
@@ -3090,7 +3127,7 @@ Agradecemos a atenção!
                               : "—"}
                           </TableCell>
                           <TableCell>
-                            {renderSessionDates(f)}
+                            {renderSessionDates(f, true)}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1 max-w-[150px]">
