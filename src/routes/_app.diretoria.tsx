@@ -152,11 +152,6 @@ function DiretoriaPageContent() {
   const normalizeString = (str: string) =>
     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
 
-  const getProfessionalsForFatura = (fatura: any) => {
-    const set = faturaProfessionalsMap.get(fatura.id);
-    return set ? Array.from(set) : [];
-  };
-
   const getPatientProfessionals = (pacienteId: string) => {
     const patientFats = (faturas || []).filter((f) => f.paciente_id === pacienteId);
     const names = new Set<string>();
@@ -216,7 +211,7 @@ function DiretoriaPageContent() {
       const { data, error } = await supabase
         .from("faturas")
         .select(
-          "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id",
+          "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id, profissional_id, especialidade",
         )
         .gte("competencia", inicio)
         .lte("competencia", fim)
@@ -269,6 +264,8 @@ function DiretoriaPageContent() {
       valor: number;
       status: string;
       observacoes?: string | null;
+      profissional_id?: string | null;
+      especialidade?: string | null;
     }) => {
       const { error } = await supabase.from("faturas").insert({
         paciente_id: newFatura.paciente_id,
@@ -277,6 +274,8 @@ function DiretoriaPageContent() {
         valor: newFatura.valor,
         status: newFatura.status as any,
         observacoes: newFatura.observacoes || null,
+        profissional_id: newFatura.profissional_id || null,
+        especialidade: newFatura.especialidade || null,
       });
       if (error) throw error;
     },
@@ -300,6 +299,8 @@ function DiretoriaPageContent() {
       pago_em?: string | null;
       metodo?: string | null;
       observacoes?: string | null;
+      profissional_id?: string | null;
+      especialidade?: string | null;
     }) => {
       const { error } = await supabase
         .from("faturas")
@@ -316,6 +317,8 @@ function DiretoriaPageContent() {
               : null,
           metodo: updatedFatura.status === "paga" ? (updatedFatura.metodo as any || "pix") : null,
           observacoes: updatedFatura.observacoes || null,
+          profissional_id: updatedFatura.profissional_id || null,
+          especialidade: updatedFatura.especialidade || null,
         })
         .eq("id", updatedFatura.id);
       if (error) throw error;
@@ -408,9 +411,18 @@ function DiretoriaPageContent() {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
-  const renderSessionDates = (faturaId: string) => {
-    const items = faturaItens.filter((item: any) => item.fatura_id === faturaId);
-    if (items.length === 0) return <span className="text-muted-foreground italic">—</span>;
+  const renderSessionDates = (fatura: any) => {
+    const items = faturaItens.filter((item: any) => item.fatura_id === fatura.id);
+    if (items.length === 0) {
+      if (fatura.especialidade) {
+        return (
+          <span className="text-[10px] font-semibold text-foreground bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded whitespace-nowrap block w-max">
+            {fatura.especialidade} (Manual)
+          </span>
+        );
+      }
+      return <span className="text-muted-foreground italic">—</span>;
+    }
 
     return (
       <div className="flex flex-col gap-1 max-h-[85px] overflow-y-auto pr-2 scrollbar-thin">
@@ -447,6 +459,19 @@ function DiretoriaPageContent() {
   const professionalMap = useMemo(() => {
     return new Map<string, string>((profissionais || []).map((p) => [p.id, p.nome]));
   }, [profissionais]);
+
+  const getProfessionalsForFatura = (fatura: any) => {
+    const set = new Set<string>();
+    const prosSet = faturaProfessionalsMap.get(fatura.id);
+    if (prosSet) {
+      prosSet.forEach((p) => set.add(p));
+    }
+    if (fatura.profissional_id) {
+      const name = professionalMap.get(fatura.profissional_id);
+      if (name) set.add(name);
+    }
+    return Array.from(set);
+  };
 
   // Fetch all agendamentos for professional payment calculation
   const { data: agendamentosRepasses = [], isLoading: loadingAgendamentos } = useQuery({
@@ -559,6 +584,15 @@ function DiretoriaPageContent() {
 
   const faturaProfIdsMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
+
+    (faturas || []).forEach((f: any) => {
+      if (f.profissional_id) {
+        const set = map.get(f.id) || new Set<string>();
+        set.add(f.profissional_id);
+        map.set(f.id, set);
+      }
+    });
+
     (faturaItens || []).forEach((item: any) => {
       const fatId = item.fatura_id || item.faturas?.id;
       if (!fatId) return;
@@ -571,7 +605,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturaItens, agendamentoProfIdMap]);
+  }, [faturas, faturaItens, agendamentoProfIdMap]);
 
   // Helper to resolve specialty of an appointment
   const getAppointmentSpecialty = (a: any) => {
@@ -1089,6 +1123,8 @@ Agradecemos a atenção!
     status: "aberta",
     pago_em: "",
     observacoes: "",
+    profissional_id: "",
+    especialidade: "",
   });
 
   const handleOpenConfirmPayment = (fatura: any) => {
@@ -1109,6 +1145,8 @@ Agradecemos a atenção!
       status: fatura.status,
       pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
       observacoes: fatura.observacoes || "",
+      profissional_id: fatura.profissional_id || "",
+      especialidade: fatura.especialidade || "",
     });
     setEditDialog({ open: true, fatura });
   };
@@ -1326,6 +1364,8 @@ Agradecemos a atenção!
                             status: "aberta",
                             pago_em: "",
                             observacoes: "",
+                            profissional_id: "",
+                            especialidade: "",
                           });
                           setCreateDialog(true);
                         }}
@@ -1507,6 +1547,8 @@ Agradecemos a atenção!
                     valor: "",
                     status: "aberta",
                     observacoes: "",
+                    profissional_id: "",
+                    especialidade: "",
                   });
                   setCreateDialog(true);
                 }}
@@ -1676,7 +1718,7 @@ Agradecemos a atenção!
                                 : "—"}
                             </TableCell>
                             <TableCell>
-                              {renderSessionDates(f.id)}
+                              {renderSessionDates(f)}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1 max-w-[150px]">
@@ -2607,6 +2649,8 @@ Agradecemos a atenção!
                     status: faturaForm.status,
                     pago_em: faturaForm.status === "paga" && faturaForm.pago_em ? faturaForm.pago_em : null,
                     observacoes: faturaForm.observacoes,
+                    profissional_id: faturaForm.profissional_id || null,
+                    especialidade: faturaForm.especialidade || null,
                   },
                   {
                     onSuccess: () => setEditDialog({ open: false, fatura: null }),
@@ -2680,6 +2724,49 @@ Agradecemos a atenção!
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Profissional</Label>
+                <Select
+                  value={faturaForm.profissional_id || "none"}
+                  onValueChange={(val) => setFaturaForm({ ...faturaForm, profissional_id: val === "none" ? "" : val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum</SelectItem>
+                    {(profissionais || []).map((p: any) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Especialidade</Label>
+                <Select
+                  value={faturaForm.especialidade || "none"}
+                  onValueChange={(val) => setFaturaForm({ ...faturaForm, especialidade: val === "none" ? "" : val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhuma</SelectItem>
+                    <SelectItem value="Psicologia">Psicologia</SelectItem>
+                    <SelectItem value="Psicopedagogia">Psicopedagogia</SelectItem>
+                    <SelectItem value="Fonoaudiologia">Fonoaudiologia</SelectItem>
+                    <SelectItem value="Terapia Ocupacional">Terapia Ocupacional</SelectItem>
+                    <SelectItem value="Psicomotricidade">Psicomotricidade</SelectItem>
+                    <SelectItem value="Musicoterapia">Musicoterapia</SelectItem>
+                    <SelectItem value="Outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             {faturaForm.status === "paga" && (
               <div className="space-y-1.5 animate-in fade-in duration-200">
                 <Label>Data do Pagamento</Label>
@@ -2738,6 +2825,8 @@ Agradecemos a atenção!
                   valor: parseFloat(faturaForm.valor.replace(",", ".")),
                   status: faturaForm.status,
                   observacoes: faturaForm.observacoes,
+                  profissional_id: faturaForm.profissional_id || null,
+                  especialidade: faturaForm.especialidade || null,
                 },
                 {
                   onSuccess: () => {
@@ -2750,6 +2839,8 @@ Agradecemos a atenção!
                       status: "aberta",
                       pago_em: "",
                       observacoes: "",
+                      profissional_id: "",
+                      especialidade: "",
                     });
                   },
                 },
@@ -2825,6 +2916,49 @@ Agradecemos a atenção!
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Profissional</Label>
+                <Select
+                  value={faturaForm.profissional_id || "none"}
+                  onValueChange={(val) => setFaturaForm({ ...faturaForm, profissional_id: val === "none" ? "" : val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum</SelectItem>
+                    {(profissionais || []).map((p: any) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Especialidade</Label>
+                <Select
+                  value={faturaForm.especialidade || "none"}
+                  onValueChange={(val) => setFaturaForm({ ...faturaForm, especialidade: val === "none" ? "" : val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhuma</SelectItem>
+                    <SelectItem value="Psicologia">Psicologia</SelectItem>
+                    <SelectItem value="Psicopedagogia">Psicopedagogia</SelectItem>
+                    <SelectItem value="Fonoaudiologia">Fonoaudiologia</SelectItem>
+                    <SelectItem value="Terapia Ocupacional">Terapia Ocupacional</SelectItem>
+                    <SelectItem value="Psicomotricidade">Psicomotricidade</SelectItem>
+                    <SelectItem value="Musicoterapia">Musicoterapia</SelectItem>
+                    <SelectItem value="Outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <Label>Observações</Label>
               <Textarea
@@ -2878,6 +3012,8 @@ Agradecemos a atenção!
                   valor: "",
                   status: "aberta",
                   observacoes: "",
+                  profissional_id: "",
+                  especialidade: "",
                 });
                 setCreateDialog(true);
               }}
@@ -2918,7 +3054,7 @@ Agradecemos a atenção!
                               : "—"}
                           </TableCell>
                           <TableCell>
-                            {renderSessionDates(f.id)}
+                            {renderSessionDates(f)}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1 max-w-[150px]">
