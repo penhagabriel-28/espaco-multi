@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase as supabaseClient } from "@/integrations/supabase/client";
+const supabase = supabaseClient as any;
 import { useState, useMemo, useRef, useEffect } from "react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -16,6 +17,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -319,6 +331,25 @@ function FrequenciaPage() {
     },
   });
 
+  // Delete Agenda Session (Appointment) Mutation
+  const deleteAgendamentoMutation = useMutation({
+    mutationFn: async (agId: string) => {
+      const { error } = await supabase
+        .from("agendamentos")
+        .delete()
+        .eq("id", agId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["freq-agendamentos"] });
+      toast.success("Sessão excluída com sucesso!");
+    },
+    onError: (err: any) => {
+      console.error(err);
+      toast.error("Erro ao excluir sessão: " + err.message);
+    },
+  });
+
   const handleOpenSign = (ag: any) => {
     setNomeResponsavel("");
     setSignDialog({ open: true, ag });
@@ -354,10 +385,10 @@ function FrequenciaPage() {
           a.status !== "cancelado"
         );
       })
-      .sort((a, b) => new Date(a.data_inicio).getTime() - new Date(b.data_inicio).getTime());
+      .sort((a: any, b: any) => new Date(a.data_inicio).getTime() - new Date(b.data_inicio).getTime());
   }, [agendamentos, reportDialog.pacienteId, reportDialog.mesComp]);
 
-  const selectedProfessional = profissionais.find((p) => p.id === selectedProfId);
+  const selectedProfessional = profissionais.find((p: any) => p.id === selectedProfId);
   const selectedReportPatientName =
     reportPatients.find((p) => p.id === reportDialog.pacienteId)?.nome || "";
 
@@ -375,7 +406,7 @@ function FrequenciaPage() {
                 <SelectValue placeholder="Selecione o profissional..." />
               </SelectTrigger>
               <SelectContent>
-                {profissionais.map((p) => (
+                {profissionais.map((p: any) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.nome}
                   </SelectItem>
@@ -501,26 +532,58 @@ function FrequenciaPage() {
                               {format(new Date(a.data_inicio), "EEEE 'às' HH:mm", { locale: ptBR })}
                             </span>
                           </div>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[9px] font-bold uppercase",
-                              a.status === "confirmado" &&
-                                "border-green-500/30 text-green-600 bg-green-50/50",
-                              a.status === "pago" &&
-                                "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                              a.status === "cancelado" &&
-                                "border-red-500/30 text-red-600 bg-red-50/50",
-                              a.status === "realizado" &&
-                                "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                              a.status === "falta" &&
-                                "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                              a.status === "pendente" &&
-                                "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
-                            )}
-                          >
-                            {STATUS_LABEL[a.status] || a.status}
-                          </Badge>
+                          <div className="flex items-center gap-1.5">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[9px] font-bold uppercase",
+                                a.status === "confirmado" &&
+                                  "border-green-500/30 text-green-600 bg-green-50/50",
+                                a.status === "pago" &&
+                                  "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                                a.status === "cancelado" &&
+                                  "border-red-500/30 text-red-600 bg-red-50/50",
+                                a.status === "realizado" &&
+                                  "border-blue-500/30 text-blue-600 bg-blue-50/50",
+                                a.status === "falta" &&
+                                  "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                                a.status === "pendente" &&
+                                  "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                              )}
+                            >
+                              {STATUS_LABEL[a.status] || a.status}
+                            </Badge>
+
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Excluir Sessão"
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Excluir Sessão</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Tem certeza que deseja excluir esta sessão? Esta ação é irreversível e excluirá qualquer registro de faturamento associado.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                    onClick={() => deleteAgendamentoMutation.mutate(a.id)}
+                                  >
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-2 text-xs">
@@ -582,6 +645,7 @@ function FrequenciaPage() {
                         <TableHead>Especialidade</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Frequência / Assinatura</TableHead>
+                        <TableHead className="w-[80px] text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -649,6 +713,37 @@ function FrequenciaPage() {
                                   <Plus className="h-3.5 w-3.5" /> Assinar Digitalmente
                                 </Button>
                               )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Excluir Sessão"
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Excluir Sessão</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Tem certeza que deseja excluir esta sessão? Esta ação é irreversível e excluirá qualquer registro de faturamento associado.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                      onClick={() => deleteAgendamentoMutation.mutate(a.id)}
+                                    >
+                                      Excluir
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </TableCell>
                           </TableRow>
                         );
