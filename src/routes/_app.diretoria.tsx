@@ -412,26 +412,20 @@ function DiretoriaPageContent() {
     const items = faturaItens.filter((item: any) => item.fatura_id === faturaId);
     if (items.length === 0) return <span className="text-muted-foreground italic">—</span>;
 
-    const dates = items
-      .map((item: any) => {
-        if (!item.descricao) return null;
-        const parts = item.descricao.split(" - ");
-        return parts.length > 1 ? parts[parts.length - 1] : item.descricao;
-      })
-      .filter(Boolean);
-
-    if (dates.length === 0) return <span className="text-muted-foreground italic">—</span>;
-
     return (
       <div className="flex flex-col gap-1 max-h-[85px] overflow-y-auto pr-2 scrollbar-thin">
-        {dates.map((date, idx) => (
-          <span
-            key={idx}
-            className="text-[10px] font-medium text-foreground bg-muted/65 px-1.5 py-0.5 rounded border border-border/50 whitespace-nowrap block w-max hover:bg-muted transition duration-150"
-          >
-            {date}
-          </span>
-        ))}
+        {items.map((item: any, idx: number) => {
+          if (!item.descricao) return null;
+          const valBrl = brl(Number(item.total || 0));
+          return (
+            <span
+              key={idx}
+              className="text-[10px] font-medium text-foreground bg-muted/65 px-1.5 py-0.5 rounded border border-border/50 whitespace-nowrap block w-max hover:bg-muted transition duration-150"
+            >
+              {item.descricao}: {valBrl}
+            </span>
+          );
+        })}
       </div>
     );
   };
@@ -552,6 +546,32 @@ function DiretoriaPageContent() {
     });
     return map;
   }, [faturaItens, agendamentoProfMap]);
+
+  const agendamentoProfIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (agendamentosRepasses || []).forEach((ag: any) => {
+      if (ag.id && ag.profissional_id) {
+        map.set(ag.id, ag.profissional_id);
+      }
+    });
+    return map;
+  }, [agendamentosRepasses]);
+
+  const faturaProfIdsMap = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    (faturaItens || []).forEach((item: any) => {
+      const fatId = item.fatura_id || item.faturas?.id;
+      if (!fatId) return;
+
+      const profId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : null;
+      if (profId) {
+        const set = map.get(fatId) || new Set<string>();
+        set.add(profId);
+        map.set(fatId, set);
+      }
+    });
+    return map;
+  }, [faturaItens, agendamentoProfIdMap]);
 
   // Helper to resolve specialty of an appointment
   const getAppointmentSpecialty = (a: any) => {
@@ -899,6 +919,7 @@ function DiretoriaPageContent() {
   // Billing Filters
   const [searchPatient, setSearchPatient] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [profFilter, setProfFilter] = useState("all");
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<"all" | "mensal" | "sessao">("all");
   const [subTab, setSubTab] = useState<"consolidado" | "historico">("consolidado");
 
@@ -930,6 +951,11 @@ function DiretoriaPageContent() {
     >();
 
     for (const f of faturas || []) {
+      if (profFilter !== "all") {
+        const profIds = faturaProfIdsMap.get(f.id);
+        if (!profIds || !profIds.has(profFilter)) continue;
+      }
+
       const pId = f.paciente_id;
       if (!pId) continue;
       const patientName = patientMap.get(pId) || "Paciente Desconhecido";
@@ -975,7 +1001,7 @@ function DiretoriaPageContent() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [faturas, patientMap]);
+  }, [faturas, patientMap, profFilter, faturaProfIdsMap]);
 
   const filteredConsolidated = useMemo(() => {
     return consolidatedPatients.filter((c) => {
@@ -990,9 +1016,17 @@ function DiretoriaPageContent() {
   const patientFaturas = useMemo(() => {
     if (!patientFaturasDialog.pacienteId) return [];
     return (faturas || [])
-      .filter((f) => f.paciente_id === patientFaturasDialog.pacienteId)
+      .filter((f) => {
+        const matchesPatient = f.paciente_id === patientFaturasDialog.pacienteId;
+        let matchesProf = true;
+        if (profFilter !== "all") {
+          const profIds = faturaProfIdsMap.get(f.id);
+          matchesProf = profIds ? profIds.has(profFilter) : false;
+        }
+        return matchesPatient && matchesProf;
+      })
       .sort((a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime());
-  }, [faturas, patientFaturasDialog.pacienteId]);
+  }, [faturas, patientFaturasDialog.pacienteId, profFilter, faturaProfIdsMap]);
 
   const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
     const resps = responsaveisMap.get(pacienteId) || [];
@@ -1105,10 +1139,17 @@ Agradecemos a atenção!
         const patientName = patientMap.get(f.paciente_id) || "";
         const matchesSearch = normalizeString(patientName).includes(normalizeString(searchPatient));
         const matchesStatus = statusFilter === "all" || f.status === statusFilter;
-        return matchesSearch && matchesStatus;
+
+        let matchesProf = true;
+        if (profFilter !== "all") {
+          const profIds = faturaProfIdsMap.get(f.id);
+          matchesProf = profIds ? profIds.has(profFilter) : false;
+        }
+
+        return matchesSearch && matchesStatus && matchesProf;
       })
       .sort((a, b) => new Date(a.competencia).getTime() - new Date(b.competencia).getTime());
-  }, [faturas, searchPatient, statusFilter, patientMap]);
+  }, [faturas, searchPatient, statusFilter, profFilter, faturaProfIdsMap, patientMap]);
   const mensalPatients = useMemo(() => {
     return filteredConsolidated.filter((c) => {
       const p = patientDetailsMap.get(c.pacienteId);
@@ -1520,6 +1561,21 @@ Agradecemos a atenção!
                       <SelectItem value="paga">Pagas</SelectItem>
                       <SelectItem value="vencida">Vencidas</SelectItem>
                       <SelectItem value="cancelada">Canceladas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="w-[190px]">
+                  <Select value={profFilter} onValueChange={setProfFilter}>
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Todos os Profissionais" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Profissionais</SelectItem>
+                      {(profissionais || []).map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
