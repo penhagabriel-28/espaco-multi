@@ -3485,7 +3485,19 @@ Agradecemos a atenção!
                                   size="icon"
                                   title="Confirmar Pagamento"
                                   className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                                  onClick={() => handleOpenConfirmPayment(row.fatura)}
+                                  onClick={async () => {
+                                    if (row.isFaturaOnly || !row.item?.agendamento_id) {
+                                      handleOpenConfirmPayment(row.fatura);
+                                    } else {
+                                      if (confirm(`Confirmar o pagamento da sessão "${row.descricao}"?`)) {
+                                        await updateAppointmentStatusMutation.mutateAsync({
+                                          id: row.item.agendamento_id,
+                                          status: "pago",
+                                        });
+                                      }
+                                    }
+                                  }}
+                                  disabled={!row.isFaturaOnly && row.item?.agendamento_id && updateAppointmentStatusMutation.isPending}
                                 >
                                   <Check className="h-4 w-4" />
                                 </Button>
