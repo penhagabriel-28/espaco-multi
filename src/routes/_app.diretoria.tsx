@@ -468,6 +468,32 @@ function DiretoriaPageContent() {
     },
   });
 
+  // Update appointment status mutation
+  const updateAppointmentStatusMutation = useMutation({
+    mutationFn: async ({
+      id,
+      status,
+    }: {
+      id: string;
+      status: string;
+    }) => {
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao atualizar status da sessão: " + err.message);
+    },
+  });
+
   // Fetch Expenses
   const { data: despesas = [], isLoading: loadingDespesas } = useQuery<any[]>({
     queryKey: ["dir-despesas", inicio, fim],
@@ -695,7 +721,7 @@ function DiretoriaPageContent() {
       if (linkedAgendamentoIds.length === 0) return [];
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("id, profissional_id")
+        .select("id, profissional_id, status")
         .in("id", linkedAgendamentoIds);
       if (error) throw error;
       return data || [];
@@ -708,6 +734,16 @@ function DiretoriaPageContent() {
     (linkedAgendamentos || []).forEach((ag: any) => {
       if (ag.id && ag.profissional_id) {
         map.set(ag.id, ag.profissional_id);
+      }
+    });
+    return map;
+  }, [linkedAgendamentos]);
+
+  const agendamentoStatusMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (linkedAgendamentos || []).forEach((ag: any) => {
+      if (ag.id && ag.status) {
+        map.set(ag.id, ag.status);
       }
     });
     return map;
@@ -1382,6 +1418,7 @@ Agradecemos a atenção!
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [editingItemDesc, setEditingItemDesc] = useState("");
   const [editingItemVal, setEditingItemVal] = useState("");
+  const [editingItemStatus, setEditingItemStatus] = useState<string>("");
 
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemVal, setNewItemVal] = useState("");
@@ -3770,6 +3807,7 @@ Agradecemos a atenção!
                         <TableRow>
                           <TableHead>Descrição da Sessão</TableHead>
                           <TableHead className="w-[120px]">Valor (R$)</TableHead>
+                          <TableHead className="w-[130px]">Status</TableHead>
                           <TableHead className="w-[100px] text-right">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -3781,7 +3819,7 @@ Agradecemos a atenção!
                           if (items.length === 0) {
                             return (
                               <TableRow>
-                                <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground italic">
+                                <TableCell colSpan={4} className="text-center py-6 text-xs text-muted-foreground italic">
                                   Nenhuma sessão faturada vinculada. A cobrança é manual ou está sem itens.
                                 </TableCell>
                               </TableRow>
@@ -3789,6 +3827,7 @@ Agradecemos a atenção!
                           }
                           return items.map((item: any) => {
                             const isEditing = editingItemId === item.id;
+                            const appStatus = item.agendamento_id ? agendamentoStatusMap.get(item.agendamento_id) : null;
                             return (
                               <TableRow key={item.id} className="hover:bg-muted/10">
                                 <TableCell>
@@ -3818,6 +3857,53 @@ Agradecemos a atenção!
                                     </span>
                                   )}
                                 </TableCell>
+                                <TableCell>
+                                  {isEditing && item.agendamento_id ? (
+                                    <Select
+                                      value={editingItemStatus}
+                                      onValueChange={setEditingItemStatus}
+                                    >
+                                      <SelectTrigger className="h-8 text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="realizado">Realizado</SelectItem>
+                                        <SelectItem value="pago">Pago</SelectItem>
+                                        <SelectItem value="falta">Falta</SelectItem>
+                                        <SelectItem value="confirmado">Confirmado</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  ) : item.agendamento_id ? (
+                                    <Badge
+                                      variant={
+                                        appStatus === "pago"
+                                          ? "default"
+                                          : appStatus === "falta"
+                                            ? "destructive"
+                                            : "outline"
+                                      }
+                                      className={
+                                        appStatus === "pago"
+                                          ? "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent text-[10px] px-1.5 py-0.5"
+                                          : appStatus === "realizado"
+                                            ? "bg-sky-500 hover:bg-sky-600 text-white border-transparent text-[10px] px-1.5 py-0.5"
+                                            : appStatus === "falta"
+                                              ? "bg-rose-500 hover:bg-rose-600 text-white border-transparent text-[10px] px-1.5 py-0.5"
+                                              : "text-[10px] px-1.5 py-0.5"
+                                      }
+                                    >
+                                      {appStatus === "pago"
+                                        ? "Pago"
+                                        : appStatus === "realizado"
+                                          ? "Realizado"
+                                          : appStatus === "falta"
+                                            ? "Falta"
+                                            : appStatus || "—"}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground italic">Manual</span>
+                                  )}
+                                </TableCell>
                                 <TableCell className="text-right">
                                   <div className="flex justify-end gap-1">
                                     {isEditing ? (
@@ -3826,7 +3912,7 @@ Agradecemos a atenção!
                                           variant="ghost"
                                           size="icon"
                                           className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                          onClick={() => {
+                                          onClick={async () => {
                                             const val = parseFloat(editingItemVal.replace(",", "."));
                                             if (isNaN(val) || val < 0) {
                                               toast.error("Valor inválido.");
@@ -3836,15 +3922,24 @@ Agradecemos a atenção!
                                               toast.error("Descrição é obrigatória.");
                                               return;
                                             }
-                                            editFaturaItemMutation.mutate({
-                                              id: item.id,
-                                              descricao: editingItemDesc,
-                                              valor_unitario: val,
-                                            }, {
-                                              onSuccess: () => setEditingItemId(null)
-                                            });
+                                            try {
+                                              if (item.agendamento_id && editingItemStatus && editingItemStatus !== appStatus) {
+                                                await updateAppointmentStatusMutation.mutateAsync({
+                                                  id: item.agendamento_id,
+                                                  status: editingItemStatus,
+                                                });
+                                              }
+                                              await editFaturaItemMutation.mutateAsync({
+                                                id: item.id,
+                                                descricao: editingItemDesc,
+                                                valor_unitario: val,
+                                              });
+                                              setEditingItemId(null);
+                                            } catch (err) {
+                                              // Handled by query mutation onError
+                                            }
                                           }}
-                                          disabled={editFaturaItemMutation.isPending}
+                                          disabled={editFaturaItemMutation.isPending || updateAppointmentStatusMutation.isPending}
                                         >
                                           <Check className="h-4 w-4" />
                                         </Button>
@@ -3867,6 +3962,7 @@ Agradecemos a atenção!
                                             setEditingItemId(item.id);
                                             setEditingItemDesc(item.descricao || "");
                                             setEditingItemVal(String(item.valor_unitario || item.total || 0));
+                                            setEditingItemStatus(appStatus || "");
                                           }}
                                         >
                                           <Pencil className="h-3.5 w-3.5" />
