@@ -721,7 +721,7 @@ function DiretoriaPageContent() {
       if (linkedAgendamentoIds.length === 0) return [];
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("id, profissional_id, status")
+        .select("id, profissional_id, status, data_inicio")
         .in("id", linkedAgendamentoIds);
       if (error) throw error;
       return data || [];
@@ -744,6 +744,16 @@ function DiretoriaPageContent() {
     (linkedAgendamentos || []).forEach((ag: any) => {
       if (ag.id && ag.status) {
         map.set(ag.id, ag.status);
+      }
+    });
+    return map;
+  }, [linkedAgendamentos]);
+
+  const agendamentoDateMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (linkedAgendamentos || []).forEach((ag: any) => {
+      if (ag.id && ag.data_inicio) {
+        map.set(ag.id, ag.data_inicio);
       }
     });
     return map;
@@ -1323,17 +1333,17 @@ function DiretoriaPageContent() {
       }
     });
 
-    // Sort by competence date descending, then vencimento date descending
+    // Sort by session date/time ascending, falling back to competence/vencimento
     return rows.sort((a, b) => {
-      const compA = a.competencia ? new Date(a.competencia).getTime() : 0;
-      const compB = b.competencia ? new Date(b.competencia).getTime() : 0;
-      if (compB !== compA) return compB - compA;
-      
-      const vencA = a.vencimento ? new Date(a.vencimento).getTime() : 0;
-      const vencB = b.vencimento ? new Date(b.vencimento).getTime() : 0;
-      return vencB - vencA;
+      const timeA = a.item?.agendamento_id ? (agendamentoDateMap.get(a.item.agendamento_id) ? new Date(agendamentoDateMap.get(a.item.agendamento_id)!).getTime() : null) : null;
+      const timeB = b.item?.agendamento_id ? (agendamentoDateMap.get(b.item.agendamento_id) ? new Date(agendamentoDateMap.get(b.item.agendamento_id)!).getTime() : null) : null;
+
+      const dateA = timeA || (a.competencia ? new Date(a.competencia).getTime() : 0);
+      const dateB = timeB || (b.competencia ? new Date(b.competencia).getTime() : 0);
+
+      return dateA - dateB;
     });
-  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, profFilter]);
+  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, profFilter]);
 
   const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
     const resps = responsaveisMap.get(pacienteId) || [];
@@ -3825,9 +3835,16 @@ Agradecemos a atenção!
                       </TableHeader>
                       <TableBody>
                         {(() => {
-                          const items = faturaItens.filter(
-                            (item: any) => item.fatura_id === activeDetailedFatura.id
-                          );
+                          const items = faturaItens
+                            .filter((item: any) => item.fatura_id === activeDetailedFatura.id)
+                            .sort((a: any, b: any) => {
+                              const dateA = a.agendamento_id ? agendamentoDateMap.get(a.agendamento_id) : null;
+                              const dateB = b.agendamento_id ? agendamentoDateMap.get(b.agendamento_id) : null;
+                              if (dateA && dateB) {
+                                return new Date(dateA).getTime() - new Date(dateB).getTime();
+                              }
+                              return (a.descricao || "").localeCompare(b.descricao || "");
+                            });
                           if (items.length === 0) {
                             return (
                               <TableRow>
