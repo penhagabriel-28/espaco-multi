@@ -405,6 +405,69 @@ function DiretoriaPageContent() {
     },
   });
 
+  // Edit fatura item mutation
+  const editFaturaItemMutation = useMutation({
+    mutationFn: async ({
+      id,
+      descricao,
+      valor_unitario,
+    }: {
+      id: string;
+      descricao: string;
+      valor_unitario: number;
+    }) => {
+      const { error } = await supabase
+        .from("fatura_itens")
+        .update({
+          descricao,
+          valor_unitario,
+          total: valor_unitario,
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      toast.success("Sessão atualizada com sucesso!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao atualizar sessão: " + err.message);
+    },
+  });
+
+  // Create fatura item mutation
+  const createFaturaItemMutation = useMutation({
+    mutationFn: async ({
+      fatura_id,
+      descricao,
+      valor_unitario,
+    }: {
+      fatura_id: string;
+      descricao: string;
+      valor_unitario: number;
+    }) => {
+      const { error } = await supabase
+        .from("fatura_itens")
+        .insert({
+          fatura_id,
+          descricao,
+          quantidade: 1,
+          valor_unitario,
+          total: valor_unitario,
+        });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      toast.success("Sessão adicionada com sucesso!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao adicionar sessão: " + err.message);
+    },
+  });
+
   // Fetch Expenses
   const { data: despesas = [], isLoading: loadingDespesas } = useQuery<any[]>({
     queryKey: ["dir-despesas", inicio, fim],
@@ -597,6 +660,9 @@ function DiretoriaPageContent() {
           valor_unitario,
           agendamento_id,
           descricao,
+          agendamentos (
+            profissional_id
+          ),
           faturas (
             id,
             status,
@@ -641,15 +707,18 @@ function DiretoriaPageContent() {
       const fatId = item.fatura_id || item.faturas?.id;
       if (!fatId) return;
 
-      const profName = item.agendamento_id ? agendamentoProfMap.get(item.agendamento_id) : null;
-      if (profName) {
-        const set = map.get(fatId) || new Set<string>();
-        set.add(profName);
-        map.set(fatId, set);
+      const profId = item.agendamentos?.profissional_id;
+      if (profId) {
+        const profName = professionalMap.get(profId);
+        if (profName) {
+          const set = map.get(fatId) || new Set<string>();
+          set.add(profName);
+          map.set(fatId, set);
+        }
       }
     });
     return map;
-  }, [faturaItens, agendamentoProfMap]);
+  }, [faturaItens, professionalMap]);
 
   const agendamentoProfIdMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -676,7 +745,7 @@ function DiretoriaPageContent() {
       const fatId = item.fatura_id || item.faturas?.id;
       if (!fatId) return;
 
-      const profId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : null;
+      const profId = item.agendamentos?.profissional_id;
       if (profId) {
         const set = map.get(fatId) || new Set<string>();
         set.add(profId);
@@ -684,7 +753,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturas, faturaItens, agendamentoProfIdMap]);
+  }, [faturas, faturaItens]);
 
   // Helper to resolve specialty of an appointment
   const getAppointmentSpecialty = (a: any) => {
@@ -1169,10 +1238,10 @@ function DiretoriaPageContent() {
       } else {
         // Session items
         items.forEach((item: any) => {
-          const rowProfId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
+          const rowProfId = item.agendamentos?.profissional_id || f.profissional_id;
           if (profFilter !== "all" && rowProfId !== profFilter) return;
 
-          const profName = item.agendamento_id ? agendamentoProfMap.get(item.agendamento_id) : null;
+          const profName = item.agendamentos?.profissional_id ? professionalMap.get(item.agendamentos.profissional_id) : null;
           const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
           
           rows.push({
@@ -1282,6 +1351,62 @@ Agradecemos a atenção!
       .map((s: string) => s.trim())
       .filter(Boolean);
   }, [faturaForm.profissional_id, profissionais]);
+
+  const [invoiceDetailsDialog, setInvoiceDetailsDialog] = useState<{ open: boolean; fatura: any }>({
+    open: false,
+    fatura: null,
+  });
+
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemDesc, setEditingItemDesc] = useState("");
+  const [editingItemVal, setEditingItemVal] = useState("");
+
+  const [newItemDesc, setNewItemDesc] = useState("");
+  const [newItemVal, setNewItemVal] = useState("");
+
+  // Detailed Fatura form states for inline editing the parent invoice inside details dialog
+  const [detailsFaturaForm, setDetailsFaturaForm] = useState({
+    competencia: "",
+    vencimento: "",
+    status: "aberta",
+    pago_em: "",
+    metodo: "pix",
+    observacoes: "",
+    profissional_id: "",
+    especialidade: "",
+  });
+
+  const detailsAvailableSpecialties = useMemo(() => {
+    if (!detailsFaturaForm.profissional_id) return [];
+    const prof = (profissionais || []).find((p: any) => p.id === detailsFaturaForm.profissional_id);
+    if (!prof?.especialidade) return [];
+    return prof.especialidade
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+  }, [detailsFaturaForm.profissional_id, profissionais]);
+
+  const activeDetailedFatura = useMemo(() => {
+    if (!invoiceDetailsDialog.fatura?.id) return null;
+    return (faturas || []).find((f) => f.id === invoiceDetailsDialog.fatura.id) || invoiceDetailsDialog.fatura;
+  }, [faturas, invoiceDetailsDialog.fatura]);
+
+  const handleOpenInvoiceDetails = (fatura: any) => {
+    setInvoiceDetailsDialog({ open: true, fatura });
+    setDetailsFaturaForm({
+      competencia: fatura.competencia || "",
+      vencimento: fatura.vencimento || "",
+      status: fatura.status || "aberta",
+      pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
+      metodo: fatura.metodo || "pix",
+      observacoes: fatura.observacoes || "",
+      profissional_id: fatura.profissional_id || "",
+      especialidade: fatura.especialidade || "",
+    });
+    setEditingItemId(null);
+    setNewItemDesc("");
+    setNewItemVal("");
+  };
 
   const handleOpenConfirmPayment = (fatura: any) => {
     setPayForm({
@@ -1993,15 +2118,24 @@ Agradecemos a atenção!
                                     <Check className="h-4 w-4" />
                                   </Button>
                                 )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="Editar Cobrança"
-                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                  onClick={() => handleOpenEdit(f)}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
+                                 <Button
+                                   variant="ghost"
+                                   size="icon"
+                                   title="Ver Detalhes / Sessões"
+                                   className="h-8 w-8 text-primary hover:text-primary-foreground hover:bg-primary/5"
+                                   onClick={() => handleOpenInvoiceDetails(f)}
+                                 >
+                                   <Eye className="h-4 w-4" />
+                                 </Button>
+                                 <Button
+                                   variant="ghost"
+                                   size="icon"
+                                   title="Editar Cobrança"
+                                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                   onClick={() => handleOpenEdit(f)}
+                                 >
+                                   <Pencil className="h-4 w-4" />
+                                 </Button>
                                 <AlertDialog>
                                   <AlertDialogTrigger asChild>
                                     <Button
@@ -3300,6 +3434,15 @@ Agradecemos a atenção!
                               <Button
                                 variant="ghost"
                                 size="icon"
+                                title="Ver Detalhes / Sessões"
+                                className="h-8 w-8 text-primary hover:text-primary-foreground hover:bg-primary/5"
+                                onClick={() => handleOpenInvoiceDetails(row.fatura)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
                                 title="Editar Cobrança"
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
                                 onClick={() => handleOpenEdit(row.fatura)}
@@ -3353,6 +3496,447 @@ Agradecemos a atenção!
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Detalhes da Cobrança Dialog */}
+      <Dialog
+        open={invoiceDetailsDialog.open}
+        onOpenChange={(open) =>
+          setInvoiceDetailsDialog({
+            open,
+            fatura: open ? invoiceDetailsDialog.fatura : null,
+          })
+        }
+      >
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+              <span>Detalhes da Cobrança</span>
+              {activeDetailedFatura && (
+                <Badge variant="outline" className="text-sm bg-primary/5">
+                  {patientMap.get(activeDetailedFatura.paciente_id) || "—"}
+                </Badge>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          {activeDetailedFatura && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 py-4">
+              {/* Left Column: General Info Form */}
+              <div className="lg:col-span-5 space-y-4 border-r border-border/60 pr-0 lg:pr-6">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                  Informações Gerais
+                </h3>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    editFaturaMutation.mutate({
+                      id: activeDetailedFatura.id,
+                      competencia: detailsFaturaForm.competencia,
+                      vencimento: detailsFaturaForm.vencimento ? detailsFaturaForm.vencimento : null,
+                      valor: Number(activeDetailedFatura.valor) || 0,
+                      status: detailsFaturaForm.status,
+                      pago_em: detailsFaturaForm.status === "paga" && detailsFaturaForm.pago_em ? detailsFaturaForm.pago_em : null,
+                      metodo: detailsFaturaForm.status === "paga" ? detailsFaturaForm.metodo : null,
+                      observacoes: detailsFaturaForm.observacoes,
+                      profissional_id: detailsFaturaForm.profissional_id || null,
+                      especialidade: detailsFaturaForm.especialidade || null,
+                    });
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Mês de Competência</Label>
+                      <Input
+                        type="month"
+                        required
+                        value={detailsFaturaForm.competencia ? detailsFaturaForm.competencia.substring(0, 7) : ""}
+                        onChange={(e) =>
+                          setDetailsFaturaForm({
+                            ...detailsFaturaForm,
+                            competencia: e.target.value ? e.target.value + "-01" : "",
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Vencimento</Label>
+                      <Input
+                        type="date"
+                        value={detailsFaturaForm.vencimento}
+                        onChange={(e) =>
+                          setDetailsFaturaForm({
+                            ...detailsFaturaForm,
+                            vencimento: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Profissional Principal</Label>
+                      <Select
+                        value={detailsFaturaForm.profissional_id || "none"}
+                        onValueChange={(val) => {
+                          const pId = val === "none" ? "" : val;
+                          const prof = (profissionais || []).find((p: any) => p.id === pId);
+                          const specs = prof?.especialidade
+                            ? prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean)
+                            : [];
+                          const currentSpec = detailsFaturaForm.especialidade;
+                          const nextSpec = specs.includes(currentSpec)
+                            ? currentSpec
+                            : (specs.length > 0 ? specs[0] : "");
+                          setDetailsFaturaForm({
+                            ...detailsFaturaForm,
+                            profissional_id: pId,
+                            especialidade: nextSpec,
+                          });
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum</SelectItem>
+                          {(profissionais || []).map((p: any) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Especialidade Principal</Label>
+                      <Select
+                        value={detailsFaturaForm.especialidade || "none"}
+                        onValueChange={(val) =>
+                          setDetailsFaturaForm({
+                            ...detailsFaturaForm,
+                            especialidade: val === "none" ? "" : val,
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhuma</SelectItem>
+                          {detailsAvailableSpecialties.map((spec: string) => (
+                            <SelectItem key={spec} value={spec}>
+                              {spec}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Status</Label>
+                    <Select
+                      value={detailsFaturaForm.status}
+                      onValueChange={(val) =>
+                        setDetailsFaturaForm((prev) => ({
+                          ...prev,
+                          status: val,
+                          pago_em: val === "paga" && !prev.pago_em ? format(new Date(), "yyyy-MM-dd") : prev.pago_em,
+                        }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="aberta">Em Aberto</SelectItem>
+                        <SelectItem value="paga">Pago</SelectItem>
+                        <SelectItem value="vencida">Vencida</SelectItem>
+                        <SelectItem value="cancelada">Cancelada</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {detailsFaturaForm.status === "paga" && (
+                    <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-200">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Data do Pagamento</Label>
+                        <Input
+                          type="date"
+                          required
+                          value={detailsFaturaForm.pago_em || format(new Date(), "yyyy-MM-dd")}
+                          onChange={(e) =>
+                            setDetailsFaturaForm({ ...detailsFaturaForm, pago_em: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold">Método</Label>
+                        <Select
+                          value={detailsFaturaForm.metodo || "pix"}
+                          onValueChange={(val) =>
+                            setDetailsFaturaForm({ ...detailsFaturaForm, metodo: val })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                            <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                            <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                            <SelectItem value="transferencia">Transferência Bancária</SelectItem>
+                            <SelectItem value="boleto">Boleto</SelectItem>
+                            <SelectItem value="convenio">Convênio</SelectItem>
+                            <SelectItem value="outro">Outro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Observações</Label>
+                    <Textarea
+                      placeholder="Observações da cobrança..."
+                      rows={2}
+                      value={detailsFaturaForm.observacoes}
+                      onChange={(e) =>
+                        setDetailsFaturaForm({ ...detailsFaturaForm, observacoes: e.target.value })
+                      }
+                    />
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full font-semibold"
+                    disabled={editFaturaMutation.isPending}
+                  >
+                    {editFaturaMutation.isPending ? "Salvando..." : "Salvar Informações Gerais"}
+                  </Button>
+                </form>
+              </div>
+
+              {/* Right Column: Sessions List, Edit and Add */}
+              <div className="lg:col-span-7 space-y-6 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+                      Sessões e Itens Faturados
+                    </h3>
+                    <div className="text-right">
+                      <span className="text-xs text-muted-foreground block font-semibold uppercase">
+                        Valor Total
+                      </span>
+                      <span className="text-2xl font-bold text-primary">
+                        {brl(Number(activeDetailedFatura.valor) || 0)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Sessions Table */}
+                  <div className="border border-border rounded-lg overflow-hidden bg-card/50">
+                    <Table>
+                      <TableHeader className="bg-muted/40 font-semibold">
+                        <TableRow>
+                          <TableHead>Descrição da Sessão</TableHead>
+                          <TableHead className="w-[120px]">Valor (R$)</TableHead>
+                          <TableHead className="w-[100px] text-right">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(() => {
+                          const items = faturaItens.filter(
+                            (item: any) => item.fatura_id === activeDetailedFatura.id
+                          );
+                          if (items.length === 0) {
+                            return (
+                              <TableRow>
+                                <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground italic">
+                                  Nenhuma sessão faturada vinculada. A cobrança é manual ou está sem itens.
+                                </TableCell>
+                              </TableRow>
+                            );
+                          }
+                          return items.map((item: any) => {
+                            const isEditing = editingItemId === item.id;
+                            return (
+                              <TableRow key={item.id} className="hover:bg-muted/10">
+                                <TableCell>
+                                  {isEditing ? (
+                                    <Input
+                                      value={editingItemDesc}
+                                      onChange={(e) => setEditingItemDesc(e.target.value)}
+                                      className="h-8 text-xs"
+                                    />
+                                  ) : (
+                                    <span className="text-xs font-semibold text-foreground bg-muted/60 px-1.5 py-0.5 rounded border border-border/50">
+                                      {item.descricao}
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  {isEditing ? (
+                                    <Input
+                                      value={editingItemVal}
+                                      onChange={(e) => setEditingItemVal(e.target.value)}
+                                      placeholder="0.00"
+                                      className="h-8 text-xs font-semibold"
+                                    />
+                                  ) : (
+                                    <span className="text-xs font-semibold text-foreground">
+                                      {brl(Number(item.total) || 0)}
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex justify-end gap-1">
+                                    {isEditing ? (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                          onClick={() => {
+                                            const val = parseFloat(editingItemVal.replace(",", "."));
+                                            if (isNaN(val) || val < 0) {
+                                              toast.error("Valor inválido.");
+                                              return;
+                                            }
+                                            if (!editingItemDesc.trim()) {
+                                              toast.error("Descrição é obrigatória.");
+                                              return;
+                                            }
+                                            editFaturaItemMutation.mutate({
+                                              id: item.id,
+                                              descricao: editingItemDesc,
+                                              valor_unitario: val,
+                                            }, {
+                                              onSuccess: () => setEditingItemId(null)
+                                            });
+                                          }}
+                                          disabled={editFaturaItemMutation.isPending}
+                                        >
+                                          <Check className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                          onClick={() => setEditingItemId(null)}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                          onClick={() => {
+                                            setEditingItemId(item.id);
+                                            setEditingItemDesc(item.descricao || "");
+                                            setEditingItemVal(String(item.valor_unitario || item.total || 0));
+                                          }}
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                          onClick={() => {
+                                            if (
+                                              confirm(
+                                                `Tem certeza que deseja excluir a sessão "${item.descricao}" desta cobrança?`
+                                              )
+                                            ) {
+                                              deleteFaturaItemMutation.mutate(item.id);
+                                            }
+                                          }}
+                                          disabled={deleteFaturaItemMutation.isPending}
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          });
+                        })()}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+
+                {/* Add Session Form */}
+                <div className="border border-border/80 bg-muted/20 p-3 rounded-lg space-y-2 mt-4">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Adicionar Sessão / Item Manual
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                    <div className="sm:col-span-8">
+                      <Input
+                        placeholder="Ex: Psicoterapia - 24/06/2026 16:00"
+                        value={newItemDesc}
+                        onChange={(e) => setNewItemDesc(e.target.value)}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <Input
+                        placeholder="0.00"
+                        value={newItemVal}
+                        onChange={(e) => setNewItemVal(e.target.value)}
+                        className="h-9 text-xs font-semibold"
+                      />
+                    </div>
+                    <div className="sm:col-span-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="h-9 w-full sm:w-9"
+                        onClick={() => {
+                          const val = parseFloat(newItemVal.replace(",", "."));
+                          if (isNaN(val) || val < 0) {
+                            toast.error("Valor inválido.");
+                            return;
+                          }
+                          if (!newItemDesc.trim()) {
+                            toast.error("Descrição é obrigatória.");
+                            return;
+                          }
+                          createFaturaItemMutation.mutate({
+                            fatura_id: activeDetailedFatura.id,
+                            descricao: newItemDesc,
+                            valor_unitario: val,
+                          }, {
+                            onSuccess: () => {
+                              setNewItemDesc("");
+                              setNewItemVal("");
+                            }
+                          });
+                        }}
+                        disabled={createFaturaItemMutation.isPending}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
