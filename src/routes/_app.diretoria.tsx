@@ -660,9 +660,6 @@ function DiretoriaPageContent() {
           valor_unitario,
           agendamento_id,
           descricao,
-          agendamentos (
-            profissional_id
-          ),
           faturas (
             id,
             status,
@@ -680,6 +677,41 @@ function DiretoriaPageContent() {
       return data || [];
     },
   });
+
+  const linkedAgendamentoIds = useMemo(() => {
+    const ids = new Set<string>();
+    (faturaItens || []).forEach((item: any) => {
+      const comp = item.faturas?.competencia;
+      if (comp && comp >= inicio && comp <= fim && item.agendamento_id) {
+        ids.add(item.agendamento_id);
+      }
+    });
+    return Array.from(ids);
+  }, [faturaItens, inicio, fim]);
+
+  const { data: linkedAgendamentos = [] } = useQuery<any[]>({
+    queryKey: ["dir-linked-agendamentos", linkedAgendamentoIds],
+    queryFn: async () => {
+      if (linkedAgendamentoIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("agendamentos")
+        .select("id, profissional_id")
+        .in("id", linkedAgendamentoIds);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: linkedAgendamentoIds.length > 0,
+  });
+
+  const agendamentoProfIdMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (linkedAgendamentos || []).forEach((ag: any) => {
+      if (ag.id && ag.profissional_id) {
+        map.set(ag.id, ag.profissional_id);
+      }
+    });
+    return map;
+  }, [linkedAgendamentos]);
 
   const faturaItensMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -707,7 +739,7 @@ function DiretoriaPageContent() {
       const fatId = item.fatura_id || item.faturas?.id;
       if (!fatId) return;
 
-      const profId = item.agendamentos?.profissional_id;
+      const profId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : null;
       if (profId) {
         const profName = professionalMap.get(profId);
         if (profName) {
@@ -718,17 +750,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturaItens, professionalMap]);
-
-  const agendamentoProfIdMap = useMemo(() => {
-    const map = new Map<string, string>();
-    (agendamentosRepasses || []).forEach((ag: any) => {
-      if (ag.id && ag.profissional_id) {
-        map.set(ag.id, ag.profissional_id);
-      }
-    });
-    return map;
-  }, [agendamentosRepasses]);
+  }, [faturaItens, agendamentoProfIdMap, professionalMap]);
 
   const faturaProfIdsMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -745,7 +767,7 @@ function DiretoriaPageContent() {
       const fatId = item.fatura_id || item.faturas?.id;
       if (!fatId) return;
 
-      const profId = item.agendamentos?.profissional_id;
+      const profId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : null;
       if (profId) {
         const set = map.get(fatId) || new Set<string>();
         set.add(profId);
@@ -753,7 +775,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturas, faturaItens]);
+  }, [faturas, faturaItens, agendamentoProfIdMap]);
 
   // Helper to resolve specialty of an appointment
   const getAppointmentSpecialty = (a: any) => {
@@ -1238,10 +1260,10 @@ function DiretoriaPageContent() {
       } else {
         // Session items
         items.forEach((item: any) => {
-          const rowProfId = item.agendamentos?.profissional_id || f.profissional_id;
+          const rowProfId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
           if (profFilter !== "all" && rowProfId !== profFilter) return;
 
-          const profName = item.agendamentos?.profissional_id ? professionalMap.get(item.agendamentos.profissional_id) : null;
+          const profName = item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null;
           const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
           
           rows.push({
