@@ -3377,7 +3377,7 @@ Agradecemos a atenção!
                               : "—"}
                           </TableCell>
                           <TableCell>
-                            <span className="font-medium text-xs break-all max-w-[200px] inline-block">{row.descricao}</span>
+                            <div className="font-medium text-xs text-foreground break-words max-w-[320px] md:max-w-md">{row.descricao}</div>
                           </TableCell>
                           <TableCell>
                             {row.profissionalNome && row.profissionalNome !== "—" ? (
