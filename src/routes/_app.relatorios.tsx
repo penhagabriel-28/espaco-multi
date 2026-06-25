@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { formatCPF } from "@/components/PacienteFormDialog";
 
 export const Route = createFileRoute("/_app/relatorios")({
   component: RelatoriosPage,
@@ -83,12 +84,15 @@ function RelatoriosPage() {
     id: "",
     paciente_id: "",
     responsavel_nome: "",
+    responsavel_cpf: "",
     profissional_id: "",
     tipo_documento_id: "",
     data_solicitacao: format(new Date(), "yyyy-MM-dd"),
     data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
     data_entrega: "",
     observacoes: "",
+    valor_total: "",
+    especialidades: "",
   });
 
   // Queries
@@ -144,7 +148,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pacientes")
-        .select("id, nome")
+        .select("id, nome, cpf")
         .eq("status", "ativo")
         .order("nome");
       if (error) throw error;
@@ -317,6 +321,89 @@ function RelatoriosPage() {
     });
   }, [computedRequests, inicio, fim]);
 
+  // Auto-fill CPF, Valor Total and Especialidades when paciente_id or data_solicitacao changes
+  useEffect(() => {
+    if (editingRequest) return; // Do not overwrite when editing an existing request
+    if (!formData.paciente_id) return;
+
+    const autoFillBillingInfo = async () => {
+      try {
+        // 1. Pre-fill CPF from pacientes table
+        const { data: pacData, error: pacErr } = await supabase
+          .from("pacientes")
+          .select("cpf")
+          .eq("id", formData.paciente_id)
+          .single();
+
+        if (pacErr) {
+          console.error("Erro ao buscar dados do paciente:", pacErr);
+        } else if (pacData) {
+          setFormData((prev) => ({
+            ...prev,
+            responsavel_cpf: formatCPF(pacData.cpf || ""),
+          }));
+        }
+
+        // 2. Pre-fill total value from faturas
+        const d = parseISO(formData.data_solicitacao);
+        const competencia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+
+        const { data: faturaData, error: faturaErr } = await supabase
+          .from("faturas")
+          .select("valor")
+          .eq("paciente_id", formData.paciente_id)
+          .eq("competencia", competencia)
+          .maybeSingle();
+
+        let valorTotalPreFill = "";
+        if (faturaErr) {
+          console.error("Erro ao buscar fatura:", faturaErr);
+        } else if (faturaData) {
+          valorTotalPreFill = String(faturaData.valor || "");
+        }
+
+        // 3. Pre-fill unique specialties attended in the month
+        const start = `${competencia}T00:00:00`;
+        const end = `${format(endOfMonth(d), "yyyy-MM-dd")}T23:59:59`;
+
+        const { data: sessions, error: sessionsErr } = await supabase
+          .from("agendamentos")
+          .select("servicos(nome), profissionais(especialidade)")
+          .eq("paciente_id", formData.paciente_id)
+          .gte("data_inicio", start)
+          .lte("data_inicio", end)
+          .in("status", ["realizado", "pago"]);
+
+        let uniqueSpecs = "";
+        if (sessionsErr) {
+          console.error("Erro ao buscar especialidades atendidas:", sessionsErr);
+        } else if (sessions) {
+          const specsSet = new Set<string>();
+          sessions.forEach((a: any) => {
+            const spec = a.servicos?.nome || a.profissionais?.especialidade;
+            if (spec) {
+              spec.split(",").forEach((s: string) => {
+                const trimmed = s.trim();
+                if (trimmed) specsSet.add(trimmed);
+              });
+            }
+          });
+          uniqueSpecs = Array.from(specsSet).join(", ");
+        }
+
+        setFormData((prev) => ({
+          ...prev,
+          valor_total: valorTotalPreFill,
+          especialidades: uniqueSpecs,
+        }));
+      } catch (err) {
+        console.error("Erro no preenchimento automático:", err);
+      }
+    };
+
+    autoFillBillingInfo();
+  }, [formData.paciente_id, formData.data_solicitacao, editingRequest]);
+
   const getInvoicesTextSummary = () => {
     const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
     const dateEnd = format(parseISO(fim), "dd/MM/yyyy");
@@ -333,11 +420,18 @@ function RelatoriosPage() {
     invoiceRequestsForSelectedMonth.forEach((req: any, index: number) => {
       const paciente = req.paciente?.nome || "—";
       const responsavel = req.responsavel_nome || "—";
+      const cpf = req.responsavel_cpf ? formatCPF(req.responsavel_cpf) : "—";
+      const valorTotal = req.valor_total 
+        ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(req.valor_total))
+        : "—";
+      const especialidades = req.especialidades || "—";
       const dataSol = req.data_solicitacao ? format(parseISO(req.data_solicitacao), "dd/MM/yyyy") : "—";
       const obs = req.observacoes || "Nenhuma";
       
       text += `${index + 1}. *Paciente:* ${paciente}\n`;
-      text += `   *Responsável:* ${responsavel}\n`;
+      text += `   *Responsável:* ${responsavel} (CPF: ${cpf})\n`;
+      text += `   *Valor Total das Sessões:* ${valorTotal}\n`;
+      text += `   *Especialidades Atendidas:* ${especialidades}\n`;
       text += `   *Data Solicitação:* ${dataSol}\n`;
       text += `   *Observações:* ${obs}\n\n`;
     });
@@ -364,11 +458,26 @@ function RelatoriosPage() {
       return;
     }
     
-    const headers = ["Paciente", "Responsável Solicitante", "Profissional Responsável", "Data de Solicitação", "Prazo Limite", "Status", "Data de Entrega", "Observações"];
+    const headers = [
+      "Paciente",
+      "Responsável Solicitante",
+      "CPF do Responsável",
+      "Valor Total das Sessões",
+      "Especialidades Atendidas",
+      "Profissional Responsável",
+      "Data de Solicitação",
+      "Prazo Limite",
+      "Status",
+      "Data de Entrega",
+      "Observações"
+    ];
     
     const rows = invoiceRequestsForSelectedMonth.map((req: any) => [
       req.paciente?.nome || "—",
       req.responsavel_nome || "—",
+      req.responsavel_cpf ? formatCPF(req.responsavel_cpf) : "—",
+      req.valor_total ? String(req.valor_total) : "—",
+      req.especialidades || "—",
       req.profissional?.nome || "—",
       req.data_solicitacao || "—",
       req.data_limite || "—",
@@ -399,12 +508,15 @@ function RelatoriosPage() {
       const payload = {
         paciente_id: data.paciente_id,
         responsavel_nome: data.responsavel_nome,
+        responsavel_cpf: data.responsavel_cpf ? data.responsavel_cpf.replace(/\D/g, "") : null,
         profissional_id: data.profissional_id === "none" || !data.profissional_id ? null : data.profissional_id,
         tipo_documento_id: data.tipo_documento_id || null,
         data_solicitacao: data.data_solicitacao,
         data_limite: data.data_limite,
         data_entrega: data.data_entrega || null,
         observacoes: data.observacoes || null,
+        valor_total: data.valor_total ? Number(data.valor_total) : null,
+        especialidades: data.especialidades || null,
       };
 
       if (data.id) {
@@ -515,12 +627,15 @@ function RelatoriosPage() {
       id: "",
       paciente_id: "",
       responsavel_nome: "",
+      responsavel_cpf: "",
       profissional_id: "",
       tipo_documento_id: "",
       data_solicitacao: format(new Date(), "yyyy-MM-dd"),
       data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
       data_entrega: "",
       observacoes: "",
+      valor_total: "",
+      especialidades: "",
     });
     setEditingRequest(null);
   };
@@ -541,12 +656,15 @@ function RelatoriosPage() {
       id: req.id,
       paciente_id: req.paciente_id,
       responsavel_nome: req.responsavel_nome,
+      responsavel_cpf: formatCPF(req.responsavel_cpf || ""),
       profissional_id: req.profissional_id || "",
       tipo_documento_id: req.tipo_documento_id || "",
       data_solicitacao: req.data_solicitacao,
       data_limite: req.data_limite,
       data_entrega: req.data_entrega || "",
       observacoes: req.observacoes || "",
+      valor_total: req.valor_total ? String(req.valor_total) : "",
+      especialidades: req.especialidades || "",
     });
     setDialogOpen(true);
   };
@@ -951,6 +1069,44 @@ function RelatoriosPage() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="responsavel_cpf">CPF do Responsável</Label>
+                  <Input
+                    id="responsavel_cpf"
+                    value={formData.responsavel_cpf}
+                    onChange={(e) => {
+                      const formatted = formatCPF(e.target.value);
+                      setFormData((prev) => ({ ...prev, responsavel_cpf: formatted }));
+                    }}
+                    placeholder="000.000.000-00"
+                    maxLength={14}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="valor_total">Valor Total (R$)</Label>
+                  <Input
+                    id="valor_total"
+                    type="number"
+                    step="0.01"
+                    value={formData.valor_total}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, valor_total: e.target.value }))}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="especialidades">Especialidades Atendidas (Opcional)</Label>
+                <Input
+                  id="especialidades"
+                  value={formData.especialidades}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, especialidades: e.target.value }))}
+                  placeholder="Ex: Fonoaudiologia, Terapia Ocupacional..."
+                />
               </div>
 
               <div className="space-y-2">

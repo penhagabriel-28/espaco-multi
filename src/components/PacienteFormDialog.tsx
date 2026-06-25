@@ -39,6 +39,15 @@ export const formatPhone = (value: string) => {
   return `(${nums.substring(0, 2)}) ${nums.substring(2, 7)}-${nums.substring(7, 11)}`;
 };
 
+export const formatCPF = (value: string) => {
+  if (!value) return "";
+  const nums = value.replace(/\D/g, "");
+  if (nums.length <= 3) return nums;
+  if (nums.length <= 6) return `${nums.substring(0, 3)}.${nums.substring(3)}`;
+  if (nums.length <= 9) return `${nums.substring(0, 3)}.${nums.substring(3, 6)}.${nums.substring(6)}`;
+  return `${nums.substring(0, 3)}.${nums.substring(3, 6)}.${nums.substring(6, 9)}-${nums.substring(9, 11)}`;
+};
+
 const EMPTY_ARRAY: any[] = [];
 
 export function PacienteFormDialog({
@@ -71,6 +80,7 @@ export function PacienteFormDialog({
     observacoes: paciente?.observacoes ?? "",
     responsavel: "",
     telefone: "",
+    cpf: paciente?.cpf ?? "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
   });
   const { data: profissionais = EMPTY_ARRAY } = useQuery({
@@ -192,6 +202,7 @@ export function PacienteFormDialog({
         convenio_nome: form.tipo_atendimento === "convenio" ? form.convenio_nome : null,
         status: form.status,
         observacoes: form.observacoes || null,
+        cpf: form.cpf || null,
         valor_mensal: form.valor_mensal ? Number(form.valor_mensal) : null,
       };
       if (paciente) {
@@ -387,13 +398,13 @@ export function PacienteFormDialog({
             )}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
             <Label>Responsável</Label>
             <Input
               value={form.responsavel}
               onChange={(e) => setForm({ ...form, responsavel: e.target.value })}
-              placeholder="Nome do pai, mãe ou responsável legal"
+              placeholder="Nome do pai, mãe..."
             />
           </div>
           <div className="space-y-1.5">
@@ -402,6 +413,15 @@ export function PacienteFormDialog({
               value={form.telefone}
               onChange={handlePhoneChange}
               placeholder="(XX) XXXXX-XXXX"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>CPF do Responsável</Label>
+            <Input
+              value={form.cpf}
+              onChange={(e) => setForm({ ...form, cpf: formatCPF(e.target.value) })}
+              placeholder="XXX.XXX.XXX-XX"
+              maxLength={14}
             />
           </div>
         </div>
