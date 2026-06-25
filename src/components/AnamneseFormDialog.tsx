@@ -16,9 +16,20 @@ import { toast } from "sonner";
 import { FileText, Printer, Save, Loader2, User, HelpCircle, Users, Activity, GraduationCap, MessageSquare, Brain, RefreshCw, Heart, Milestone, MapPin, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { useAuth } from "@/hooks/useAuth";
 
-const formatBirthDateForDisplay = (dateStr: string | null | undefined) => {
+const formatBirthDateForDisplay = (dateStr: any) => {
   if (!dateStr) return "";
+  if (typeof dateStr !== "string") {
+    try {
+      if (dateStr instanceof Date) {
+        return format(dateStr, "dd/MM/yyyy");
+      }
+      dateStr = String(dateStr);
+    } catch {
+      return "";
+    }
+  }
   const parts = dateStr.split("-");
   if (parts.length === 3) {
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
@@ -51,6 +62,7 @@ export function AnamneseFormDialog({
   onClose,
 }: AnamneseFormDialogProps) {
   const qc = useQueryClient();
+  const { session } = useAuth();
   const [activeTab, setActiveTab] = useState("identificacao");
 
   // State to hold all form fields
@@ -126,7 +138,12 @@ export function AnamneseFormDialog({
   });
 
   // Fetch patient details
-  const { data: paciente, isLoading: isLoadingPaciente } = useQuery({
+  const {
+    data: paciente,
+    isLoading: isLoadingPaciente,
+    isError: errorPaciente,
+    refetch: refetchPaciente,
+  } = useQuery({
     queryKey: ["paciente-anamnese", pacienteId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -137,11 +154,16 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data;
     },
-    enabled: !!pacienteId && pacienteId !== "",
+    enabled: !!session && !!pacienteId && pacienteId !== "",
   });
 
   // Fetch responsible people
-  const { data: responsaveis = [] } = useQuery({
+  const {
+    data: responsaveis = [],
+    isLoading: isLoadingResponsaveis,
+    isError: errorResponsaveis,
+    refetch: refetchResponsaveis,
+  } = useQuery({
     queryKey: ["responsaveis-anamnese", pacienteId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -152,11 +174,16 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!pacienteId && pacienteId !== "",
+    enabled: !!session && !!pacienteId && pacienteId !== "",
   });
 
   // Fetch existing anamnese
-  const { data: existingAnamnese, isLoading: isLoadingAnamnese } = useQuery({
+  const {
+    data: existingAnamnese,
+    isLoading: isLoadingAnamnese,
+    isError: errorAnamnese,
+    refetch: refetchAnamnese,
+  } = useQuery({
     queryKey: ["anamnese-data", pacienteId, agendamentoId],
     queryFn: async () => {
       // First, try to fetch anamnese associated with this appointment
@@ -180,7 +207,7 @@ export function AnamneseFormDialog({
       
       return data;
     },
-    enabled: !!pacienteId && pacienteId !== "",
+    enabled: !!session && !!pacienteId && pacienteId !== "",
   });
 
   // Populate data when loaded
@@ -220,9 +247,11 @@ export function AnamneseFormDialog({
     }
   }, [paciente, responsaveis, existingAnamnese]);
 
-  const calculateAge = (birthDateStr: string) => {
+  const calculateAge = (birthDateStr: any) => {
+    if (!birthDateStr) return "";
     try {
       const birthDate = new Date(birthDateStr);
+      if (isNaN(birthDate.getTime())) return "";
       const today = new Date();
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
@@ -286,7 +315,14 @@ export function AnamneseFormDialog({
     window.print();
   };
 
-  const isLoading = isLoadingPaciente || isLoadingAnamnese;
+  const isLoading = isLoadingPaciente || isLoadingResponsaveis || isLoadingAnamnese;
+  const isError = errorPaciente || errorResponsaveis || errorAnamnese;
+
+  const handleRetry = () => {
+    refetchPaciente();
+    refetchResponsaveis();
+    refetchAnamnese();
+  };
 
   const tabItems = [
     { id: "identificacao", label: "Identificação", icon: User },
@@ -302,6 +338,26 @@ export function AnamneseFormDialog({
     { id: "plano", label: "Plano Inicial", icon: ClipboardList },
     { id: "observacoes", label: "Observações", icon: FileText },
   ];
+
+  if (isError) {
+    return (
+      <DialogContent className="max-w-md p-6 bg-background animate-in fade-in duration-300">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold text-destructive flex items-center gap-2">
+            Erro ao carregar anamnese
+          </DialogTitle>
+        </DialogHeader>
+        <div className="py-4 text-center space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Não foi possível carregar os dados do paciente ou da anamnese do banco de dados. Verifique sua conexão ou tente novamente.
+          </p>
+          <Button onClick={handleRetry} className="w-full h-9 text-xs">
+            Tentar novamente
+          </Button>
+        </div>
+      </DialogContent>
+    );
+  }
 
   return (
     <DialogContent className="max-w-[95vw] w-[1200px] h-[90vh] flex flex-col p-0 overflow-hidden bg-background">

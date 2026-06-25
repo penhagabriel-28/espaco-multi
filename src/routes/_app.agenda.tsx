@@ -2056,7 +2056,13 @@ Fico à disposição para qualquer dúvida!`;
                           type="button"
                           variant="outline"
                           className="w-full mt-2 gap-1.5 border-primary/40 hover:bg-primary/5 text-primary text-xs font-semibold h-8"
-                          onClick={() => triggerAnamnese(form.paciente_id, editing?.id, form.profissional_id)}
+                          onClick={() => {
+                            if (!form.paciente_id) {
+                              toast.error("Por favor, selecione um paciente antes de preencher a anamnese");
+                              return;
+                            }
+                            triggerAnamnese(form.paciente_id, editing?.id, form.profissional_id);
+                          }}
                         >
                           <FileText className="h-3.5 w-3.5" />
                           {editing ? "Preencher Anamnese" : "Ver Rascunho Anamnese"}

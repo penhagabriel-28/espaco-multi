@@ -15,11 +15,12 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, DollarSign, GripVertical, Users, Calendar } from "lucide-react";
+import { Plus, Pencil, Trash2, DollarSign, GripVertical, Users, Calendar, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { format, addMonths, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Table,
   TableBody,
@@ -57,7 +58,14 @@ const PLANOS_AP = [
   { label: "Semana inteira: R$ 450,00", value: "450" },
 ];
 
+const formatDisplayValue = (val: any) => {
+  if (val === undefined || val === null || val === "") return "0";
+  const num = Number(val);
+  return isNaN(num) ? "0" : num.toFixed(0);
+};
+
 function ProfissionaisPage() {
+  const { session } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -94,7 +102,12 @@ function ProfissionaisPage() {
     return isNaN(d.getTime()) ? endOfMonth(new Date()) : endOfMonth(d);
   }, [selectedMonth]);
 
-  const { data: agendamentos = [] } = useQuery({
+  const {
+    data: agendamentos = [],
+    isLoading: loadingAgendamentos,
+    isError: errorAgendamentos,
+    refetch: refetchAgendamentos,
+  } = useQuery({
     queryKey: ["profissionais-agendamentos", selectedMonth],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -105,9 +118,15 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!session,
   });
 
-  const { data = [] } = useQuery({
+  const {
+    data = [],
+    isLoading: loadingProfs,
+    isError: errorProfs,
+    refetch: refetchProfs,
+  } = useQuery({
     queryKey: ["profissionais"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -118,14 +137,30 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!session,
   });
 
-  const { data: pacientes = [] } = useQuery({
+  const {
+    data: pacientes = [],
+    isLoading: loadingPacientes,
+    isError: errorPacientes,
+    refetch: refetchPacientes,
+  } = useQuery({
     queryKey: ["pacientes-nomes"],
-    queryFn: async () => (await supabase.from("pacientes").select("id, nome")).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("pacientes").select("id, nome");
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!session,
   });
 
-  const { data: pacienteProfissional = [] } = useQuery({
+  const {
+    data: pacienteProfissional = [],
+    isLoading: loadingPP,
+    isError: errorPP,
+    refetch: refetchPP,
+  } = useQuery({
     queryKey: ["paciente-profissional"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -134,7 +169,18 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!session,
   });
+
+  const isLoading = loadingAgendamentos || loadingProfs || loadingPacientes || loadingPP;
+  const isError = errorAgendamentos || errorProfs || errorPacientes || errorPP;
+
+  const handleRetry = () => {
+    refetchAgendamentos();
+    refetchProfs();
+    refetchPacientes();
+    refetchPP();
+  };
 
   const [orderedData, setOrderedData] = useState<any[]>([]);
 
@@ -165,6 +211,40 @@ function ProfissionaisPage() {
       setOrderedData([]);
     }
   }, [data]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Carregando profissionais...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center animate-in fade-in duration-300">
+        <Card className="max-w-md w-full border-destructive/20 shadow-lg">
+          <CardContent className="pt-6 text-center space-y-4">
+            <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center text-destructive">
+              <span className="font-bold text-xl">!</span>
+            </div>
+            <div className="space-y-1">
+              <h3 className="font-semibold text-lg text-foreground">Erro ao carregar profissionais</h3>
+              <p className="text-xs text-muted-foreground">
+                Não foi possível carregar os dados dos profissionais do banco de dados. Verifique a sua conexão ou tente novamente.
+              </p>
+            </div>
+            <Button onClick={handleRetry} className="w-full h-9 text-xs">
+              Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     e.dataTransfer.setData("text/plain", index.toString());
@@ -341,11 +421,11 @@ function ProfissionaisPage() {
                           const isAtABA = String(esp?.nome || "").toLowerCase() === "at aba";
                           let valStr = "";
                           if (isSupervisorABA) {
-                            valStr = `Ana. R$ ${Number(esp?.valor_avaliacao ?? 0).toFixed(0)}`;
+                            valStr = `Ana. R$ ${formatDisplayValue(esp?.valor_avaliacao)}`;
                           } else if (isAtABA) {
-                            valStr = `Sess. R$ ${Number(esp?.valor_sessao ?? 0).toFixed(0)}`;
+                            valStr = `Sess. R$ ${formatDisplayValue(esp?.valor_sessao)}`;
                           } else {
-                            valStr = `Sess. R$ ${Number(esp?.valor_sessao ?? 0).toFixed(0)} | Ana. R$ ${Number(esp?.valor_avaliacao ?? 0).toFixed(0)}`;
+                            valStr = `Sess. R$ ${formatDisplayValue(esp?.valor_sessao)} | Ana. R$ ${formatDisplayValue(esp?.valor_avaliacao)}`;
                           }
                           return (
                             <div
@@ -361,7 +441,7 @@ function ProfissionaisPage() {
                       <div className="flex justify-between gap-4">
                         <span className="font-medium text-foreground">Geral:</span>
                         <span className="font-semibold text-foreground">
-                          R$ {Number(p.valor_sessao).toFixed(0)}/sessão
+                          R$ {formatDisplayValue(p.valor_sessao)}/sessão
                         </span>
                       </div>
                     ) : (
