@@ -116,7 +116,7 @@ function ProfissionaisPage() {
         .order("cor")
         .order("nome");
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
   });
 
@@ -316,11 +316,12 @@ function ProfissionaisPage() {
                                 .split(",")
                                 .map((s: string) => s.trim().toLowerCase())
                             : [];
-                          return activeSpecs.includes(esp.nome.toLowerCase());
+                          return activeSpecs.includes(String(esp.nome).toLowerCase());
                         })
                         .slice(0, 2)
                         .map((esp: any, espIdx: number) => {
-                          if (esp?.nome?.toUpperCase() === "AP") {
+                          const espNomeUpper = String(esp?.nome || "").toUpperCase();
+                          if (espNomeUpper === "AP") {
                             const plano = PLANOS_AP.find(
                               (pl) => pl.value === String(esp.plano_mensal),
                             );
@@ -336,8 +337,8 @@ function ProfissionaisPage() {
                               </div>
                             );
                           }
-                          const isSupervisorABA = esp?.nome?.toLowerCase() === "supervisor aba";
-                          const isAtABA = esp?.nome?.toLowerCase() === "at aba";
+                          const isSupervisorABA = String(esp?.nome || "").toLowerCase() === "supervisor aba";
+                          const isAtABA = String(esp?.nome || "").toLowerCase() === "at aba";
                           let valStr = "";
                           if (isSupervisorABA) {
                             valStr = `Ana. R$ ${Number(esp?.valor_avaliacao ?? 0).toFixed(0)}`;
@@ -459,7 +460,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     queryFn: async () => {
       const { data, error } = await supabase.from("pacientes").select("id, nome").order("nome");
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
   });
 
