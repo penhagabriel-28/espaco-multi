@@ -1307,19 +1307,23 @@ Fico à disposição para qualquer dúvida!`;
 
       const start = new Date(form.data_inicio).toISOString();
       const end = new Date(form.data_fim).toISOString();
-      const { data: conflicts } = await supabase
-        .from("agendamentos")
-        .select("id")
-        .eq("profissional_id", form.profissional_id)
-        .neq("status", "cancelado")
-        .lt("data_inicio", end)
-        .gt("data_fim", start);
-      const others = (conflicts ?? []).filter((c) => c.id !== editing?.id);
-      if (others.length > 0) {
-        const ok = confirm(
-          "⚠ Conflito de horário detectado para este profissional. Deseja salvar mesmo assim?",
-        );
-        if (!ok) throw new Error("Cancelado pelo usuário");
+      
+      if (form.status !== "cancelado" && form.status !== "falta") {
+        const { data: conflicts } = await supabase
+          .from("agendamentos")
+          .select("id")
+          .eq("profissional_id", form.profissional_id)
+          .neq("status", "cancelado")
+          .neq("status", "falta")
+          .lt("data_inicio", end)
+          .gt("data_fim", start);
+        const others = (conflicts ?? []).filter((c) => c.id !== editing?.id);
+        if (others.length > 0) {
+          const ok = confirm(
+            "⚠ Conflito de horário detectado para este profissional. Deseja salvar mesmo assim?",
+          );
+          if (!ok) throw new Error("Cancelado pelo usuário");
+        }
       }
 
       let matchingServico = servicos.find(
@@ -1659,7 +1663,8 @@ Fico à disposição para qualquer dúvida!`;
       form.status !== "pago" &&
       form.status !== "realizado" &&
       form.status !== "cancelado" &&
-      form.status !== "confirmado"
+      form.status !== "confirmado" &&
+      form.status !== "falta"
     ) {
       setRecorrenciaConfirmOpen(true);
     } else {
