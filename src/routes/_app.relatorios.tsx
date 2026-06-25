@@ -498,7 +498,7 @@ function RelatoriosPage() {
       ? format(parseISO(req.data_limite), "dd/MM/yyyy")
       : "";
 
-    const mensagem = `Olá, ${profNome}! Passando para lembrar do(a) ${docTipo} do(a) paciente ${pacienteNome} (solicitado por ${responsavelNome}). O prazo limite de entrega é o dia ${dataLimite}.`;
+    const mensagem = `Olá, ${profNome}! A família solicitou o ${docTipo} do(a) paciente ${pacienteNome} (solicitado por ${responsavelNome}). O prazo limite de entrega é o dia ${dataLimite}.`;
 
     const cleanNumber = profTelefone.replace(/\D/g, "");
     const formattedNumber = cleanNumber.length <= 11 && !cleanNumber.startsWith("55") ? `55${cleanNumber}` : cleanNumber;
