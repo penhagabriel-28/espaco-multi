@@ -70,6 +70,15 @@ function RelatoriosPage() {
   const [editingTypeId, setEditingTypeId] = useState("");
   const [editingTypeName, setEditingTypeName] = useState("");
 
+  // 3. Accountant communication state
+  const [accountantDialogOpen, setAccountantDialogOpen] = useState(false);
+  const [accountantPhone, setAccountantPhone] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.localStorage.getItem("telefone_contador") || "";
+    }
+    return "";
+  });
+
   const [formData, setFormData] = useState({
     id: "",
     paciente_id: "",
@@ -298,6 +307,91 @@ function RelatoriosPage() {
       .filter((pp: any) => pp.paciente_id === formData.paciente_id)
       .map((pp: any) => pp.profissionais);
   }, [formData.paciente_id, pacienteProfissionais]);
+
+  // Filter invoice requests within selected month
+  const invoiceRequestsForSelectedMonth = useMemo(() => {
+    return computedRequests.filter((req: any) => {
+      const isInvoice = req.tipo_documento?.nome?.toLowerCase() === "nota fiscal";
+      if (!isInvoice) return false;
+      return req.data_solicitacao >= inicio && req.data_solicitacao <= fim;
+    });
+  }, [computedRequests, inicio, fim]);
+
+  const getInvoicesTextSummary = () => {
+    const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
+    const dateEnd = format(parseISO(fim), "dd/MM/yyyy");
+    
+    let text = `*Relatório de Solicitações de Notas Fiscais*\n`;
+    text += `Período: ${dateStart} a ${dateEnd}\n`;
+    text += `Total de solicitações no período: ${invoiceRequestsForSelectedMonth.length}\n\n`;
+    
+    if (invoiceRequestsForSelectedMonth.length === 0) {
+      text += `Nenhum pedido de nota fiscal registrado neste período.`;
+      return text;
+    }
+
+    invoiceRequestsForSelectedMonth.forEach((req: any, index: number) => {
+      const paciente = req.paciente?.nome || "—";
+      const responsavel = req.responsavel_nome || "—";
+      const dataSol = req.data_solicitacao ? format(parseISO(req.data_solicitacao), "dd/MM/yyyy") : "—";
+      const obs = req.observacoes || "Nenhuma";
+      
+      text += `${index + 1}. *Paciente:* ${paciente}\n`;
+      text += `   *Responsável:* ${responsavel}\n`;
+      text += `   *Data Solicitação:* ${dataSol}\n`;
+      text += `   *Observações:* ${obs}\n\n`;
+    });
+    
+    return text;
+  };
+
+  const getAccountantWhatsAppLink = () => {
+    const cleanNumber = accountantPhone.replace(/\D/g, "");
+    const formattedNumber = cleanNumber.length <= 11 && !cleanNumber.startsWith("55") ? `55${cleanNumber}` : cleanNumber;
+    const textSummary = getInvoicesTextSummary();
+    return `https://wa.me/${formattedNumber}?text=${encodeURIComponent(textSummary)}`;
+  };
+
+  const handleCopyInvoicesSummary = () => {
+    const summary = getInvoicesTextSummary();
+    navigator.clipboard.writeText(summary);
+    toast.success("Resumo copiado para a área de transferência!");
+  };
+
+  const exportInvoicesToCSV = () => {
+    if (invoiceRequestsForSelectedMonth.length === 0) {
+      toast.error("Nenhuma nota fiscal encontrada no período selecionado.");
+      return;
+    }
+    
+    const headers = ["Paciente", "Responsável Solicitante", "Profissional Responsável", "Data de Solicitação", "Prazo Limite", "Status", "Data de Entrega", "Observações"];
+    
+    const rows = invoiceRequestsForSelectedMonth.map((req: any) => [
+      req.paciente?.nome || "—",
+      req.responsavel_nome || "—",
+      req.profissional?.nome || "—",
+      req.data_solicitacao || "—",
+      req.data_limite || "—",
+      req.statusLabel || "—",
+      req.data_entrega || "—",
+      req.observacoes || "—"
+    ]);
+    
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+    
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `solicitacoes_notas_fiscais_${inicio}_a_${fim}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("CSV exportado com sucesso!");
+  };
 
   // Mutations
   const saveMutation = useMutation({
@@ -644,9 +738,14 @@ function RelatoriosPage() {
               </div>
             </div>
 
-            <Button onClick={handleOpenNewDialog} className="gap-1.5 shrink-0">
-              <Plus className="h-4 w-4" /> Registrar Solicitação
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button onClick={() => setAccountantDialogOpen(true)} variant="outline" className="gap-1.5 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600/20 dark:text-emerald-400 dark:hover:bg-emerald-950/20">
+                <FileText className="h-4 w-4" /> Enviar para Contador
+              </Button>
+              <Button onClick={handleOpenNewDialog} className="gap-1.5">
+                <Plus className="h-4 w-4" /> Registrar Solicitação
+              </Button>
+            </div>
           </div>
 
           <Card>
@@ -1077,6 +1176,87 @@ function RelatoriosPage() {
             <Button type="button" variant="outline" onClick={() => setManageTypesOpen(false)}>
               Fechar
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog for sending invoices to Accountant */}
+      <Dialog open={accountantDialogOpen} onOpenChange={setAccountantDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Enviar Notas ao Contador</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-1 text-muted-foreground">
+              <p className="font-semibold text-foreground">Resumo do Período</p>
+              <p>Período selecionado: <span className="font-medium text-foreground">{format(parseISO(inicio), "dd/MM/yyyy")}</span> até <span className="font-medium text-foreground">{format(parseISO(fim), "dd/MM/yyyy")}</span></p>
+              <p>Total de pedidos de Nota Fiscal: <span className="font-medium text-foreground">{invoiceRequestsForSelectedMonth.length}</span></p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="accountant_phone">WhatsApp do Contador</Label>
+              <Input
+                id="accountant_phone"
+                value={accountantPhone}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAccountantPhone(val);
+                  if (typeof window !== "undefined") {
+                    window.localStorage.setItem("telefone_contador", val);
+                  }
+                }}
+                placeholder="Ex: (11) 99999-9999"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                O número fica salvo no seu navegador para os próximos envios.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Pré-visualização da Lista</Label>
+              <div className="border rounded-md p-3 text-xs max-h-[160px] overflow-y-auto space-y-3 bg-card font-mono whitespace-pre-wrap">
+                {getInvoicesTextSummary()}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={exportInvoicesToCSV}
+              disabled={invoiceRequestsForSelectedMonth.length === 0}
+            >
+              Exportar CSV
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleCopyInvoicesSummary}
+              disabled={invoiceRequestsForSelectedMonth.length === 0}
+            >
+              Copiar Texto
+            </Button>
+            {accountantPhone ? (
+              <a
+                href={getAccountantWhatsAppLink()}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
+                onClick={() => setAccountantDialogOpen(false)}
+              >
+                Enviar por WhatsApp
+              </a>
+            ) : (
+              <Button
+                type="button"
+                disabled
+                title="Insira o número do contador para enviar"
+              >
+                Enviar por WhatsApp
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
