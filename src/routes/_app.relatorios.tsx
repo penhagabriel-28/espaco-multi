@@ -148,7 +148,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pacientes")
-        .select("id, nome, cpf")
+        .select("id, nome")
         .eq("status", "ativo")
         .order("nome");
       if (error) throw error;
