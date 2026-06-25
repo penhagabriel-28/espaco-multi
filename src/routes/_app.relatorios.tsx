@@ -66,6 +66,7 @@ function RelatoriosPage() {
     id: "",
     paciente_id: "",
     responsavel_nome: "",
+    profissional_id: "",
     data_solicitacao: format(new Date(), "yyyy-MM-dd"),
     data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
     data_entrega: "",
@@ -105,7 +106,7 @@ function RelatoriosPage() {
       try {
         const { data, error } = await supabase
           .from("controle_relatorios")
-          .select("*, paciente:pacientes(nome)")
+          .select("*, paciente:pacientes(nome), profissional:profissionais(nome, telefone)")
           .order("data_solicitacao", { ascending: false });
         if (error) {
           console.warn("Table controle_relatorios may not exist yet:", error.message);
@@ -140,6 +141,32 @@ function RelatoriosPage() {
       const { data, error } = await supabase
         .from("responsaveis")
         .select("id, paciente_id, nome, parentesco");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Fetch all active professionals for assignment
+  const { data: activeProfessionals = [] } = useQuery({
+    queryKey: ["active-professionals-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profissionais")
+        .select("id, nome, telefone")
+        .eq("ativo", true)
+        .order("nome");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Fetch patient-professional links (to pre-suggest the professional responsible for the patient)
+  const { data: pacienteProfissionais = [] } = useQuery({
+    queryKey: ["paciente-profissional-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("paciente_profissional")
+        .select("paciente_id, profissional_id, profissionais(id, nome, telefone)");
       if (error) throw error;
       return data ?? [];
     },
@@ -215,9 +242,11 @@ function RelatoriosPage() {
       // 1. Search Query
       const pacienteNome = req.paciente?.nome || "";
       const responsavelNome = req.responsavel_nome || "";
+      const profissionalNome = req.profissional?.nome || "";
       const matchesSearch =
         pacienteNome.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        responsavelNome.toLowerCase().includes(searchQuery.toLowerCase());
+        responsavelNome.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        profissionalNome.toLowerCase().includes(searchQuery.toLowerCase());
 
       // 2. Status filter
       const matchesStatus = statusFilter === "todos" || req.statusLabel === statusFilter;
@@ -232,33 +261,37 @@ function RelatoriosPage() {
     return responsaveis.filter((r: any) => r.paciente_id === formData.paciente_id);
   }, [formData.paciente_id, responsaveis]);
 
+  // Suggested professionals based on selected patient in form
+  const suggestedProfessionals = useMemo(() => {
+    if (!formData.paciente_id) return [];
+    return pacienteProfissionais
+      .filter((pp: any) => pp.paciente_id === formData.paciente_id)
+      .map((pp: any) => pp.profissionais);
+  }, [formData.paciente_id, pacienteProfissionais]);
+
   // Mutations
   const saveMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      const payload = {
+        paciente_id: data.paciente_id,
+        responsavel_nome: data.responsavel_nome,
+        profissional_id: data.profissional_id === "none" || !data.profissional_id ? null : data.profissional_id,
+        data_solicitacao: data.data_solicitacao,
+        data_limite: data.data_limite,
+        data_entrega: data.data_entrega || null,
+        observacoes: data.observacoes || null,
+      };
+
       if (data.id) {
         const { error } = await supabase
           .from("controle_relatorios")
-          .update({
-            paciente_id: data.paciente_id,
-            responsavel_nome: data.responsavel_nome,
-            data_solicitacao: data.data_solicitacao,
-            data_limite: data.data_limite,
-            data_entrega: data.data_entrega || null,
-            observacoes: data.observacoes || null,
-          })
+          .update(payload)
           .eq("id", data.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("controle_relatorios")
-          .insert({
-            paciente_id: data.paciente_id,
-            responsavel_nome: data.responsavel_nome,
-            data_solicitacao: data.data_solicitacao,
-            data_limite: data.data_limite,
-            data_entrega: data.data_entrega || null,
-            observacoes: data.observacoes || null,
-          });
+          .insert(payload);
         if (error) throw error;
       }
     },
@@ -309,6 +342,7 @@ function RelatoriosPage() {
       id: "",
       paciente_id: "",
       responsavel_nome: "",
+      profissional_id: "",
       data_solicitacao: format(new Date(), "yyyy-MM-dd"),
       data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
       data_entrega: "",
@@ -328,6 +362,7 @@ function RelatoriosPage() {
       id: req.id,
       paciente_id: req.paciente_id,
       responsavel_nome: req.responsavel_nome,
+      profissional_id: req.profissional_id || "",
       data_solicitacao: req.data_solicitacao,
       data_limite: req.data_limite,
       data_entrega: req.data_entrega || "",
@@ -363,6 +398,26 @@ function RelatoriosPage() {
 
   const handleQuickUndoDeliver = (id: string) => {
     toggleDeliveryMutation.mutate({ id, dataEntrega: null });
+  };
+
+  const getWhatsAppReminderLink = (req: any) => {
+    const profNome = req.profissional?.nome || "";
+    const profTelefone = req.profissional?.telefone || "";
+    if (!profTelefone) return "";
+
+    const pacienteNome = req.paciente?.nome || "";
+    const responsavelNome = req.responsavel_nome || "";
+    const dataLimite = req.data_limite
+      ? format(parseISO(req.data_limite), "dd/MM/yyyy")
+      : "";
+
+    const mensagem = `Olá, ${profNome}! Passando para lembrar do relatório de evolução do(a) paciente ${pacienteNome} (solicitado por ${responsavelNome}). O prazo limite de entrega é o dia ${dataLimite}.`;
+
+    const cleanNumber = profTelefone.replace(/\D/g, "");
+    // Adiciona o código do país (55 - Brasil) se não estiver presente
+    const formattedNumber = cleanNumber.length <= 11 && !cleanNumber.startsWith("55") ? `55${cleanNumber}` : cleanNumber;
+
+    return `https://wa.me/${formattedNumber}?text=${encodeURIComponent(mensagem)}`;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -476,7 +531,7 @@ function RelatoriosPage() {
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar paciente ou responsável…"
+                  placeholder="Buscar paciente, responsável ou profissional…"
                   className="pl-9"
                 />
               </div>
@@ -512,6 +567,7 @@ function RelatoriosPage() {
                     <TableRow>
                       <TableHead>Paciente</TableHead>
                       <TableHead>Responsável Solicitante</TableHead>
+                      <TableHead>Profissional</TableHead>
                       <TableHead>Data Solicitação</TableHead>
                       <TableHead>Prazo Limite</TableHead>
                       <TableHead>Status / Tempo</TableHead>
@@ -522,18 +578,38 @@ function RelatoriosPage() {
                   <TableBody>
                     {filteredRequests.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                           Nenhum registro encontrado.
                         </TableCell>
                       </TableRow>
                     ) : (
                       filteredRequests.map((req) => {
                         const pacienteNome = req.paciente?.nome || "—";
+                        const profNome = req.profissional?.nome || "Não atribuído";
+                        const hasPhone = !!req.profissional?.telefone;
                         
                         return (
                           <TableRow key={req.id} className="group">
                             <TableCell className="font-medium">{pacienteNome}</TableCell>
                             <TableCell>{req.responsavel_nome}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate max-w-[150px]" title={profNome}>{profNome}</span>
+                                {hasPhone && req.statusLabel !== "entregue" && (
+                                  <a
+                                    href={getWhatsAppReminderLink(req)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors"
+                                    title={`Lembrar ${profNome} no WhatsApp`}
+                                  >
+                                    <svg className="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24">
+                                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.46h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+                                    </svg>
+                                  </a>
+                                )}
+                              </div>
+                            </TableCell>
                             <TableCell>
                               {req.data_solicitacao
                                 ? format(parseISO(req.data_solicitacao), "dd/MM/yyyy")
@@ -638,7 +714,7 @@ function RelatoriosPage() {
                 <Label htmlFor="paciente_id">Paciente</Label>
                 <Select
                   value={formData.paciente_id}
-                  onValueChange={(val) => setFormData((prev) => ({ ...prev, paciente_id: val, responsavel_nome: "" }))}
+                  onValueChange={(val) => setFormData((prev) => ({ ...prev, paciente_id: val, responsavel_nome: "", profissional_id: "" }))}
                   disabled={!!editingRequest}
                 >
                   <SelectTrigger id="paciente_id">
@@ -675,6 +751,43 @@ function RelatoriosPage() {
                         onClick={() => setFormData((prev) => ({ ...prev, responsavel_nome: resp.nome }))}
                       >
                         {resp.nome} {resp.parentesco ? `(${resp.parentesco})` : ""}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="profissional_id">Profissional Responsável (Opcional)</Label>
+                <Select
+                  value={formData.profissional_id || "none"}
+                  onValueChange={(val) => setFormData((prev) => ({ ...prev, profissional_id: val === "none" ? "" : val }))}
+                >
+                  <SelectTrigger id="profissional_id">
+                    <SelectValue placeholder="Selecione o profissional" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Nenhum profissional</SelectItem>
+                    {activeProfessionals.map((p: any) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {suggestedProfessionals.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+                    <span className="text-[10px] text-muted-foreground mr-1">Sugestões (Vinculados):</span>
+                    {suggestedProfessionals.map((p: any) => (
+                      <Button
+                        key={p.id}
+                        type="button"
+                        variant="outline"
+                        className="text-[10px] px-2 py-0.5 h-auto rounded-full bg-secondary/50 hover:bg-secondary border-0"
+                        onClick={() => setFormData((prev) => ({ ...prev, profissional_id: p.id }))}
+                      >
+                        {p.nome}
                       </Button>
                     ))}
                   </div>
