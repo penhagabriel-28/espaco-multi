@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   Undo2,
   TrendingUp,
+  Settings,
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, differenceInDays, addDays, parseISO, isAfter } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -61,12 +62,20 @@ function RelatoriosPage() {
   
   // Dialog form state
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [manageTypesOpen, setManageTypesOpen] = useState(false);
   const [editingRequest, setEditingRequest] = useState<any>(null);
+  
+  // Custom document types state
+  const [newTypeName, setNewTypeName] = useState("");
+  const [editingTypeId, setEditingTypeId] = useState("");
+  const [editingTypeName, setEditingTypeName] = useState("");
+
   const [formData, setFormData] = useState({
     id: "",
     paciente_id: "",
     responsavel_nome: "",
     profissional_id: "",
+    tipo_documento_id: "",
     data_solicitacao: format(new Date(), "yyyy-MM-dd"),
     data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
     data_entrega: "",
@@ -99,14 +108,14 @@ function RelatoriosPage() {
     },
   });
 
-  // Fetch report requests with fallback handling in case database table isn't created yet
+  // Fetch report requests with fallback handling
   const { data: reportRequests = [] } = useQuery({
     queryKey: ["controle-relatorios"],
     queryFn: async () => {
       try {
         const { data, error } = await supabase
           .from("controle_relatorios")
-          .select("*, paciente:pacientes(nome), profissional:profissionais(nome, telefone)")
+          .select("*, paciente:pacientes(nome), profissional:profissionais(nome, telefone), tipo_documento:tipos_documento(nome)")
           .order("data_solicitacao", { ascending: false });
         if (error) {
           console.warn("Table controle_relatorios may not exist yet:", error.message);
@@ -120,7 +129,7 @@ function RelatoriosPage() {
     },
   });
 
-  // Fetch active patients list for request creation
+  // Fetch active patients list
   const { data: activePatients = [] } = useQuery({
     queryKey: ["active-patients-list"],
     queryFn: async () => {
@@ -160,7 +169,7 @@ function RelatoriosPage() {
     },
   });
 
-  // Fetch patient-professional links (to pre-suggest the professional responsible for the patient)
+  // Fetch patient-professional links
   const { data: pacienteProfissionais = [] } = useQuery({
     queryKey: ["paciente-profissional-all"],
     queryFn: async () => {
@@ -169,6 +178,27 @@ function RelatoriosPage() {
         .select("paciente_id, profissional_id, profissionais(id, nome, telefone)");
       if (error) throw error;
       return data ?? [];
+    },
+  });
+
+  // Fetch all document types with fallback
+  const { data: tiposDocumento = [] } = useQuery({
+    queryKey: ["tipos-documento"],
+    queryFn: async () => {
+      try {
+        const { data, error } = await supabase
+          .from("tipos_documento")
+          .select("*")
+          .order("nome");
+        if (error) {
+          console.warn("Table tipos_documento may not exist yet:", error.message);
+          return [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.error(err);
+        return [];
+      }
     },
   });
 
@@ -210,7 +240,7 @@ function RelatoriosPage() {
     });
   }, [reportRequests]);
 
-  // General metrics calculations (original code)
+  // General metrics calculations
   const stats = useMemo(() => {
     const total = agendamentos.length;
     const realizados = agendamentos.filter((a) => a.status === "realizado").length;
@@ -239,29 +269,29 @@ function RelatoriosPage() {
   // Filter and search logic
   const filteredRequests = useMemo(() => {
     return computedRequests.filter((req) => {
-      // 1. Search Query
       const pacienteNome = req.paciente?.nome || "";
       const responsavelNome = req.responsavel_nome || "";
       const profissionalNome = req.profissional?.nome || "";
+      const tipoNome = req.tipo_documento?.nome || "Relatório de Evolução";
+
       const matchesSearch =
         pacienteNome.toLowerCase().includes(searchQuery.toLowerCase()) ||
         responsavelNome.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        profissionalNome.toLowerCase().includes(searchQuery.toLowerCase());
+        profissionalNome.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tipoNome.toLowerCase().includes(searchQuery.toLowerCase());
 
-      // 2. Status filter
       const matchesStatus = statusFilter === "todos" || req.statusLabel === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
   }, [computedRequests, searchQuery, statusFilter]);
 
-  // Suggested responsibles based on selected patient in form
+  // Suggested elements
   const suggestedResponsibles = useMemo(() => {
     if (!formData.paciente_id) return [];
     return responsaveis.filter((r: any) => r.paciente_id === formData.paciente_id);
   }, [formData.paciente_id, responsaveis]);
 
-  // Suggested professionals based on selected patient in form
   const suggestedProfessionals = useMemo(() => {
     if (!formData.paciente_id) return [];
     return pacienteProfissionais
@@ -276,6 +306,7 @@ function RelatoriosPage() {
         paciente_id: data.paciente_id,
         responsavel_nome: data.responsavel_nome,
         profissional_id: data.profissional_id === "none" || !data.profissional_id ? null : data.profissional_id,
+        tipo_documento_id: data.tipo_documento_id || null,
         data_solicitacao: data.data_solicitacao,
         data_limite: data.data_limite,
         data_entrega: data.data_entrega || null,
@@ -296,7 +327,7 @@ function RelatoriosPage() {
       }
     },
     onSuccess: () => {
-      toast.success("Registro de relatório salvo com sucesso!");
+      toast.success("Registro salvo com sucesso!");
       qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
       setDialogOpen(false);
       resetForm();
@@ -337,12 +368,61 @@ function RelatoriosPage() {
     },
   });
 
+  // Document Types CRUD Mutations
+  const addTipoMutation = useMutation({
+    mutationFn: async (nome: string) => {
+      const { error } = await supabase.from("tipos_documento").insert({ nome });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Tipo de documento adicionado com sucesso!");
+      setNewTypeName("");
+      qc.invalidateQueries({ queryKey: ["tipos-documento"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao adicionar tipo: " + err.message);
+    },
+  });
+
+  const updateTipoMutation = useMutation({
+    mutationFn: async ({ id, nome }: { id: string; nome: string }) => {
+      const { error } = await supabase.from("tipos_documento").update({ nome }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Tipo de documento atualizado com sucesso!");
+      setEditingTypeId("");
+      setEditingTypeName("");
+      qc.invalidateQueries({ queryKey: ["tipos-documento"] });
+      qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao atualizar tipo: " + err.message);
+    },
+  });
+
+  const deleteTipoMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("tipos_documento").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Tipo de documento excluído com sucesso!");
+      qc.invalidateQueries({ queryKey: ["tipos-documento"] });
+      qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao excluir tipo: " + err.message);
+    },
+  });
+
   const resetForm = () => {
     setFormData({
       id: "",
       paciente_id: "",
       responsavel_nome: "",
       profissional_id: "",
+      tipo_documento_id: "",
       data_solicitacao: format(new Date(), "yyyy-MM-dd"),
       data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
       data_entrega: "",
@@ -353,6 +433,11 @@ function RelatoriosPage() {
 
   const handleOpenNewDialog = () => {
     resetForm();
+    const relEvolucao = tiposDocumento.find((t: any) => t.nome === "Relatório de Evolução");
+    setFormData((prev) => ({
+      ...prev,
+      tipo_documento_id: relEvolucao?.id || tiposDocumento[0]?.id || "",
+    }));
     setDialogOpen(true);
   };
 
@@ -363,6 +448,7 @@ function RelatoriosPage() {
       paciente_id: req.paciente_id,
       responsavel_nome: req.responsavel_nome,
       profissional_id: req.profissional_id || "",
+      tipo_documento_id: req.tipo_documento_id || "",
       data_solicitacao: req.data_solicitacao,
       data_limite: req.data_limite,
       data_entrega: req.data_entrega || "",
@@ -386,7 +472,7 @@ function RelatoriosPage() {
   };
 
   const handleDeleteRequest = (id: string, pacienteNome: string) => {
-    if (confirm(`Tem certeza que deseja excluir o registro de relatório de ${pacienteNome}?`)) {
+    if (confirm(`Tem certeza que deseja excluir o registro de ${pacienteNome}?`)) {
       deleteMutation.mutate(id);
     }
   };
@@ -407,14 +493,14 @@ function RelatoriosPage() {
 
     const pacienteNome = req.paciente?.nome || "";
     const responsavelNome = req.responsavel_nome || "";
+    const docTipo = req.tipo_documento?.nome || "documento";
     const dataLimite = req.data_limite
       ? format(parseISO(req.data_limite), "dd/MM/yyyy")
       : "";
 
-    const mensagem = `Olá, ${profNome}! Passando para lembrar do relatório de evolução do(a) paciente ${pacienteNome} (solicitado por ${responsavelNome}). O prazo limite de entrega é o dia ${dataLimite}.`;
+    const mensagem = `Olá, ${profNome}! Passando para lembrar do(a) ${docTipo} do(a) paciente ${pacienteNome} (solicitado por ${responsavelNome}). O prazo limite de entrega é o dia ${dataLimite}.`;
 
     const cleanNumber = profTelefone.replace(/\D/g, "");
-    // Adiciona o código do país (55 - Brasil) se não estiver presente
     const formattedNumber = cleanNumber.length <= 11 && !cleanNumber.startsWith("55") ? `55${cleanNumber}` : cleanNumber;
 
     return `https://wa.me/${formattedNumber}?text=${encodeURIComponent(mensagem)}`;
@@ -428,6 +514,10 @@ function RelatoriosPage() {
     }
     if (!formData.responsavel_nome.trim()) {
       toast.error("Por favor, informe o responsável solicitante.");
+      return;
+    }
+    if (!formData.tipo_documento_id) {
+      toast.error("Por favor, selecione um tipo de documento.");
       return;
     }
     saveMutation.mutate(formData);
@@ -531,7 +621,7 @@ function RelatoriosPage() {
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar paciente, responsável ou profissional…"
+                  placeholder="Buscar paciente, responsável, tipo ou profissional…"
                   className="pl-9"
                 />
               </div>
@@ -566,6 +656,7 @@ function RelatoriosPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Paciente</TableHead>
+                      <TableHead>Documento</TableHead>
                       <TableHead>Responsável Solicitante</TableHead>
                       <TableHead>Profissional</TableHead>
                       <TableHead>Data Solicitação</TableHead>
@@ -578,7 +669,7 @@ function RelatoriosPage() {
                   <TableBody>
                     {filteredRequests.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                           Nenhum registro encontrado.
                         </TableCell>
                       </TableRow>
@@ -586,15 +677,21 @@ function RelatoriosPage() {
                       filteredRequests.map((req) => {
                         const pacienteNome = req.paciente?.nome || "—";
                         const profNome = req.profissional?.nome || "Não atribuído";
+                        const docTipo = req.tipo_documento?.nome || "Relatório de Evolução";
                         const hasPhone = !!req.profissional?.telefone;
                         
                         return (
                           <TableRow key={req.id} className="group">
                             <TableCell className="font-medium">{pacienteNome}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="font-normal border-primary/20 bg-primary/5 text-primary text-[11px] px-2 py-0.5 whitespace-nowrap">
+                                {docTipo}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{req.responsavel_nome}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1.5">
-                                <span className="truncate max-w-[150px]" title={profNome}>{profNome}</span>
+                                <span className="truncate max-w-[120px]" title={profNome}>{profNome}</span>
                                 {hasPhone && req.statusLabel !== "entregue" && (
                                   <a
                                     href={getWhatsAppReminderLink(req)}
@@ -705,7 +802,7 @@ function RelatoriosPage() {
           <form onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle>
-                {editingRequest ? "Editar Solicitação de Relatório" : "Nova Solicitação de Relatório"}
+                {editingRequest ? "Editar Solicitação" : "Nova Solicitação"}
               </DialogTitle>
             </DialogHeader>
 
@@ -755,6 +852,38 @@ function RelatoriosPage() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="tipo_documento_id">Tipo de Documento</Label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Select
+                      value={formData.tipo_documento_id}
+                      onValueChange={(val) => setFormData((prev) => ({ ...prev, tipo_documento_id: val }))}
+                    >
+                      <SelectTrigger id="tipo_documento_id">
+                        <SelectValue placeholder="Selecione o tipo de documento" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tiposDocumento.map((t: any) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    title="Gerenciar tipos de documento"
+                    onClick={() => setManageTypesOpen(true)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -818,16 +947,6 @@ function RelatoriosPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="data_entrega">Data de Entrega (Opcional)</Label>
-                <Input
-                  id="data_entrega"
-                  type="date"
-                  value={formData.data_entrega}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, data_entrega: e.target.value }))}
-                />
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="observacoes">Observações (Opcional)</Label>
                 <Textarea
                   id="observacoes"
@@ -848,6 +967,117 @@ function RelatoriosPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog for managing custom document types */}
+      <Dialog open={manageTypesOpen} onOpenChange={setManageTypesOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Gerenciar Tipos de Documento</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="flex gap-2">
+              <Input
+                value={newTypeName}
+                onChange={(e) => setNewTypeName(e.target.value)}
+                placeholder="Novo tipo de documento..."
+              />
+              <Button
+                type="button"
+                onClick={() => {
+                  if (newTypeName.trim()) {
+                    addTipoMutation.mutate(newTypeName.trim());
+                  }
+                }}
+                disabled={addTipoMutation.isPending}
+              >
+                Adicionar
+              </Button>
+            </div>
+
+            <div className="border rounded-md divide-y max-h-[220px] overflow-y-auto">
+              {tiposDocumento.length === 0 ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  Nenhum tipo cadastrado.
+                </div>
+              ) : (
+                tiposDocumento.map((tipo: any) => (
+                  <div key={tipo.id} className="flex items-center justify-between p-2.5">
+                    {editingTypeId === tipo.id ? (
+                      <div className="flex items-center gap-2 flex-1 mr-2">
+                        <Input
+                          value={editingTypeName}
+                          onChange={(e) => setEditingTypeName(e.target.value)}
+                          className="h-8 py-1"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => {
+                            if (editingTypeName.trim()) {
+                              updateTipoMutation.mutate({ id: tipo.id, nome: editingTypeName.trim() });
+                            }
+                          }}
+                          disabled={updateTipoMutation.isPending}
+                        >
+                          Salvar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 px-2"
+                          onClick={() => {
+                            setEditingTypeId("");
+                            setEditingTypeName("");
+                          }}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-sm font-medium">{tipo.nome}</span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setEditingTypeId(tipo.id);
+                              setEditingTypeName(tipo.nome);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              if (confirm(`Tem certeza que deseja excluir o tipo "${tipo.nome}"? registros que o utilizam ficarão "Não definido".`)) {
+                                deleteTipoMutation.mutate(tipo.id);
+                              }
+                            }}
+                            disabled={deleteTipoMutation.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setManageTypesOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
