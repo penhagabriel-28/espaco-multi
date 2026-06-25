@@ -1433,6 +1433,82 @@ Agradecemos a atenção!
   const [newItemDesc, setNewItemDesc] = useState("");
   const [newItemVal, setNewItemVal] = useState("");
 
+  // Helper to get pricing based on professional configuration and patient-specific discounts
+  const getFaturaPrice = (pacienteId: string, profissionalId: string, especialidade: string, isAnamnese = false) => {
+    if (!profissionalId || !pacienteId) return 0;
+    const prof = (profissionais || []).find((p: any) => p.id === profissionalId);
+    if (!prof) return 0;
+
+    const config = prof.valores_config || { especialidades: [], descontos: [] };
+    const valorDefault = Number(prof.valor_sessao || 0);
+
+    // 1. Check custom patient discount
+    if (Array.isArray(config.descontos) && config.descontos.length > 0) {
+      const d = config.descontos.find(
+        (item: any) =>
+          item.paciente_id === pacienteId &&
+          String(item.especialidade || "").toLowerCase() === String(especialidade || "").toLowerCase(),
+      );
+      if (d) {
+        return isAnamnese ? Number(d.valor_avaliacao || 0) : Number(d.valor_sessao || 0);
+      }
+    }
+
+    // 2. Check standard specialty rates
+    if (Array.isArray(config.especialidades) && config.especialidades.length > 0) {
+      const e = config.especialidades.find(
+        (item: any) => String(item.nome || "").toLowerCase() === String(especialidade || "").toLowerCase(),
+      );
+      if (e) {
+        if (isAnamnese) {
+          return Number(e.valor_avaliacao || 0);
+        } else {
+          if (String(especialidade).toLowerCase() === "ap") return 0;
+          return Number(e.valor_sessao ?? valorDefault ?? 0);
+        }
+      }
+    }
+
+    // 3. Default professional rate
+    if (isAnamnese) {
+      return 0;
+    } else {
+      return valorDefault;
+    }
+  };
+
+  const updateFaturaFormPrice = (pacienteId: string, profissionalId: string, especialidade: string) => {
+    const price = getFaturaPrice(pacienteId, profissionalId, especialidade);
+    setFaturaForm((prev) => ({ ...prev, valor: price > 0 ? String(price) : "" }));
+  };
+
+  const detectedDiscount = useMemo(() => {
+    if (!faturaForm.paciente_id || !faturaForm.profissional_id || !faturaForm.especialidade) return null;
+    const prof = (profissionais || []).find((p: any) => p.id === faturaForm.profissional_id);
+    if (!prof) return null;
+    const config = prof.valores_config || { descontos: [] };
+    if (!Array.isArray(config.descontos)) return null;
+
+    return config.descontos.find(
+      (d: any) =>
+        d.paciente_id === faturaForm.paciente_id &&
+        String(d.especialidade || "").toLowerCase() === String(faturaForm.especialidade || "").toLowerCase(),
+    );
+  }, [faturaForm.paciente_id, faturaForm.profissional_id, faturaForm.especialidade, profissionais]);
+
+  const detectedSpecialtyRate = useMemo(() => {
+    if (detectedDiscount) return null;
+    if (!faturaForm.profissional_id || !faturaForm.especialidade) return null;
+    const prof = (profissionais || []).find((p: any) => p.id === faturaForm.profissional_id);
+    if (!prof) return null;
+    const config = prof.valores_config || { especialidades: [] };
+    if (!Array.isArray(config.especialidades)) return null;
+
+    return config.especialidades.find(
+      (e: any) => String(e.nome || "").toLowerCase() === String(faturaForm.especialidade || "").toLowerCase(),
+    );
+  }, [detectedDiscount, faturaForm.profissional_id, faturaForm.especialidade, profissionais]);
+
   // Detailed Fatura form states for inline editing the parent invoice inside details dialog
   const [detailsFaturaForm, setDetailsFaturaForm] = useState({
     competencia: "",
@@ -1460,6 +1536,33 @@ Agradecemos a atenção!
     return (faturas || []).find((f) => f.id === invoiceDetailsDialog.fatura.id) || invoiceDetailsDialog.fatura;
   }, [faturas, invoiceDetailsDialog.fatura]);
 
+  const detectedDetailsDiscount = useMemo(() => {
+    if (!activeDetailedFatura?.paciente_id || !activeDetailedFatura?.profissional_id || !activeDetailedFatura?.especialidade) return null;
+    const prof = (profissionais || []).find((p: any) => p.id === activeDetailedFatura.profissional_id);
+    if (!prof) return null;
+    const config = prof.valores_config || { descontos: [] };
+    if (!Array.isArray(config.descontos)) return null;
+
+    return config.descontos.find(
+      (d: any) =>
+        d.paciente_id === activeDetailedFatura.paciente_id &&
+        String(d.especialidade || "").toLowerCase() === String(activeDetailedFatura.especialidade || "").toLowerCase(),
+    );
+  }, [activeDetailedFatura, profissionais]);
+
+  const detectedDetailsSpecialtyRate = useMemo(() => {
+    if (detectedDetailsDiscount) return null;
+    if (!activeDetailedFatura?.profissional_id || !activeDetailedFatura?.especialidade) return null;
+    const prof = (profissionais || []).find((p: any) => p.id === activeDetailedFatura.profissional_id);
+    if (!prof) return null;
+    const config = prof.valores_config || { especialidades: [] };
+    if (!Array.isArray(config.especialidades)) return null;
+
+    return config.especialidades.find(
+      (e: any) => String(e.nome || "").toLowerCase() === String(activeDetailedFatura.especialidade || "").toLowerCase(),
+    );
+  }, [detectedDetailsDiscount, activeDetailedFatura, profissionais]);
+
   const handleOpenInvoiceDetails = (fatura: any) => {
     setInvoiceDetailsDialog({ open: true, fatura });
     setDetailsFaturaForm({
@@ -1474,7 +1577,8 @@ Agradecemos a atenção!
     });
     setEditingItemId(null);
     setNewItemDesc("");
-    setNewItemVal("");
+    const price = getFaturaPrice(fatura.paciente_id, fatura.profissional_id, fatura.especialidade);
+    setNewItemVal(price > 0 ? String(price) : "");
   };
 
   const handleOpenConfirmPayment = (fatura: any) => {
@@ -3171,7 +3275,12 @@ Agradecemos a atenção!
               <Label>Paciente</Label>
               <Select
                 value={faturaForm.paciente_id}
-                onValueChange={(val) => setFaturaForm({ ...faturaForm, paciente_id: val })}
+                onValueChange={(val) => {
+                  setFaturaForm((prev) => {
+                    const price = getFaturaPrice(val, prev.profissional_id, prev.especialidade);
+                    return { ...prev, paciente_id: val, valor: price > 0 ? String(price) : "" };
+                  });
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o paciente..." />
@@ -3215,6 +3324,15 @@ Agradecemos a atenção!
                   value={faturaForm.valor}
                   onChange={(e) => setFaturaForm({ ...faturaForm, valor: e.target.value })}
                 />
+                {detectedDiscount ? (
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-1 animate-in fade-in duration-200">
+                    🏷️ Desconto de paciente aplicado: {brl(Number(detectedDiscount.valor_sessao || 0))}
+                  </span>
+                ) : detectedSpecialtyRate ? (
+                  <span className="text-[10px] text-sky-600 dark:text-sky-400 font-semibold flex items-center gap-1 mt-1 animate-in fade-in duration-200">
+                    ⭐ Valor padrão da especialidade: {brl(Number(detectedSpecialtyRate.valor_sessao || 0))}
+                  </span>
+                ) : null}
               </div>
               <div className="space-y-1.5">
                 <Label>Status</Label>
@@ -3250,10 +3368,14 @@ Agradecemos a atenção!
                     const nextSpec = specs.includes(currentSpec)
                       ? currentSpec
                       : (specs.length > 0 ? specs[0] : "");
-                    setFaturaForm({
-                      ...faturaForm,
-                      profissional_id: pId,
-                      especialidade: nextSpec,
+                    setFaturaForm((prev) => {
+                      const price = getFaturaPrice(prev.paciente_id, pId, nextSpec);
+                      return {
+                        ...prev,
+                        profissional_id: pId,
+                        especialidade: nextSpec,
+                        valor: price > 0 ? String(price) : "",
+                      };
                     });
                   }}
                 >
@@ -3274,7 +3396,17 @@ Agradecemos a atenção!
                 <Label>Especialidade</Label>
                 <Select
                   value={faturaForm.especialidade || "none"}
-                  onValueChange={(val) => setFaturaForm({ ...faturaForm, especialidade: val === "none" ? "" : val })}
+                  onValueChange={(val) => {
+                    const spec = val === "none" ? "" : val;
+                    setFaturaForm((prev) => {
+                      const price = getFaturaPrice(prev.paciente_id, prev.profissional_id, spec);
+                      return {
+                        ...prev,
+                        especialidade: spec,
+                        valor: price > 0 ? String(price) : "",
+                      };
+                    });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione..." />
@@ -4080,6 +4212,16 @@ Agradecemos a atenção!
                       </Button>
                     </div>
                   </div>
+                  {detectedDetailsDiscount && (
+                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold mt-1 animate-in fade-in duration-200">
+                      🏷️ Desconto de paciente aplicado: {brl(Number(detectedDetailsDiscount.valor_sessao || 0))}
+                    </div>
+                  )}
+                  {detectedDetailsSpecialtyRate && (
+                    <div className="text-[10px] text-sky-600 dark:text-sky-400 font-semibold mt-1 animate-in fade-in duration-200">
+                      ⭐ Valor padrão da especialidade: {brl(Number(detectedDetailsSpecialtyRate.valor_sessao || 0))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
