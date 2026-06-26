@@ -662,32 +662,33 @@ const syncAgendamentoFinanceiro = async (
         ? `${especialidade || "Avaliação"} (Avaliação) - ${dateStr}`
         : `${especialidade || "Sessão"} - ${dateStr}`;
 
-    // Find or create matching invoice
-    let faturaId = "";
-    let faturaValor = 0;
-
-    const { data: matchedFaturas, error: fetchFaturaErr } = await supabase
-      .from("faturas")
-      .select("id, valor")
-      .eq("paciente_id", pacienteId)
-      .eq("competencia", competencia)
-      .eq("status", targetStatus)
-      .limit(1);
-
-    if (fetchFaturaErr) {
-      console.error("Error fetching fatura:", fetchFaturaErr);
-      return;
-    }
-
     const mappedMetodo = meioPagamento?.toLowerCase() === "espécie" ? "dinheiro" : "pix";
+    let faturaId = "";
 
-    if (matchedFaturas && matchedFaturas.length > 0) {
-      faturaId = matchedFaturas[0].id;
-      faturaValor = Number(matchedFaturas[0].valor);
-      if (targetStatus === "paga") {
-        await supabase.from("faturas").update({ metodo: mappedMetodo }).eq("id", faturaId);
-      }
+    if (existingItem) {
+      faturaId = existingItem.fatura_id;
+      // Update existing invoice's status and payment info
+      const updatePayload: any = {
+        status: targetStatus,
+        pago_em: targetStatus === "paga" ? (dataInicio || new Date().toISOString()) : null,
+        metodo: targetStatus === "paga" ? mappedMetodo : null,
+      };
+      await supabase
+        .from("faturas")
+        .update(updatePayload)
+        .eq("id", faturaId);
+
+      // Update the item description, unit price and total
+      await supabase
+        .from("fatura_itens")
+        .update({
+          descricao,
+          valor_unitario: numValor,
+          total: numValor,
+        })
+        .eq("id", existingItem.id);
     } else {
+      // Create new invoice for this session
       const insertData: any = {
         paciente_id: pacienteId,
         competencia,
@@ -709,66 +710,8 @@ const syncAgendamentoFinanceiro = async (
         return;
       }
       faturaId = newFatura.id;
-      faturaValor = 0;
-    }
 
-    if (existingItem) {
-      if (existingItem.fatura_id !== faturaId) {
-        // Subtract from old invoice
-        if (oldFatura?.status === "aberta" || oldFatura?.status === "paga") {
-          await supabase
-            .from("faturas")
-            .update({ valor: Math.max(0, Number(oldFatura.valor) - Number(existingItem.total)) })
-            .eq("id", existingItem.fatura_id);
-        }
-        // Update item
-        await supabase
-          .from("fatura_itens")
-          .update({
-            fatura_id: faturaId,
-            descricao,
-            valor_unitario: numValor,
-            total: numValor,
-          })
-          .eq("id", existingItem.id);
-        // Add to new invoice
-        await supabase
-          .from("faturas")
-          .update({ valor: faturaValor + numValor })
-          .eq("id", faturaId);
-
-        // Clean up old invoice if empty
-        if (oldFatura?.status === "aberta" || oldFatura?.status === "paga") {
-          const { data: remaining } = await supabase
-            .from("fatura_itens")
-            .select("id")
-            .eq("fatura_id", existingItem.fatura_id)
-            .limit(1);
-          if (!remaining || remaining.length === 0) {
-            await supabase.from("faturas").delete().eq("id", existingItem.fatura_id);
-          }
-        }
-      } else {
-        // Same invoice, update item
-        const diff = numValor - Number(existingItem.total);
-        await supabase
-          .from("fatura_itens")
-          .update({
-            descricao,
-            valor_unitario: numValor,
-            total: numValor,
-          })
-          .eq("id", existingItem.id);
-
-        if (diff !== 0) {
-          await supabase
-            .from("faturas")
-            .update({ valor: faturaValor + diff })
-            .eq("id", faturaId);
-        }
-      }
-    } else {
-      // Create new item
+      // Create new item pointing to the new invoice
       await supabase.from("fatura_itens").insert({
         fatura_id: faturaId,
         agendamento_id: agendamentoId,
@@ -777,11 +720,6 @@ const syncAgendamentoFinanceiro = async (
         valor_unitario: numValor,
         total: numValor,
       });
-      // Add to invoice
-      await supabase
-        .from("faturas")
-        .update({ valor: faturaValor + numValor })
-        .eq("id", faturaId);
     }
   } catch (err) {
     console.error("Error in syncAgendamentoFinanceiro:", err);
