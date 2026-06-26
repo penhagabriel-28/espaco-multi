@@ -134,9 +134,6 @@ $$;
 
 -- DATA MIGRATION: Split existing consolidated invoices that contain multiple sessions
 -- so that each session gets its own dedicated invoice.
-ALTER TABLE public.fatura_itens DISABLE TRIGGER ALL;
-ALTER TABLE public.faturas DISABLE TRIGGER ALL;
-
 DO $$
 DECLARE
   r RECORD;
@@ -186,6 +183,3 @@ BEGIN
   ) AND f.valor = 0;
 
 END $$;
-
-ALTER TABLE public.fatura_itens ENABLE TRIGGER ALL;
-ALTER TABLE public.faturas ENABLE TRIGGER ALL;
