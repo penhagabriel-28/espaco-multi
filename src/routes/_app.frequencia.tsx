@@ -289,6 +289,7 @@ function FrequenciaPage() {
           assinatura_responsavel: signatureBase64,
           nome_assinante: name,
           data_assinatura: new Date().toISOString(),
+          status: "realizado",
         } as any)
         .eq("id", agId);
       if (error) throw error;
@@ -296,6 +297,9 @@ function FrequenciaPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["freq-agendamentos"] });
+      qc.invalidateQueries({ queryKey: ["faturas"] });
+      qc.invalidateQueries({ queryKey: ["dir-faturas"] });
+      qc.invalidateQueries({ queryKey: ["agendamentos"] });
       toast.success("Frequência assinada com sucesso!");
       setSignDialog({ open: false, ag: null });
       setNomeResponsavel("");
