@@ -251,11 +251,11 @@ function FrequenciaPage() {
   // Filter appointments by patient name and signability
   const filteredAgendamentos = useMemo(() => {
     // Only display sessions that are signed OR are unsigned but have the "Assinar digitalmente" button
-    // (i.e. status is not cancelado and not falta)
+    // (i.e. status is not cancelado)
     const list = agendamentos.filter(
       (a: any) =>
         !!a.assinatura_responsavel ||
-        (a.status !== "cancelado" && a.status !== "falta")
+        a.status !== "cancelado"
     );
 
     if (!searchTerm.trim()) return list;
@@ -636,10 +636,6 @@ function FrequenciaPage() {
                             <div className="text-center text-xs text-muted-foreground py-1.5 bg-muted/30 rounded">
                               Sessão cancelada
                             </div>
-                          ) : a.status === "falta" ? (
-                            <div className="text-center text-xs text-muted-foreground py-1.5 bg-muted/30 rounded">
-                              Falta
-                            </div>
                           ) : (
                             <Button
                               onClick={() => handleOpenSign(a)}
@@ -727,8 +723,6 @@ function FrequenciaPage() {
                                 <span className="text-muted-foreground text-xs italic">Não necessita assinatura</span>
                               ) : a.status === "cancelado" ? (
                                 <span className="text-muted-foreground text-xs">—</span>
-                              ) : a.status === "falta" ? (
-                                <span className="text-muted-foreground text-xs">Falta</span>
                               ) : (
                                 <Button
                                   onClick={() => handleOpenSign(a)}
