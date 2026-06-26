@@ -248,13 +248,21 @@ function FrequenciaPage() {
     enabled: !!selectedProfId,
   });
 
-  // Filter appointments by patient name
+  // Filter appointments by patient name and signability
   const filteredAgendamentos = useMemo(() => {
-    if (!searchTerm.trim()) return agendamentos;
+    // Only display sessions that are signed OR are unsigned but have the "Assinar digitalmente" button
+    // (i.e. status is not cancelado and not falta)
+    const list = agendamentos.filter(
+      (a: any) =>
+        !!a.assinatura_responsavel ||
+        (a.status !== "cancelado" && a.status !== "falta")
+    );
+
+    if (!searchTerm.trim()) return list;
     const normalizeString = (str: string) =>
       str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
     const term = normalizeString(searchTerm);
-    return agendamentos.filter((a: any) =>
+    return list.filter((a: any) =>
       normalizeString(a.pacientes?.nome || "").includes(term)
     );
   }, [agendamentos, searchTerm]);
@@ -623,6 +631,10 @@ function FrequenciaPage() {
                             <div className="text-center text-xs text-muted-foreground py-1.5 bg-muted/30 rounded">
                               Sessão cancelada
                             </div>
+                          ) : a.status === "falta" ? (
+                            <div className="text-center text-xs text-muted-foreground py-1.5 bg-muted/30 rounded">
+                              Falta
+                            </div>
                           ) : (
                             <Button
                               onClick={() => handleOpenSign(a)}
@@ -707,6 +719,8 @@ function FrequenciaPage() {
                                 </div>
                               ) : a.status === "cancelado" ? (
                                 <span className="text-muted-foreground text-xs">—</span>
+                              ) : a.status === "falta" ? (
+                                <span className="text-muted-foreground text-xs">Falta</span>
                               ) : (
                                 <Button
                                   onClick={() => handleOpenSign(a)}
