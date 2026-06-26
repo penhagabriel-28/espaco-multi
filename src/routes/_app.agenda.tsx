@@ -607,6 +607,9 @@ const syncAgendamentoFinanceiro = async (
   meioPagamento?: string,
 ) => {
   try {
+    if (especialidade && especialidade.toLowerCase() === "apoio") {
+      return;
+    }
     const numValor = Number(valor || 0);
 
     // 1. Fetch existing fatura item for this agendamento if any

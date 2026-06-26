@@ -533,6 +533,7 @@ function FrequenciaPage() {
                 <div className="md:hidden divide-y divide-border/60">
                   {filteredAgendamentos.map((a: any) => {
                     const signed = !!a.assinatura_responsavel;
+                    const isApoio = a.servicos?.nome?.toLowerCase() === "apoio";
                     return (
                       <div key={a.id} className="p-4 space-y-3">
                         <div className="flex items-center justify-between">
@@ -627,6 +628,10 @@ function FrequenciaPage() {
                               <CheckCircle2 className="h-3.5 w-3.5" /> Assinado por{" "}
                               {a.nome_assinante?.split(" ")[0]}
                             </Button>
+                          ) : isApoio ? (
+                            <div className="text-center text-xs text-muted-foreground py-1.5 bg-muted/35 rounded border border-dashed font-medium">
+                              Não necessita assinatura
+                            </div>
                           ) : a.status === "cancelado" ? (
                             <div className="text-center text-xs text-muted-foreground py-1.5 bg-muted/30 rounded">
                               Sessão cancelada
@@ -667,6 +672,7 @@ function FrequenciaPage() {
                     <TableBody>
                       {filteredAgendamentos.map((a: any) => {
                         const signed = !!a.assinatura_responsavel;
+                        const isApoio = a.servicos?.nome?.toLowerCase() === "apoio";
                         return (
                           <TableRow key={a.id}>
                             <TableCell className="font-medium whitespace-nowrap">
@@ -717,6 +723,8 @@ function FrequenciaPage() {
                                     {a.nome_assinante?.split(" ")[0]}
                                   </Button>
                                 </div>
+                              ) : isApoio ? (
+                                <span className="text-muted-foreground text-xs italic">Não necessita assinatura</span>
                               ) : a.status === "cancelado" ? (
                                 <span className="text-muted-foreground text-xs">—</span>
                               ) : a.status === "falta" ? (

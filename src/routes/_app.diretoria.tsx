@@ -906,6 +906,16 @@ function DiretoriaPageContent() {
     return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%" };
   };
 
+  const isCoordenadora = (profId: string | null) => {
+    if (!profId) return false;
+    const prof = (profissionais || []).find((p: any) => p.id === profId);
+    if (!prof?.especialidade) return false;
+    return prof.especialidade
+      .split(",")
+      .map((s: string) => s.trim().toLowerCase())
+      .includes("coordenadora ap");
+  };
+
   // State variables for payment calculation tab
   const [selectedProfId, setSelectedProfId] = useState<string>("all");
   const [sessionStatusFilter, setSessionStatusFilter] = useState<string>("realizado_pago_falta");
@@ -1046,6 +1056,37 @@ function DiretoriaPageContent() {
       }
     });
 
+    // Add Coordinator Bonus
+    if (selectedProfId === "all") {
+      const activeCoordinators = new Set<string>();
+      filteredRepasses.forEach((a: any) => {
+        if (a.profissional_id && isCoordenadora(a.profissional_id)) {
+          activeCoordinators.add(a.profissional_id);
+        }
+      });
+
+      activeCoordinators.forEach((profId) => {
+        repasseProfissional += 300;
+        const coordinatorSessions = filteredRepasses.filter((a: any) => a.profissional_id === profId);
+        const allPaid = coordinatorSessions.every((a: any) => getPatientPaymentStatus(a) === "paga");
+        if (allPaid) {
+          repasseApto += 300;
+        } else {
+          repasseBloqueado += 300;
+        }
+      });
+    } else if (isCoordenadora(selectedProfId)) {
+      if (filteredRepasses.length > 0) {
+        repasseProfissional += 300;
+        const allPaid = filteredRepasses.every((a: any) => getPatientPaymentStatus(a) === "paga");
+        if (allPaid) {
+          repasseApto += 300;
+        } else {
+          repasseBloqueado += 300;
+        }
+      }
+    }
+
     return {
       totalSessões,
       faturamentoBruto,
@@ -1056,7 +1097,7 @@ function DiretoriaPageContent() {
       comissaoRecebida,
       comissaoPendente,
     };
-  }, [filteredRepasses]);
+  }, [filteredRepasses, selectedProfId, profissionais]);
 
   const repasseCardsStats = useMemo(() => {
     let totalSessões = 0;
@@ -1082,12 +1123,47 @@ function DiretoriaPageContent() {
       }
     });
 
+    // Add Coordinator Bonus
+    if (selectedProfId === "all") {
+      const activeCoordinators = new Set<string>();
+      agendamentosRepasses.forEach((a: any) => {
+        if (a.status !== "cancelado" && a.profissional_id && isCoordenadora(a.profissional_id)) {
+          activeCoordinators.add(a.profissional_id);
+        }
+      });
+
+      activeCoordinators.forEach((profId) => {
+        const coordinatorSessions = agendamentosRepasses.filter(
+          (a: any) => a.status !== "cancelado" && a.profissional_id === profId
+        );
+        const allPaid = coordinatorSessions.every((a: any) => getPatientPaymentStatus(a) === "paga");
+        if (allPaid) {
+          repassePago += 300;
+        } else {
+          repassePendente += 300;
+        }
+      });
+    } else if (isCoordenadora(selectedProfId)) {
+      const hasSessions = agendamentosRepasses.some((a: any) => a.status !== "cancelado" && a.profissional_id === selectedProfId);
+      if (hasSessions) {
+        const coordinatorSessions = agendamentosRepasses.filter(
+          (a: any) => a.status !== "cancelado" && a.profissional_id === selectedProfId
+        );
+        const allPaid = coordinatorSessions.every((a: any) => getPatientPaymentStatus(a) === "paga");
+        if (allPaid) {
+          repassePago += 300;
+        } else {
+          repassePendente += 300;
+        }
+      }
+    }
+
     return {
       totalSessões,
       repassePago,
       repassePendente,
     };
-  }, [agendamentosRepasses, selectedProfId]);
+  }, [agendamentosRepasses, selectedProfId, profissionais]);
 
   const caixaLiquidoReal =
     stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
@@ -1163,8 +1239,21 @@ function DiretoriaPageContent() {
       group.sessoes.push(a);
     });
 
+    // Add Coordinator Bonus
+    groups.forEach((group, profId) => {
+      if (isCoordenadora(profId)) {
+        group.repasseProfissional += 300;
+        const allPaid = group.sessoes.every((a: any) => getPatientPaymentStatus(a) === "paga");
+        if (allPaid) {
+          group.repasseApto += 300;
+        } else {
+          group.repasseBloqueado += 300;
+        }
+      }
+    });
+
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses]);
+  }, [filteredRepasses, profissionais]);
 
   // Billing Filters
   const [searchPatient, setSearchPatient] = useState("");
@@ -2484,9 +2573,16 @@ Agradecemos a atenção!
                     >
                       <ChevronLeft className="h-4 w-4" /> Voltar
                     </Button>
-                    <CardTitle className="text-lg">
-                      Detalhes do Profissional:{" "}
-                      {profissionais.find((p: any) => p.id === viewingProfDetail)?.nome || "—"}
+                    <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
+                      <span>
+                        Detalhes do Profissional:{" "}
+                        {profissionais.find((p: any) => p.id === viewingProfDetail)?.nome || "—"}
+                      </span>
+                      {isCoordenadora(viewingProfDetail) && (
+                        <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white text-[11px] font-bold border-transparent">
+                          Bônus Coordenadora AP (+ R$ 300)
+                        </Badge>
+                      )}
                     </CardTitle>
                   </div>
                   <CardDescription className="mt-1 pl-12 sm:pl-16">
@@ -2867,6 +2963,48 @@ Agradecemos a atenção!
                                   </TableRow>
                                 );
                               })}
+                            {isCoordenadora(viewingProfDetail) && (
+                              <TableRow className="bg-yellow-500/5 hover:bg-yellow-500/10 border-t font-semibold">
+                                <TableCell className="italic text-muted-foreground">—</TableCell>
+                                <TableCell className="text-foreground font-bold">
+                                  Bônus Especialidade Coordenadora AP
+                                </TableCell>
+                                <TableCell>
+                                  <Badge className="bg-yellow-500 text-white font-bold border-transparent text-[10px] px-1.5 py-0.5">
+                                    Bônus
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge className="bg-emerald-500 text-white font-bold border-transparent text-[10px] px-1.5 py-0.5">
+                                    Pago
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {(() => {
+                                    const allPaid = filteredRepasses.every((a: any) => getPatientPaymentStatus(a) === "paga");
+                                    return (
+                                      <Badge className={allPaid ? "bg-emerald-500 text-white font-bold" : "bg-sky-500 text-white font-bold"}>
+                                        {allPaid ? "Pago" : "Em Aberto"}
+                                      </Badge>
+                                    );
+                                  })()}
+                                </TableCell>
+                                <TableCell>
+                                  {(() => {
+                                    const allPaid = filteredRepasses.every((a: any) => getPatientPaymentStatus(a) === "paga");
+                                    return (
+                                      <Badge variant="outline" className={allPaid ? "bg-emerald-50 text-emerald-700 border-emerald-500/20" : "bg-amber-50 text-amber-700 border-amber-500/20"}>
+                                        {allPaid ? "Apto para Repasse" : "Aguardando Cliente"}
+                                      </Badge>
+                                    );
+                                  })()}
+                                </TableCell>
+                                <TableCell className="text-foreground">R$ 300,00</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">100% Repasse</TableCell>
+                                <TableCell className="text-emerald-600 dark:text-emerald-400">R$ 300,00</TableCell>
+                                <TableCell className="text-purple-600 dark:text-purple-400">R$ 0,00</TableCell>
+                              </TableRow>
+                            )}
                           </TableBody>
                         </Table>
                       </div>
@@ -2917,6 +3055,11 @@ Agradecemos a atenção!
                                     style={{ backgroundColor: group.cor }}
                                   />
                                   <span>{group.nome}</span>
+                                  {isCoordenadora(group.profissionalId) && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-700 border-yellow-500/20 font-bold shrink-0">
+                                      Coord. (+R$300)
+                                    </Badge>
+                                  )}
                                 </div>
                               </TableCell>
                               <TableCell>
