@@ -150,7 +150,7 @@ function Agenda() {
   });
 
   const filteredAgs = useMemo(() => {
-    let result = ags;
+    let result = Array.isArray(ags) ? ags : [];
     if (selectedProfs.length > 0) {
       result = result.filter((a) => selectedProfs.includes(a.profissional_id));
     }
@@ -579,6 +579,7 @@ const safeFormatDate = (dateVal: any, formatStr: string, options?: any) => {
 };
 
 const getEspecialidade = (a: any) => {
+  if (!a) return null;
   if (a.servicos?.nome) return a.servicos.nome;
   const pacSpecs = (
     Array.isArray(a.pacientes?.cids_secundarios) ? a.pacientes.cids_secundarios : []
@@ -738,10 +739,12 @@ function FragmentRow({ h, days, ags, onCellClick, onEdit }: any) {
         {String(h).padStart(2, "0")}:00
       </div>
       {days.map((d: Date) => {
-        const cellAgs = ags.filter((a: any) => {
-          const dt = new Date(a.data_inicio);
-          return isSameDay(dt, d) && dt.getHours() === h;
-        });
+        const cellAgs = Array.isArray(ags)
+          ? ags.filter((a: any) => {
+              const dt = new Date(a.data_inicio);
+              return isSameDay(dt, d) && dt.getHours() === h;
+            })
+          : [];
         return (
           <div
             key={d.toString() + h}
@@ -1031,16 +1034,18 @@ Fico à disposição para qualquer dúvida!`;
   ]);
 
   const displayedPacientes = useMemo(() => {
-    let basePacientes = pacientes;
+    let basePacientes = Array.isArray(pacientes) ? pacientes : [];
     if (form.profissional_id) {
-      basePacientes = pacientes.filter((p: any) =>
+      basePacientes = basePacientes.filter((p: any) =>
         profPacientes.includes(p.id) || p.id === form.paciente_id
       );
     }
 
     if (!selectedSpecialty) {
       if (!form.profissional_id) return basePacientes;
-      const selectedProf = profissionais.find((p: any) => p.id === form.profissional_id);
+      const selectedProf = Array.isArray(profissionais)
+        ? profissionais.find((p: any) => p.id === form.profissional_id)
+        : undefined;
       if (!selectedProf) return basePacientes;
       const targetSpecs = selectedProf.especialidade
         ? selectedProf.especialidade.split(",").map((s: string) => s.trim().toLowerCase())
@@ -1068,7 +1073,7 @@ Fico à disposição para qualquer dúvida!`;
 
   // 1. Filter professionals registered on patient's file (having custom discounts)
   const patientProfessionals = useMemo(() => {
-    if (!form.paciente_id) return [];
+    if (!form.paciente_id || !Array.isArray(profissionais)) return [];
     return profissionais.filter((prof: any) => {
       const config = prof.valores_config as any;
       return (
@@ -1083,13 +1088,13 @@ Fico à disposição para qualquer dúvida!`;
     if (patientProfessionals.length > 0) {
       return patientProfessionals;
     }
-    return profissionais;
+    return Array.isArray(profissionais) ? profissionais : [];
   }, [patientProfessionals, profissionais]);
 
   // 2. Parse specialties registered on selected professional's file
   const professionalSpecialties = useMemo(() => {
     if (!form.profissional_id) return [];
-    const prof = profissionais.find((p: any) => p.id === form.profissional_id);
+    const prof = Array.isArray(profissionais) ? profissionais.find((p: any) => p.id === form.profissional_id) : undefined;
     if (!prof) return [];
     const specs = prof.especialidade
       ? prof.especialidade
@@ -1830,11 +1835,13 @@ Fico à disposição para qualquer dúvida!`;
                     <SelectValue placeholder="Selecione o profissional…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {profissionais.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
+                    {Array.isArray(profissionais) ? (
+                      profissionais.map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))
+                    ) : null}
                   </SelectContent>
                 </Select>
               </div>
