@@ -35,6 +35,13 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+const generateUUID = () => {
+  if (typeof window !== "undefined" && window.crypto && window.crypto.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+};
+
 interface Programa {
   id: string;
   nome: string;
@@ -140,6 +147,7 @@ export function PlanoAbaDialog({
 
   // Filter or sort professionals to prioritize supervisors
   const supervisores = useMemo(() => {
+    if (!Array.isArray(profissionais)) return [];
     return profissionais.filter(
       (p: any) =>
         p.especialidade?.toLowerCase().includes("supervisor") ||
@@ -198,7 +206,7 @@ export function PlanoAbaDialog({
               
               // Copy programs but reset trial responses for the new session
               const cleanedPrograms = (prevPlan.programas ?? []).map((p: any) => ({
-                id: p.id || crypto.randomUUID(),
+                id: p.id || generateUUID(),
                 nome: p.nome || "",
                 tentativas_prog: p.tentativas_prog ?? 12,
                 respostas: {},
@@ -210,7 +218,7 @@ export function PlanoAbaDialog({
               setProgramas(
                 DEFAULT_PROGRAMAS.map((p) => ({
                   ...p,
-                  id: crypto.randomUUID(),
+                  id: generateUUID(),
                   respostas: {},
                 }))
               );
@@ -230,7 +238,7 @@ export function PlanoAbaDialog({
             setProgramas(
               DEFAULT_PROGRAMAS.map((p) => ({
                 ...p,
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 respostas: {},
               }))
             );
@@ -268,7 +276,7 @@ export function PlanoAbaDialog({
         
         // Copy programs but reset trial responses
         const cleanedPrograms = (prevPlan.programas ?? []).map((p: any) => ({
-          id: p.id || crypto.randomUUID(),
+          id: p.id || generateUUID(),
           nome: p.nome || "",
           tentativas_prog: p.tentativas_prog ?? 12,
           respostas: {},
@@ -288,7 +296,7 @@ export function PlanoAbaDialog({
     setProgramas(
       DEFAULT_PROGRAMAS.map((p) => ({
         ...p,
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         respostas: {},
       }))
     );
@@ -371,7 +379,7 @@ export function PlanoAbaDialog({
     setProgramas((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         nome: `Programa ${prev.length + 1}`,
         tentativas_prog: 12,
         respostas: {},
@@ -439,19 +447,19 @@ export function PlanoAbaDialog({
             <SelectValue placeholder="Selecione o Supervisor..." />
           </SelectTrigger>
           <SelectContent>
-            {supervisores.length > 0 ? (
+            {Array.isArray(supervisores) && supervisores.length > 0 ? (
               supervisores.map((p: any) => (
                 <SelectItem key={p.id} value={p.id} className="text-xs">
                   {p.nome}
                 </SelectItem>
               ))
-            ) : (
+            ) : Array.isArray(profissionais) ? (
               profissionais.map((p: any) => (
                 <SelectItem key={p.id} value={p.id} className="text-xs">
                   {p.nome} ({p.especialidade || "Profissional"})
                 </SelectItem>
               ))
-            )}
+            ) : null}
           </SelectContent>
         </Select>
       </div>

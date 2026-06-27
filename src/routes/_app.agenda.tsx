@@ -973,7 +973,7 @@ function AgendamentoDialog({
   });
 
   // Localiza o paciente selecionado para recuperar os detalhes de faturamento/cobrança
-  const selectedPaciente = pacientes.find((p: any) => p.id === form.paciente_id);
+  const selectedPaciente = Array.isArray(pacientes) ? pacientes.find((p: any) => p.id === form.paciente_id) : undefined;
   const isMensal = !!(selectedPaciente?.valor_mensal && selectedPaciente.valor_mensal > 0);
 
   const whatsappUrl = useMemo(() => {
@@ -2254,8 +2254,8 @@ Fico à disposição para qualquer dúvida!`;
           open={planoAbaOpen}
           onOpenChange={setPlanoAbaOpen}
           pacienteId={form.paciente_id}
-          pacienteNome={selectedPaciente?.nome || ""}
-          profissionalNome={profissionais.find((p: any) => p.id === form.profissional_id)?.nome || ""}
+          pacienteNome={selectedPaciente ? selectedPaciente.nome : ""}
+          profissionalNome={Array.isArray(profissionais) ? (profissionais.find((p: any) => p.id === form.profissional_id)?.nome || "") : ""}
           value={form.plano_aba}
           onChange={(val) => setForm((prev) => ({ ...prev, plano_aba: val }))}
         />
