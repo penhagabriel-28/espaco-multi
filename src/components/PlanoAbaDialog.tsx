@@ -409,56 +409,56 @@ export function PlanoAbaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[1400px] max-h-[92vh] flex flex-col p-6 rounded-xl border border-border/80 shadow-2xl bg-background overflow-hidden animate-in fade-in duration-200">
-        <DialogHeader className="border-b pb-4 flex flex-row items-center justify-between space-y-0">
-          <div>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-foreground">
-              <Activity className="h-5 w-5 text-purple-600 animate-pulse" />
-              Plano de Intervenção ABA — Registro de Sessão
-            </DialogTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              Organize programas, número de tentativas e registre o desempenho do paciente.
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs font-semibold flex gap-1.5 hover:bg-slate-50 border-slate-200"
-              onClick={handleCopyHistory}
-            >
-              <Copy className="h-3.5 w-3.5" />
-              Copiar Histórico
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs font-semibold flex gap-1.5 text-amber-700 hover:text-amber-800 hover:bg-amber-50 border-amber-200"
-              onClick={handleRestoreDefault}
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Restaurar Padrão
-            </Button>
-          </div>
-        </DialogHeader>
+        <DialogContent className="w-full h-full sm:h-auto max-w-full sm:max-w-[95vw] sm:w-[1400px] max-h-[100vh] sm:max-h-[92vh] flex flex-col p-3 sm:p-6 rounded-none sm:rounded-xl border border-border/80 shadow-2xl bg-background overflow-hidden animate-in fade-in duration-200">
+          <DialogHeader className="border-b pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 space-y-0">
+            <div>
+              <DialogTitle className="text-lg sm:text-xl font-bold flex items-center gap-2 text-foreground">
+                <Activity className="h-5 w-5 text-purple-600 animate-pulse" />
+                Plano de Intervenção ABA — Registro de Sessão
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Organize programas, número de tentativas e registre o desempenho do paciente.
+              </p>
+            </div>
+            <div className="flex flex-row gap-2 w-full sm:w-auto justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-semibold flex-1 sm:flex-initial flex justify-center items-center gap-1.5 hover:bg-slate-50 border-slate-200"
+                onClick={handleCopyHistory}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copiar Histórico
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-semibold flex-1 sm:flex-initial flex justify-center items-center gap-1.5 text-amber-700 hover:text-amber-800 hover:bg-amber-50 border-amber-200"
+                onClick={handleRestoreDefault}
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Restaurar Padrão
+              </Button>
+            </div>
+          </DialogHeader>
 
         {/* Outer Split Layout */}
-        <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-6 py-4 overflow-hidden min-h-0">
+        <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-6 py-3 overflow-y-auto xl:overflow-hidden min-h-0">
           
           {/* Main Grid Sheet - Take 3 Columns */}
-          <div className="xl:col-span-3 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/10 rounded-xl border p-4 space-y-3">
-            <div className="flex justify-between items-center bg-white dark:bg-slate-950 p-2.5 rounded-lg border shadow-sm">
+          <div className="xl:col-span-3 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/10 rounded-xl border p-3 sm:p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center bg-white dark:bg-slate-950 p-2.5 rounded-lg border shadow-sm">
               <div className="flex items-center gap-3">
                 <Label htmlFor="tentativasMaxInput" className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Máximo de Tentativas na Sessão:
+                  Tentativas:
                 </Label>
                 <Select
                   value={String(tentativasMax)}
                   onValueChange={(v) => setTentativasMax(Number(v))}
                 >
-                  <SelectTrigger id="tentativasMaxInput" className="w-20 h-8 font-mono text-xs">
+                  <SelectTrigger id="tentativasMaxInput" className="w-18 h-8 font-mono text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -472,72 +472,72 @@ export function PlanoAbaDialog({
               </div>
 
               {/* Quick filling tools */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 w-full sm:w-auto justify-end">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 text-[10px] px-2.5 font-bold hover:bg-emerald-50 text-emerald-700 border-emerald-200"
+                  className="h-7 text-[10px] px-2.5 flex-1 sm:flex-initial font-bold hover:bg-emerald-50 text-emerald-700 border-emerald-200"
                   onClick={handleFillWithRI}
                 >
                   <CheckCircle className="h-3 w-3 mr-1" />
-                  Preencher Resto com RI
+                  Resto com RI
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-7 text-[10px] px-2.5 font-bold hover:bg-rose-50 text-rose-700 border-rose-200"
+                  className="h-7 text-[10px] px-2.5 flex-1 sm:flex-initial font-bold hover:bg-rose-50 text-rose-700 border-rose-200"
                   onClick={handleClearAll}
                 >
                   <Trash2 className="h-3 w-3 mr-1" />
-                  Zerar Tentativas
+                  Zerar Tudo
                 </Button>
               </div>
             </div>
 
             {/* Scrollable Table Area */}
-            <div className="flex-1 border rounded-lg overflow-auto bg-white dark:bg-slate-950 shadow-sm min-h-0 relative">
+            <div className="h-[380px] xl:h-auto xl:flex-1 border rounded-lg overflow-auto bg-white dark:bg-slate-950 shadow-sm min-h-0 relative">
               <table className="w-full text-left border-collapse table-fixed">
                 <thead>
                   <tr className="bg-slate-100/80 dark:bg-slate-900 border-b text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider sticky top-0 z-20">
-                    <th className="w-[50px] p-2 text-center sticky left-0 bg-slate-100 dark:bg-slate-900 border-r z-30">Nº</th>
-                    <th className="w-[280px] p-2 sticky left-[50px] bg-slate-100 dark:bg-slate-900 border-r z-30">Programas</th>
-                    <th className="w-[70px] p-2 text-center border-r">Tentativas</th>
+                    <th className="w-[40px] md:w-[50px] p-2 text-center sticky left-0 bg-slate-100 dark:bg-slate-900 border-r z-30">Nº</th>
+                    <th className="w-[140px] md:w-[280px] p-2 sticky left-[40px] md:left-[50px] bg-slate-100 dark:bg-slate-900 border-r z-30">Programas</th>
+                    <th className="w-[60px] md:w-[70px] p-2 text-center border-r">Tents</th>
                     
                     {/* Render columns up to tentativasMax */}
                     {Array.from({ length: tentativasMax }).map((_, i) => (
-                      <th key={i} className="w-[38px] p-1 text-center font-mono border-r">
+                      <th key={i} className="w-[40px] md:w-[44px] p-1 text-center font-mono border-r">
                         {i + 1}
                       </th>
                     ))}
                     
-                    <th className="w-[42px] p-1 text-center bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-r">RI</th>
-                    <th className="w-[42px] p-1 text-center bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-r">AP</th>
-                    <th className="w-[42px] p-1 text-center bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border-r">AT</th>
-                    <th className="w-[42px] p-1 text-center bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-r">E</th>
-                    <th className="w-[48px] p-2 text-center"></th>
+                    <th className="w-[36px] md:w-[42px] p-1 text-center bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-r">RI</th>
+                    <th className="w-[36px] md:w-[42px] p-1 text-center bg-amber-50/50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400 border-r">AP</th>
+                    <th className="w-[36px] md:w-[42px] p-1 text-center bg-rose-50/50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border-r">AT</th>
+                    <th className="w-[36px] md:w-[42px] p-1 text-center bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-r">E</th>
+                    <th className="w-[44px] md:w-[48px] p-2 text-center"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y text-xs">
                   {programas.map((prog, index) => (
                     <tr key={prog.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/30 transition-colors">
                       {/* Sticky index */}
-                      <td className="p-2 text-center font-semibold font-mono border-r bg-white dark:bg-slate-950 sticky left-0 z-10">
+                      <td className="p-2 text-center font-semibold font-mono border-r bg-white dark:bg-slate-950 sticky left-0 z-10 text-[11px]">
                         {index + 1}
                       </td>
 
                       {/* Sticky program name/description */}
-                      <td className="p-2 border-r bg-white dark:bg-slate-950 sticky left-[50px] z-10">
+                      <td className="p-1.5 border-r bg-white dark:bg-slate-950 sticky left-[40px] md:left-[50px] z-10">
                         <Input
                           value={prog.nome}
                           onChange={(e) => handleProgramNameChange(prog.id, e.target.value)}
-                          className="h-8 text-xs font-medium border-transparent hover:border-border focus:border-primary px-1.5 focus:bg-white"
+                          className="h-8 text-[11px] md:text-xs font-medium border-transparent hover:border-border focus:border-primary px-1 focus:bg-white"
                         />
                       </td>
 
                       {/* Trials count for this program */}
-                      <td className="p-2 border-r text-center">
+                      <td className="p-1.5 border-r text-center">
                         <Input
                           type="number"
                           min={1}
@@ -549,7 +549,7 @@ export function PlanoAbaDialog({
                               Math.min(tentativasMax, Math.max(1, Number(e.target.value)))
                             )
                           }
-                          className="h-8 w-14 text-xs text-center px-1 font-mono"
+                          className="h-8 w-11 md:w-14 text-[11px] md:text-xs text-center px-0.5 font-mono"
                         />
                       </td>
 
@@ -597,7 +597,7 @@ export function PlanoAbaDialog({
                               type="button"
                               disabled={isDisabled}
                               onClick={() => handleCellClick(prog.id, trialNum, isDisabled)}
-                              className={`w-full h-8 flex items-center justify-center rounded text-[10px] uppercase transition-all duration-150 ${cellClass}`}
+                              className={`w-full h-9 flex items-center justify-center rounded text-[10px] uppercase transition-all duration-150 ${cellClass}`}
                             >
                               {cellContent}
                             </button>
