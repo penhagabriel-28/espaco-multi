@@ -1129,7 +1129,7 @@ Fico à disposição para qualquer dúvida!`;
   // 3. Find configured rates/plans
   const currentPricing = useMemo(() => {
     if (!form.profissional_id || !selectedSpecialty) return null;
-    const prof = profissionais.find((p: any) => p.id === form.profissional_id);
+    const prof = Array.isArray(profissionais) ? profissionais.find((p: any) => p.id === form.profissional_id) : undefined;
     if (!prof) return null;
 
     const config = (prof.valores_config as any) || { especialidades: [], descontos: [] };
@@ -1180,9 +1180,9 @@ Fico à disposição para qualquer dúvida!`;
   const getSelectedSpecialtyDuration = () => {
     const specUpper = (selectedSpecialty || "").toUpperCase();
     if (specUpper === "AT ABA") return 90;
-    const s: any = servicos.find(
+    const s: any = Array.isArray(servicos) ? servicos.find(
       (x: any) => x.nome?.toLowerCase() === selectedSpecialty?.toLowerCase(),
-    );
+    ) : undefined;
     return s ? s.duracao_minutos : 60;
   };
 
@@ -1238,7 +1238,7 @@ Fico à disposição para qualquer dúvida!`;
   const handleSpecialtyChange = (spec: string) => {
     setSelectedSpecialty(spec);
     const specUpper = (spec || "").toUpperCase();
-    const s: any = servicos.find((x: any) => x.nome?.toLowerCase() === spec?.toLowerCase());
+    const s: any = Array.isArray(servicos) ? servicos.find((x: any) => x.nome?.toLowerCase() === spec?.toLowerCase()) : undefined;
     const duration = specUpper === "AT ABA" ? 90 : (s ? s.duracao_minutos : 60);
     const newEnd = safeFormatDate(
       new Date(form.data_inicio).getTime() + duration * 60000,
@@ -1276,9 +1276,9 @@ Fico à disposição para qualquer dúvida!`;
         }
       }
 
-      let matchingServico = servicos.find(
+      let matchingServico = Array.isArray(servicos) ? servicos.find(
         (s: any) => s.nome?.toLowerCase() === selectedSpecialty?.toLowerCase(),
-      );
+      ) : undefined;
 
       if (!matchingServico && selectedSpecialty) {
         const specUpper = (selectedSpecialty || "").toUpperCase();
@@ -1695,8 +1695,7 @@ Fico à disposição para qualquer dúvida!`;
                       <div>
                         <span className="text-muted-foreground font-medium">Profissional:</span>{" "}
                         <span className="text-foreground font-semibold">
-                          {profissionais.find((p: any) => p.id === form.profissional_id)?.nome ||
-                            "—"}
+                          {Array.isArray(profissionais) ? (profissionais.find((p: any) => p.id === form.profissional_id)?.nome || "—") : "—"}
                         </span>
                       </div>
                       <div>
@@ -1745,7 +1744,7 @@ Fico à disposição para qualquer dúvida!`;
                       <div>
                         <span className="text-muted-foreground font-medium">Sala:</span>{" "}
                         <span className="text-foreground font-semibold">
-                          {salas.find((s: any) => s.id === form.sala_id)?.nome || "Sem Sala"}
+                          {Array.isArray(salas) ? (salas.find((s: any) => s.id === form.sala_id)?.nome || "Sem Sala") : "Sem Sala"}
                         </span>
                       </div>
                     </div>
@@ -1762,9 +1761,9 @@ Fico à disposição para qualquer dúvida!`;
                   {/* Todos os Agendamentos do Paciente */}
                   <div className="space-y-1.5 pt-1">
                     <div className="font-medium text-primary text-[10px] uppercase flex items-center justify-between">
-                      <span>Todos os Agendamentos do Paciente ({patientAgs.length})</span>
+                      <span>Todos os Agendamentos do Paciente ({Array.isArray(patientAgs) ? patientAgs.length : 0})</span>
                     </div>
-                    {sortedPatientAgs.length === 0 ? (
+                    {Array.isArray(sortedPatientAgs) && sortedPatientAgs.length === 0 ? (
                       <p className="text-muted-foreground italic">
                         Nenhum outro agendamento encontrado.
                       </p>
@@ -1775,7 +1774,7 @@ Fico à disposição para qualquer dúvida!`;
                             key={a.id}
                             className={cn(
                               "p-1.5 rounded border flex items-center justify-between text-[11px] transition",
-                              a.id === editing.id
+                              a.id === editing?.id
                                 ? "bg-primary/5 border-primary/30"
                                 : "bg-card border-border/40",
                             )}
