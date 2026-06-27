@@ -148,11 +148,10 @@ export function PlanoAbaDialog({
   // Filter or sort professionals to prioritize supervisors
   const supervisores = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
-    return profissionais.filter(
-      (p: any) =>
-        p.especialidade?.toLowerCase().includes("supervisor") ||
-        p.especialidade?.toLowerCase().includes("coordenad")
-    );
+    return profissionais.filter((p: any) => {
+      const spec = p.especialidade ? String(p.especialidade).toLowerCase() : "";
+      return spec.includes("supervisor") || spec.includes("coordenad");
+    });
   }, [profissionais]);
 
   // Plano ABA local states
@@ -223,12 +222,13 @@ export function PlanoAbaDialog({
                 }))
               );
               // Auto-select Bráulio Roosevelt if found
-              const braulio = profissionais.find((p) =>
-                p.nome?.toLowerCase().includes("bráulio")
-              );
+              const braulio = Array.isArray(profissionais) ? profissionais.find((p) => {
+                const name = p.nome ? String(p.nome).toLowerCase() : "";
+                return name.includes("bráulio");
+              }) : undefined;
               if (braulio) {
                 setSupervisorId(braulio.id);
-              } else if (supervisores.length > 0) {
+              } else if (Array.isArray(supervisores) && supervisores.length > 0) {
                 setSupervisorId(supervisores[0].id);
               }
             }
@@ -305,7 +305,7 @@ export function PlanoAbaDialog({
 
   // Save changes and return to parent
   const handleSave = () => {
-    const supervisor = profissionais.find((p) => p.id === supervisorId);
+    const supervisor = Array.isArray(profissionais) ? profissionais.find((p) => p.id === supervisorId) : undefined;
     const payload = {
       supervisor_id: supervisorId || null,
       supervisor_nome: supervisor ? supervisor.nome : "",
