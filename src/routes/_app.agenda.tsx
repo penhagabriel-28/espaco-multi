@@ -132,7 +132,27 @@ function Agenda() {
           .order("nome")
       ).data ?? [],
   });
+  const sortedProfissionais = useMemo(() => {
+    if (!Array.isArray(profissionais)) return [];
+    return [...profissionais].sort((a, b) => {
+      const aSelected = selectedProfs.includes(a.id);
+      const bSelected = selectedProfs.includes(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return (a.nome || "").localeCompare(b.nome || "");
+    });
+  }, [profissionais, selectedProfs]);
 
+  const sortedPacientesList = useMemo(() => {
+    if (!Array.isArray(pacientes)) return [];
+    return [...pacientes].sort((a, b) => {
+      const aSelected = selectedPacs.includes(a.id);
+      const bSelected = selectedPacs.includes(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return (a.nome || "").localeCompare(b.nome || "");
+    });
+  }, [pacientes, selectedPacs]);
   const { data: ags = [] } = useQuery({
     queryKey: ["ags", weekStart.toISOString()],
     queryFn: async () => {
@@ -256,7 +276,7 @@ function Agenda() {
                 <CommandList>
                   <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">Nenhum profissional encontrado.</CommandEmpty>
                   <CommandGroup>
-                    {profissionais.map((p: any) => {
+                    {sortedProfissionais.map((p: any) => {
                       const isSelected = selectedProfs.includes(p.id);
                       return (
                         <CommandItem
@@ -269,7 +289,10 @@ function Agenda() {
                               setSelectedProfs([...selectedProfs, p.id]);
                             }
                           }}
-                          className="flex items-center gap-2 cursor-pointer text-xs py-1.5"
+                          className={cn(
+                            "flex items-center gap-2 cursor-pointer text-xs py-1.5",
+                            isSelected && "bg-primary/5 font-semibold text-primary",
+                          )}
                         >
                           <Checkbox checked={isSelected} className="pointer-events-none h-3.5 w-3.5" />
                           <div
@@ -347,7 +370,7 @@ function Agenda() {
                 <CommandList>
                   <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">Nenhum paciente encontrado.</CommandEmpty>
                   <CommandGroup className="max-h-[250px] overflow-y-auto">
-                    {pacientes.map((p: any) => {
+                    {sortedPacientesList.map((p: any) => {
                       const isSelected = selectedPacs.includes(p.id);
                       return (
                         <CommandItem
@@ -360,7 +383,10 @@ function Agenda() {
                               setSelectedPacs([...selectedPacs, p.id]);
                             }
                           }}
-                          className="flex items-center gap-2 cursor-pointer text-xs py-1.5"
+                          className={cn(
+                            "flex items-center gap-2 cursor-pointer text-xs py-1.5",
+                            isSelected && "bg-primary/5 font-semibold text-primary",
+                          )}
                         >
                           <Checkbox checked={isSelected} className="pointer-events-none h-3.5 w-3.5" />
                           <span className="truncate">{p.nome}</span>
