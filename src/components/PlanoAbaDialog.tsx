@@ -30,8 +30,10 @@ import {
   User,
   Activity,
   CheckCircle,
+  Star,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface Programa {
   id: string;
@@ -407,6 +409,101 @@ export function PlanoAbaDialog({
     return count;
   };
 
+  const [activeMobileTab, setActiveMobileTab] = useState<"planilha" | "dados" | "preferencias" | "observacoes">("planilha");
+
+  const cardDados = (
+    <div className="bg-white dark:bg-slate-950 border rounded-xl p-4 space-y-3.5 shadow-sm">
+      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
+        <User className="h-3.5 w-3.5 text-slate-500" />
+        Dados do Atendimento
+      </h3>
+
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground uppercase font-bold">Paciente</Label>
+        <div className="text-sm font-semibold truncate bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 rounded border">
+          {pacienteNome}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground uppercase font-bold">Terapeuta</Label>
+        <div className="text-sm font-semibold truncate bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 rounded border">
+          {profissionalNome}
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-[10px] text-muted-foreground uppercase font-bold">Supervisor ABA *</Label>
+        <Select value={supervisorId} onValueChange={setSupervisorId}>
+          <SelectTrigger className="text-xs h-9 bg-slate-50/50">
+            <SelectValue placeholder="Selecione o Supervisor..." />
+          </SelectTrigger>
+          <SelectContent>
+            {supervisores.length > 0 ? (
+              supervisores.map((p: any) => (
+                <SelectItem key={p.id} value={p.id} className="text-xs">
+                  {p.nome}
+                </SelectItem>
+              ))
+            ) : (
+              profissionais.map((p: any) => (
+                <SelectItem key={p.id} value={p.id} className="text-xs">
+                  {p.nome} ({p.especialidade || "Profissional"})
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+
+  const cardPreferencias = (
+    <div className="bg-white dark:bg-slate-950 border rounded-xl p-4 space-y-3 shadow-sm">
+      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
+        <Calendar className="h-3.5 w-3.5 text-slate-500" />
+        Avaliações de Preferência
+      </h3>
+      <p className="text-[10px] text-muted-foreground -mt-1.5">
+        Registre itens/atividades preferidos usados para reforço:
+      </p>
+
+      {avaliacoesPreferencia.map((item, idx) => (
+        <div key={idx} className="flex items-center gap-2">
+          <span className="text-[10px] font-mono font-bold text-slate-400 w-3">
+            {idx + 1}
+          </span>
+          <Input
+            placeholder={`Item de preferência ${idx + 1}...`}
+            value={item}
+            onChange={(e) => {
+              const updated = [...avaliacoesPreferencia];
+              updated[idx] = e.target.value;
+              setAvaliacoesPreferencia(updated);
+            }}
+            className="h-8 text-xs"
+          />
+        </div>
+      ))}
+    </div>
+  );
+
+  const cardObservacoes = (
+    <div className="bg-white dark:bg-slate-950 border rounded-xl p-4 space-y-3 shadow-sm flex-grow flex flex-col min-h-[220px]">
+      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
+        <Info className="h-3.5 w-3.5 text-slate-500" />
+        Observação / Medicamentos
+      </h3>
+      
+      <Textarea
+        placeholder="Exemplo: Risperidona 3 vezes ao dia (0,5 manhã, 0,5 tarde e 1 à noite); Canabidiol 1,5 dividido em 3x ao dia; Carbamazepina 5ml 3x ao dia..."
+        value={observacoesMedica}
+        onChange={(e) => setObservacoesMedica(e.target.value)}
+        className="text-xs resize-none flex-1 min-h-[140px] focus-visible:ring-purple-500"
+      />
+    </div>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="w-full h-full sm:h-auto max-w-full sm:max-w-[95vw] sm:w-[1400px] max-h-[100vh] sm:max-h-[92vh] flex flex-col p-3 sm:p-6 rounded-none sm:rounded-xl border border-border/80 shadow-2xl bg-background overflow-hidden animate-in fade-in duration-200">
@@ -444,11 +541,70 @@ export function PlanoAbaDialog({
             </div>
           </DialogHeader>
 
+          {/* Mobile Tabs Header */}
+          <div className="xl:hidden flex border-b bg-slate-100/80 dark:bg-slate-900 p-1 rounded-lg gap-1 shrink-0 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveMobileTab("planilha")}
+              className={cn(
+                "flex-1 min-w-[80px] py-1.5 px-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                activeMobileTab === "planilha"
+                  ? "bg-white dark:bg-slate-950 text-purple-700 dark:text-purple-400 shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800"
+              )}
+            >
+              <Activity className="h-3.5 w-3.5 text-purple-600 animate-pulse" />
+              Planilha
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMobileTab("dados")}
+              className={cn(
+                "flex-1 min-w-[80px] py-1.5 px-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                activeMobileTab === "dados"
+                  ? "bg-white dark:bg-slate-950 text-purple-700 dark:text-purple-400 shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800"
+              )}
+            >
+              <User className="h-3.5 w-3.5 text-slate-500" />
+              Dados
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMobileTab("preferencias")}
+              className={cn(
+                "flex-1 min-w-[80px] py-1.5 px-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                activeMobileTab === "preferencias"
+                  ? "bg-white dark:bg-slate-950 text-purple-700 dark:text-purple-400 shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800"
+              )}
+            >
+              <Star className="h-3.5 w-3.5 text-amber-500" />
+              Preferências
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMobileTab("observacoes")}
+              className={cn(
+                "flex-1 min-w-[80px] py-1.5 px-2 rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                activeMobileTab === "observacoes"
+                  ? "bg-white dark:bg-slate-950 text-purple-700 dark:text-purple-400 shadow-sm"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800"
+              )}
+            >
+              <FileText className="h-3.5 w-3.5 text-slate-500" />
+              Obs / Meds
+            </button>
+          </div>
+
         {/* Outer Split Layout */}
         <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-6 py-3 overflow-y-auto xl:overflow-hidden min-h-0">
           
           {/* Main Grid Sheet - Take 3 Columns */}
-          <div className="xl:col-span-3 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/10 rounded-xl border p-3 sm:p-4 space-y-3">
+          <div className={cn(
+            "xl:col-span-3 flex flex-col min-h-0 bg-slate-50/50 dark:bg-slate-900/10 rounded-xl border p-3 sm:p-4 space-y-3",
+            activeMobileTab === "planilha" ? "flex" : "hidden xl:flex"
+          )}>
             <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center bg-white dark:bg-slate-950 p-2.5 rounded-lg border shadow-sm">
               <div className="flex items-center gap-3">
                 <Label htmlFor="tentativasMaxInput" className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -692,99 +848,18 @@ export function PlanoAbaDialog({
             </div>
           </div>
 
-          {/* Right Sidebar - Metadata & Assessments (1 Column) */}
-          <div className="flex flex-col gap-4 overflow-y-auto pr-1">
-            
-            {/* Metadata Card */}
-            <div className="bg-white dark:bg-slate-950 border rounded-xl p-4 space-y-3.5 shadow-sm">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5 text-slate-500" />
-                Dados do Atendimento
-              </h3>
+          {/* Right Sidebar - Metadata & Assessments (1 Column - Desktop Only) */}
+          <div className="hidden xl:flex flex-col gap-4 overflow-y-auto pr-1">
+            {cardDados}
+            {cardPreferencias}
+            {cardObservacoes}
+          </div>
 
-              <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground uppercase font-bold">Paciente</Label>
-                <div className="text-sm font-semibold truncate bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 rounded border">
-                  {pacienteNome}
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground uppercase font-bold">Terapeuta</Label>
-                <div className="text-sm font-semibold truncate bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 rounded border">
-                  {profissionalNome}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-[10px] text-muted-foreground uppercase font-bold">Supervisor ABA *</Label>
-                <Select value={supervisorId} onValueChange={setSupervisorId}>
-                  <SelectTrigger className="text-xs h-9 bg-slate-50/50">
-                    <SelectValue placeholder="Selecione o Supervisor..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {supervisores.length > 0 ? (
-                      supervisores.map((p: any) => (
-                        <SelectItem key={p.id} value={p.id} className="text-xs">
-                          {p.nome}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      profissionais.map((p: any) => (
-                        <SelectItem key={p.id} value={p.id} className="text-xs">
-                          {p.nome} ({p.especialidade || "Profissional"})
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Preference Assessments Card */}
-            <div className="bg-white dark:bg-slate-950 border rounded-xl p-4 space-y-3 shadow-sm">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
-                <Calendar className="h-3.5 w-3.5 text-slate-500" />
-                Avaliações de Preferência
-              </h3>
-              <p className="text-[10px] text-muted-foreground -mt-1.5">
-                Registre itens/atividades preferidos usados para reforço:
-              </p>
-
-              {avaliacoesPreferencia.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold text-slate-400 w-3">
-                    {idx + 1}
-                  </span>
-                  <Input
-                    placeholder={`Item de preferência ${idx + 1}...`}
-                    value={item}
-                    onChange={(e) => {
-                      const updated = [...avaliacoesPreferencia];
-                      updated[idx] = e.target.value;
-                      setAvaliacoesPreferencia(updated);
-                    }}
-                    className="h-8 text-xs"
-                  />
-                </div>
-              ))}
-            </div>
-
-            {/* Observations Card */}
-            <div className="bg-white dark:bg-slate-950 border rounded-xl p-4 space-y-3 shadow-sm flex-1 flex flex-col">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b pb-2 flex items-center gap-1.5">
-                <Info className="h-3.5 w-3.5 text-slate-500" />
-                Observação / Medicamentos
-              </h3>
-              
-              <Textarea
-                placeholder="Exemplo: Risperidona 3 vezes ao dia (0,5 manhã, 0,5 tarde e 1 à noite); Canabidiol 1,5 dividido em 3x ao dia; Carbamazepina 5ml 3x ao dia..."
-                value={observacoesMedica}
-                onChange={(e) => setObservacoesMedica(e.target.value)}
-                className="text-xs resize-none flex-1 min-h-[140px] focus-visible:ring-purple-500"
-              />
-            </div>
-
+          {/* Mobile Sidebar Tabs Content (Mobile Only) */}
+          <div className="xl:hidden flex flex-col gap-4 shrink-0">
+            {activeMobileTab === "dados" && cardDados}
+            {activeMobileTab === "preferencias" && cardPreferencias}
+            {activeMobileTab === "observacoes" && cardObservacoes}
           </div>
 
         </div>
