@@ -31,6 +31,7 @@ import {
   Activity,
   CheckCircle,
   Star,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -845,7 +846,7 @@ export function PlanoAbaDialog({
                 <Button
                   type="button"
                   variant="outline"
-                  size="xs"
+                  size="sm"
                   className="h-6 text-[10px] px-2"
                   onClick={handleAddProgram}
                 >
