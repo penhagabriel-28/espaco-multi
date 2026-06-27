@@ -662,17 +662,17 @@ export function PlanoAbaDialog({
             </div>
 
             {/* Scrollable Table Area */}
-            <div className="h-[380px] xl:h-auto xl:flex-1 border rounded-lg overflow-auto bg-white dark:bg-slate-950 shadow-sm min-h-0 relative">
+            <div className="h-[420px] xl:h-auto xl:flex-1 border rounded-lg overflow-auto bg-white dark:bg-slate-950 shadow-sm min-h-[350px] shrink-0 relative">
               <table className="w-full text-left border-collapse table-fixed">
                 <thead>
                   <tr className="bg-slate-100/80 dark:bg-slate-900 border-b text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider sticky top-0 z-20">
-                    <th className="w-[40px] md:w-[50px] p-2 text-center sticky left-0 bg-slate-100 dark:bg-slate-900 border-r z-30">Nº</th>
-                    <th className="w-[140px] md:w-[280px] p-2 sticky left-[40px] md:left-[50px] bg-slate-100 dark:bg-slate-900 border-r z-30">Programas</th>
+                    <th className="w-8 md:w-10 p-1 text-center sticky left-0 bg-slate-100 dark:bg-slate-900 border-r z-30">Nº</th>
+                    <th className="w-[128px] md:w-[240px] p-1 sticky left-8 md:left-10 bg-slate-100 dark:bg-slate-900 border-r z-30">Programas</th>
                     <th className="w-[60px] md:w-[70px] p-2 text-center border-r">Tents</th>
                     
                     {/* Render columns up to tentativasMax */}
                     {Array.from({ length: tentativasMax }).map((_, i) => (
-                      <th key={i} className="w-[40px] md:w-[44px] p-1 text-center font-mono border-r">
+                      <th key={i} className="w-8 md:w-10 p-1 text-center font-mono border-r">
                         {i + 1}
                       </th>
                     ))}
@@ -688,12 +688,12 @@ export function PlanoAbaDialog({
                   {programas.map((prog, index) => (
                     <tr key={prog.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/30 transition-colors">
                       {/* Sticky index */}
-                      <td className="p-2 text-center font-semibold font-mono border-r bg-white dark:bg-slate-950 sticky left-0 z-10 text-[11px]">
+                      <td className="p-1 text-center font-semibold font-mono border-r bg-white dark:bg-slate-950 sticky left-0 z-10 text-[10px]">
                         {index + 1}
                       </td>
 
                       {/* Sticky program name/description */}
-                      <td className="p-1.5 border-r bg-white dark:bg-slate-950 sticky left-[40px] md:left-[50px] z-10">
+                      <td className="p-0 border-r bg-white dark:bg-slate-950 sticky left-8 md:left-10 z-10">
                         <Input
                           value={prog.nome}
                           onChange={(e) => handleProgramNameChange(prog.id, e.target.value)}
@@ -762,7 +762,7 @@ export function PlanoAbaDialog({
                               type="button"
                               disabled={isDisabled}
                               onClick={() => handleCellClick(prog.id, trialNum, isDisabled)}
-                              className={`w-full h-9 flex items-center justify-center rounded text-[10px] uppercase transition-all duration-150 ${cellClass}`}
+                              className={`w-full h-8 flex items-center justify-center rounded text-[10px] uppercase transition-all duration-150 ${cellClass}`}
                             >
                               {cellContent}
                             </button>
@@ -819,12 +819,32 @@ export function PlanoAbaDialog({
               )}
             </div>
 
-            {/* Footnote & Legend */}
-            <div className="flex flex-wrap gap-4 items-center bg-slate-50 dark:bg-slate-900/20 p-2.5 rounded-lg border text-[11px] text-slate-600 dark:text-slate-400">
-              <span className="font-bold flex items-center gap-1">
-                <Info className="h-3.5 w-3.5 text-primary" /> Legenda de Respostas (Clique na célula para alternar):
-              </span>
-              <div className="flex gap-3 flex-wrap">
+            {/* Footnote & Legend (Collapsible Details) */}
+            <details className="w-full bg-slate-50 dark:bg-slate-900/20 p-2.5 rounded-lg border text-[11px] text-slate-600 dark:text-slate-400 group">
+              <summary className="font-bold flex items-center gap-1 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                <Info className="h-3.5 w-3.5 text-primary" />
+                <span>Legenda de Respostas (Clique para expandir)</span>
+                <span className="ml-1 text-[9px] text-slate-400 font-normal group-open:hidden">(ver)</span>
+                <span className="ml-1 text-[9px] text-slate-400 font-normal hidden group-open:inline">(recolher)</span>
+                
+                <div className="ml-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAddProgram();
+                    }}
+                  >
+                    <Plus className="h-3 w-3 mr-1" />
+                    Incluir Programa
+                  </Button>
+                </div>
+              </summary>
+              
+              <div className="flex gap-3 flex-wrap mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
                 <span className="flex items-center gap-1">
                   <span className="w-5 h-4 flex items-center justify-center rounded text-[9px] bg-emerald-500/15 border border-emerald-500/20 text-emerald-700 font-bold">RI</span>
                   Resposta Independente
@@ -842,19 +862,7 @@ export function PlanoAbaDialog({
                   Ecoico
                 </span>
               </div>
-              <div className="ml-auto">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-[10px] px-2"
-                  onClick={handleAddProgram}
-                >
-                  <Plus className="h-3 w-3 mr-1" />
-                  Incluir Programa
-                </Button>
-              </div>
-            </div>
+            </details>
           </div>
 
           {/* Right Sidebar - Metadata & Assessments (1 Column - Desktop Only) */}
