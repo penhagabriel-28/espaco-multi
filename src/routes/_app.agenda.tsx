@@ -35,8 +35,10 @@ import {
   Users,
   Pencil,
   FileText,
+  Activity,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -866,10 +868,12 @@ function AgendamentoDialog({
     observacoes: initialObservacoes,
     meio_pagamento: initialPaymentMethod,
     sala_id: editing?.sala_id ?? "",
+    plano_aba: editing?.plano_aba ?? null,
   });
 
   const [pacienteOpen, setPacienteOpen] = useState(false);
   const [recorrenciaConfirmOpen, setRecorrenciaConfirmOpen] = useState(false);
+  const [planoAbaOpen, setPlanoAbaOpen] = useState(false);
 
   const [selectedSpecialty, setSelectedSpecialty] = useState(() => {
     if (editing) {
@@ -1327,6 +1331,7 @@ Fico à disposição para qualquer dúvida!`;
           recorrencia: form.recorrencia,
           observacoes: finalObservacoes,
           sala_id: form.sala_id || null,
+          plano_aba: form.plano_aba,
         };
 
         if (updateAllFuture) {
@@ -1453,6 +1458,7 @@ Fico à disposição para qualquer dúvida!`;
               observacoes: finalObservacoes,
               recorrencia_grupo: groupId,
               created_by: user?.id || null,
+              plano_aba: i === 0 ? form.plano_aba : null,
             };
             delete (payload as any).meio_pagamento;
             occurrences.push(payload);
@@ -2014,6 +2020,30 @@ Fico à disposição para qualquer dúvida!`;
                           {editing ? "Preencher Anamnese" : "Ver Rascunho Anamnese"}
                         </Button>
                       )}
+                      {specialtyUpper === "AT ABA" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-full mt-2 gap-1.5 border-purple-400 hover:bg-purple-50 text-purple-700 dark:text-purple-300 dark:hover:bg-purple-950/30 text-xs font-semibold h-8"
+                          onClick={() => {
+                            if (!form.paciente_id) {
+                              toast.error("Por favor, selecione um paciente antes de abrir o Plano ABA");
+                              return;
+                            }
+                            setPlanoAbaOpen(true);
+                          }}
+                        >
+                          <Activity className="h-3.5 w-3.5 text-purple-600" />
+                          {form.plano_aba ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Editar Plano ABA
+                            </span>
+                          ) : (
+                            "Preencher Plano ABA"
+                          )}
+                        </Button>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -2220,6 +2250,15 @@ Fico à disposição para qualquer dúvida!`;
             )}
           </>
         )}
+        <PlanoAbaDialog
+          open={planoAbaOpen}
+          onOpenChange={setPlanoAbaOpen}
+          pacienteId={form.paciente_id}
+          pacienteNome={selectedPaciente?.nome || ""}
+          profissionalNome={profissionais.find((p: any) => p.id === form.profissional_id)?.nome || ""}
+          value={form.plano_aba}
+          onChange={(val) => setForm((prev) => ({ ...prev, plano_aba: val }))}
+        />
       </form>
     </DialogContent>
   );
