@@ -12,7 +12,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, DollarSign, GripVertical, Users, Calendar, Loader2 } from "lucide-react";
@@ -20,7 +19,6 @@ import { toast } from "sonner";
 import { format, addMonths, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/hooks/useAuth";
 import {
   Table,
   TableBody,
@@ -65,7 +63,6 @@ const formatDisplayValue = (val: any) => {
 };
 
 function ProfissionaisPage() {
-  const { session } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -118,7 +115,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const {
@@ -137,7 +133,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const {
@@ -152,7 +147,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const {
@@ -169,7 +163,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const isLoading = loadingAgendamentos || loadingProfs || loadingPacientes || loadingPP;
@@ -308,11 +301,13 @@ function ProfissionaisPage() {
             if (!o) setEditing(null);
           }}
         >
-          <DialogTrigger asChild>
-            <Button className="gap-1.5 h-9 text-xs self-end sm:self-auto">
-              <Plus className="h-4 w-4" /> Novo profissional
-            </Button>
-          </DialogTrigger>
+          <Button
+            type="button"
+            className="gap-1.5 h-9 text-xs self-end sm:self-auto"
+            onClick={() => setOpen(true)}
+          >
+            <Plus className="h-4 w-4" /> Novo profissional
+          </Button>
           {open && (
             <ProfForm
               prof={editing}
