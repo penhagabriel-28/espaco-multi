@@ -175,6 +175,18 @@ function ProfissionaisPage() {
     refetchPP();
   };
 
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("profissionais").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Profissional removido");
+      qc.invalidateQueries({ queryKey: ["profissionais"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const [orderedData, setOrderedData] = useState<any[]>([]);
 
   useEffect(() => {
@@ -262,18 +274,6 @@ function ProfissionaisPage() {
     const orderIds = items.map((p) => p.id);
     localStorage.setItem("profissionais_ordem", JSON.stringify(orderIds));
   };
-
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("profissionais").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Profissional removido");
-      qc.invalidateQueries({ queryKey: ["profissionais"] });
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
 
   return (
     <div className="space-y-4">
