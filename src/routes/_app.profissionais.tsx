@@ -12,7 +12,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, DollarSign, GripVertical, Users, Calendar, Loader2 } from "lucide-react";
@@ -20,7 +19,6 @@ import { toast } from "sonner";
 import { format, addMonths, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/hooks/useAuth";
 import {
   Table,
   TableBody,
@@ -65,7 +63,6 @@ const formatDisplayValue = (val: any) => {
 };
 
 function ProfissionaisPage() {
-  const { session } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -118,7 +115,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const {
@@ -137,7 +133,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const {
@@ -152,7 +147,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const {
@@ -169,7 +163,6 @@ function ProfissionaisPage() {
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session,
   });
 
   const isLoading = loadingAgendamentos || loadingProfs || loadingPacientes || loadingPP;
@@ -182,35 +175,41 @@ function ProfissionaisPage() {
     refetchPP();
   };
 
-  const [orderedData, setOrderedData] = useState<any[]>([]);
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("profissionais").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Profissional removido");
+      qc.invalidateQueries({ queryKey: ["profissionais"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
-  useEffect(() => {
-    if (data.length > 0) {
+  const [orderIds, setOrderIds] = useState<string[]>(() => {
+    try {
       const savedOrder = localStorage.getItem("profissionais_ordem");
-      if (savedOrder) {
-        try {
-          const orderIds = JSON.parse(savedOrder);
-          if (Array.isArray(orderIds)) {
-            const sorted = [...data].sort((a, b) => {
-              const idxA = orderIds.indexOf(a.id);
-              const idxB = orderIds.indexOf(b.id);
-              if (idxA === -1 && idxB === -1) return 0;
-              if (idxA === -1) return 1;
-              if (idxB === -1) return -1;
-              return idxA - idxB;
-            });
-            setOrderedData(sorted);
-            return;
-          }
-        } catch (e) {
-          console.error("Error parsing profissionais_ordem from localStorage:", e);
-        }
-      }
-      setOrderedData(data);
-    } else {
-      setOrderedData([]);
+      const parsed = savedOrder ? JSON.parse(savedOrder) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("Error parsing profissionais_ordem from localStorage:", e);
+      return [];
     }
-  }, [data]);
+  });
+
+  const orderedData = useMemo(() => {
+    if (!Array.isArray(data) || data.length === 0) return [];
+    if (!orderIds.length) return data;
+    return [...data].sort((a, b) => {
+      const idxA = orderIds.indexOf(a.id);
+      const idxB = orderIds.indexOf(b.id);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+  }, [data, orderIds]);
 
   if (isLoading) {
     return (
@@ -265,22 +264,10 @@ function ProfissionaisPage() {
     const [reorderedItem] = items.splice(sourceIndex, 1);
     items.splice(targetIndex, 0, reorderedItem);
 
-    setOrderedData(items);
     const orderIds = items.map((p) => p.id);
+    setOrderIds(orderIds);
     localStorage.setItem("profissionais_ordem", JSON.stringify(orderIds));
   };
-
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("profissionais").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Profissional removido");
-      qc.invalidateQueries({ queryKey: ["profissionais"] });
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
 
   return (
     <div className="space-y-4">
@@ -308,11 +295,13 @@ function ProfissionaisPage() {
             if (!o) setEditing(null);
           }}
         >
-          <DialogTrigger asChild>
-            <Button className="gap-1.5 h-9 text-xs self-end sm:self-auto">
-              <Plus className="h-4 w-4" /> Novo profissional
-            </Button>
-          </DialogTrigger>
+          <Button
+            type="button"
+            className="gap-1.5 h-9 text-xs self-end sm:self-auto"
+            onClick={() => setOpen(true)}
+          >
+            <Plus className="h-4 w-4" /> Novo profissional
+          </Button>
           {open && (
             <ProfForm
               prof={editing}
