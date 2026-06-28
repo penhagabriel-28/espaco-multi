@@ -187,35 +187,29 @@ function ProfissionaisPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const [orderedData, setOrderedData] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (data.length > 0) {
+  const [orderIds, setOrderIds] = useState<string[]>(() => {
+    try {
       const savedOrder = localStorage.getItem("profissionais_ordem");
-      if (savedOrder) {
-        try {
-          const orderIds = JSON.parse(savedOrder);
-          if (Array.isArray(orderIds)) {
-            const sorted = [...data].sort((a, b) => {
-              const idxA = orderIds.indexOf(a.id);
-              const idxB = orderIds.indexOf(b.id);
-              if (idxA === -1 && idxB === -1) return 0;
-              if (idxA === -1) return 1;
-              if (idxB === -1) return -1;
-              return idxA - idxB;
-            });
-            setOrderedData(sorted);
-            return;
-          }
-        } catch (e) {
-          console.error("Error parsing profissionais_ordem from localStorage:", e);
-        }
-      }
-      setOrderedData(data);
-    } else {
-      setOrderedData([]);
+      const parsed = savedOrder ? JSON.parse(savedOrder) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("Error parsing profissionais_ordem from localStorage:", e);
+      return [];
     }
-  }, [data]);
+  });
+
+  const orderedData = useMemo(() => {
+    if (!Array.isArray(data) || data.length === 0) return [];
+    if (!orderIds.length) return data;
+    return [...data].sort((a, b) => {
+      const idxA = orderIds.indexOf(a.id);
+      const idxB = orderIds.indexOf(b.id);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+  }, [data, orderIds]);
 
   if (isLoading) {
     return (
@@ -270,8 +264,8 @@ function ProfissionaisPage() {
     const [reorderedItem] = items.splice(sourceIndex, 1);
     items.splice(targetIndex, 0, reorderedItem);
 
-    setOrderedData(items);
     const orderIds = items.map((p) => p.id);
+    setOrderIds(orderIds);
     localStorage.setItem("profissionais_ordem", JSON.stringify(orderIds));
   };
 
