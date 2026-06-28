@@ -34,47 +34,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async function initializeAuth() {
       try {
         const { data } = await supabase.auth.getSession();
-        let activeSession = data.session;
-
-        if (!activeSession) {
-          const email = "clinica@espacomulti.com";
-          const password = "ClinicaMulti2026!";
-
-          const { error: signInError, data: signInData } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
-
-          if (signInError) {
-            // Se o usuário genérico não existir, cria-o silenciosamente
-            const { error: signUpError } = await supabase.auth.signUp({
-              email,
-              password,
-              options: {
-                data: { nome: "Clínica Multi" },
-              },
-            });
-
-            if (!signUpError) {
-              const { data: retryData } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-              });
-              activeSession = retryData.session;
-            } else {
-              console.error("Erro no auto-cadastro:", signUpError);
-            }
-          } else {
-            activeSession = signInData.session;
-          }
-        }
-
-        if (activeSession) {
-          setSession(activeSession);
-          await loadRoles(activeSession.user.id);
+        if (data.session) {
+          setSession(data.session);
+          await loadRoles(data.session.user.id);
         }
       } catch (err) {
-        console.error("Erro na inicialização silenciosa:", err);
+        console.error("Erro na inicialização da sessão:", err);
       } finally {
         setLoading(false);
       }
