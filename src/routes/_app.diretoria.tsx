@@ -558,7 +558,10 @@ function DiretoriaPageContent() {
   }
 
   const renderSessionDates = (fatura: any, allowDelete = false) => {
-    const items = faturaItens.filter((item: any) => item.fatura_id === fatura.id);
+    let items = faturaItens.filter((item: any) => item.fatura_id === fatura.id);
+    if (fatura.especialidade === "Apoio") {
+      items = items.filter((item: any) => !item.agendamento_id);
+    }
     if (items.length === 0) {
       if (fatura.especialidade) {
         return (
@@ -1370,7 +1373,10 @@ function DiretoriaPageContent() {
   const patientDetailedRows = useMemo(() => {
     const rows: any[] = [];
     (patientFaturas || []).forEach((f) => {
-      const items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
+      let items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
+      if (f.especialidade === "Apoio") {
+        items = items.filter((item: any) => !item.agendamento_id);
+      }
       if (items.length === 0) {
         // Manual fatura or fatura with no items
         const rowProfId = f.profissional_id;
@@ -4159,17 +4165,19 @@ Agradecemos a atenção!
                       </TableHeader>
                       <TableBody>
                         {(() => {
-                          const items = faturaItens
-                            .filter((item: any) => item.fatura_id === activeDetailedFatura.id)
-                            .sort((a: any, b: any) => {
-                              const dateA = a.agendamento_id ? agendamentoDateMap.get(a.agendamento_id) : null;
-                              const dateB = b.agendamento_id ? agendamentoDateMap.get(b.agendamento_id) : null;
-                              if (dateA && dateB) {
-                                return new Date(dateA).getTime() - new Date(dateB).getTime();
-                              }
-                              return (a.descricao || "").localeCompare(b.descricao || "");
-                            });
-                          if (items.length === 0) {
+                          let items = faturaItens.filter((item: any) => item.fatura_id === activeDetailedFatura.id);
+                          if (activeDetailedFatura.especialidade === "Apoio") {
+                            items = items.filter((item: any) => !item.agendamento_id);
+                          }
+                          const sortedItems = items.sort((a: any, b: any) => {
+                            const dateA = a.agendamento_id ? agendamentoDateMap.get(a.agendamento_id) : null;
+                            const dateB = b.agendamento_id ? agendamentoDateMap.get(b.agendamento_id) : null;
+                            if (dateA && dateB) {
+                              return new Date(dateA).getTime() - new Date(dateB).getTime();
+                            }
+                            return (a.descricao || "").localeCompare(b.descricao || "");
+                          });
+                          if (sortedItems.length === 0) {
                             return (
                               <TableRow>
                                 <TableCell colSpan={4} className="text-center py-6 text-xs text-muted-foreground italic">
@@ -4178,7 +4186,7 @@ Agradecemos a atenção!
                               </TableRow>
                             );
                           }
-                          return items.map((item: any) => {
+                          return sortedItems.map((item: any) => {
                             const isEditing = editingItemId === item.id;
                             const appStatus = item.agendamento_id ? agendamentoStatusMap.get(item.agendamento_id) : null;
                             return (
