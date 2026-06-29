@@ -170,7 +170,10 @@ function DiretoriaPageContent() {
   const { data: pacientes = [] } = useQuery<any[]>({
     queryKey: ["dir-pacientes-min"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("pacientes").select("id, nome, valor_mensal").order("nome");
+      const { data, error } = await supabase
+        .from("pacientes")
+        .select("id, nome, valor_mensal, cids_secundarios, apoio_frequencia, apoio_valor_personalizado")
+        .order("nome");
       if (error) throw error;
       return data;
     },
@@ -680,30 +683,56 @@ function DiretoriaPageContent() {
 
   // Fetch all fatura_itens to link them to agendamentos in memory (avoids missing relation schema constraint join issue)
   const { data: faturaItens = [], isLoading: loadingFaturaItens } = useQuery<any[]>({
-    queryKey: ["dir-fatura-itens-all"],
+    queryKey: ["dir-fatura-itens", inicio, fim],
     queryFn: async () => {
-      const { data, error } = await supabase.from("fatura_itens").select(`
-          id,
-          fatura_id,
-          total,
-          valor_unitario,
-          agendamento_id,
-          descricao,
-          faturas (
+      // First fetch faturas for this date range to get their IDs
+      const { data: fList, error: fError } = await supabase
+        .from("faturas")
+        .select("id")
+        .gte("competencia", inicio)
+        .lte("competencia", fim);
+      if (fError) throw fError;
+      
+      const fIds = (fList || []).map((f: any) => f.id);
+      if (fIds.length === 0) return [];
+      
+      // Fetch in chunks of 100 to avoid URL length limit
+      const chunkSize = 100;
+      const chunks = [];
+      for (let i = 0; i < fIds.length; i += chunkSize) {
+        chunks.push(fIds.slice(i, i + chunkSize));
+      }
+      
+      const promises = chunks.map(async (chunk) => {
+        const { data, error } = await supabase
+          .from("fatura_itens")
+          .select(`
             id,
-            status,
-            pago_em,
-            metodo,
-            vencimento,
-            profissional_id,
-            especialidade,
-            paciente_id,
-            competencia,
-            valor
-          )
-        `);
-      if (error) throw error;
-      return data || [];
+            fatura_id,
+            total,
+            valor_unitario,
+            agendamento_id,
+            descricao,
+            faturas (
+              id,
+              status,
+              pago_em,
+              metodo,
+              vencimento,
+              profissional_id,
+              especialidade,
+              paciente_id,
+              competencia,
+              valor
+            )
+          `)
+          .in("fatura_id", chunk);
+        if (error) throw error;
+        return data || [];
+      });
+      
+      const results = await Promise.all(promises);
+      return results.flat();
     },
   });
 
@@ -722,12 +751,25 @@ function DiretoriaPageContent() {
     queryKey: ["dir-linked-agendamentos", linkedAgendamentoIds],
     queryFn: async () => {
       if (linkedAgendamentoIds.length === 0) return [];
-      const { data, error } = await supabase
-        .from("agendamentos")
-        .select("id, profissional_id, status, data_inicio")
-        .in("id", linkedAgendamentoIds);
-      if (error) throw error;
-      return data || [];
+      
+      // Chunk the IDs to avoid URL length limit (max ~100 IDs per request)
+      const chunkSize = 100;
+      const chunks = [];
+      for (let i = 0; i < linkedAgendamentoIds.length; i += chunkSize) {
+        chunks.push(linkedAgendamentoIds.slice(i, i + chunkSize));
+      }
+      
+      const promises = chunks.map(async (chunk) => {
+        const { data, error } = await supabase
+          .from("agendamentos")
+          .select("id, profissional_id, status, data_inicio")
+          .in("id", chunk);
+        if (error) throw error;
+        return data || [];
+      });
+      
+      const results = await Promise.all(promises);
+      return results.flat();
     },
     enabled: linkedAgendamentoIds.length > 0,
   });
@@ -1401,10 +1443,15 @@ function DiretoriaPageContent() {
       } else {
         // Session items
         items.forEach((item: any) => {
-          const rowProfId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
+          const isApoioMatch = f.especialidade === "Apoio" && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
+          const rowProfId = isApoioMatch 
+            ? profFilter 
+            : (item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id);
           if (profFilter !== "all" && rowProfId !== profFilter) return;
-
-          const profName = item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null;
+ 
+          const profName = isApoioMatch 
+            ? (professionalMap.get(profFilter) || "—") 
+            : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
           const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
           
           rows.push({
