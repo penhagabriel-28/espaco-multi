@@ -604,6 +604,8 @@ const safeFormatDate = (dateVal: any, formatStr: string, options?: any) => {
   }
 };
 
+const isApoio = (spec: string) => spec && (spec.toLowerCase() === "apoio" || spec.toUpperCase() === "AP");
+
 const getEspecialidade = (a: any) => {
   if (!a) return null;
   if (a.servicos?.nome) return a.servicos.nome;
@@ -636,7 +638,7 @@ const syncAgendamentoFinanceiro = async (
   meioPagamento?: string,
 ) => {
   try {
-    if (especialidade && especialidade.toLowerCase() === "apoio") {
+    if (isApoio(especialidade)) {
       return;
     }
     const numValor = Number(valor || 0);
@@ -903,6 +905,8 @@ function AgendamentoDialog({
   const [pacienteOpen, setPacienteOpen] = useState(false);
   const [recorrenciaConfirmOpen, setRecorrenciaConfirmOpen] = useState(false);
   const [planoAbaOpen, setPlanoAbaOpen] = useState(false);
+  const [apoioFrequencia, setApoioFrequencia] = useState<'avulso' | '1x' | '3x' | 'semana_toda'>('avulso');
+  const [apoioValorPersonalizado, setApoioValorPersonalizado] = useState<string>('');
 
   const [selectedSpecialty, setSelectedSpecialty] = useState(() => {
     if (editing) {
@@ -1152,6 +1156,13 @@ Fico à disposição para qualquer dúvida!`;
     }
   }, [professionalSpecialtiesKey, selectedSpecialty]);
 
+  useEffect(() => {
+    if (selectedPaciente) {
+      setApoioFrequencia((selectedPaciente.apoio_frequencia as any) || 'avulso');
+      setApoioValorPersonalizado(selectedPaciente.apoio_valor_personalizado ? String(selectedPaciente.apoio_valor_personalizado) : '');
+    }
+  }, [form.paciente_id, selectedPaciente]);
+
   // 3. Find configured rates/plans
   const currentPricing = useMemo(() => {
     if (!form.profissional_id || !selectedSpecialty) return null;
@@ -1280,6 +1291,18 @@ Fico à disposição para qualquer dúvida!`;
     mutationFn: async (updateAllFuture: boolean = false) => {
       if (!form.paciente_id || !form.profissional_id)
         throw new Error("Selecione paciente e profissional");
+
+      const isApoioVal = selectedSpecialty && (selectedSpecialty.toLowerCase() === "apoio" || selectedSpecialty.toUpperCase() === "AP");
+      if (isApoioVal && form.paciente_id) {
+        const { error: pacUpdateErr } = await supabase
+          .from("pacientes")
+          .update({
+            apoio_frequencia: apoioFrequencia,
+            apoio_valor_personalizado: apoioValorPersonalizado ? Number(apoioValorPersonalizado) : null,
+          })
+          .eq("id", form.paciente_id);
+        if (pacUpdateErr) throw pacUpdateErr;
+      }
 
       const start = new Date(form.data_inicio).toISOString();
       const end = new Date(form.data_fim).toISOString();
@@ -2019,8 +2042,8 @@ Fico à disposição para qualquer dúvida!`;
 
                 {/* Tipo de Agendamento Column */}
                 <div className="space-y-1.5 flex flex-col justify-start">
-                  {(form.paciente_id && specialtyUpper !== "AP") ||
-                  (editing && specialtyUpper !== "AP") ? (
+                  {(form.paciente_id && !isApoio(selectedSpecialty)) ||
+                  (editing && !isApoio(selectedSpecialty)) ? (
                     <div className="space-y-1.5 animate-in fade-in duration-200">
                       <Label>Tipo de Agendamento *</Label>
                       <Select
@@ -2079,6 +2102,36 @@ Fico à disposição para qualquer dúvida!`;
                     </div>
                   ) : null}
                 </div>
+
+                {/* Apoio Frequency and Discount fields (only for Apoio) */}
+                {form.paciente_id && isApoio(selectedSpecialty) && (
+                  <div className="col-span-2 grid grid-cols-2 gap-4 border-t pt-3 mt-1 animate-in fade-in duration-200">
+                    <div className="space-y-1.5">
+                      <Label>Frequência do Aluno (Apoio) *</Label>
+                      <Select value={apoioFrequencia} onValueChange={(v: any) => setApoioFrequencia(v)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="avulso">Sessão Avulsa (R$ 50,00)</SelectItem>
+                          <SelectItem value="1x">1x por semana (R$ 120,00)</SelectItem>
+                          <SelectItem value="3x">3x por semana (R$ 360,00)</SelectItem>
+                          <SelectItem value="semana_toda">Semana Toda (R$ 450,00)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Valor Customizado / Desconto (Opcional)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder={apoioFrequencia === 'avulso' ? "Ex: 40.00 (por sessão)" : "Ex: 100.00 (mensal)"}
+                        value={apoioValorPersonalizado}
+                        onChange={(e) => setApoioValorPersonalizado(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2093,11 +2146,14 @@ Fico à disposição para qualquer dúvida!`;
                       </span>
                     </div>
                     <div className="mt-1">
-                      {specialtyUpper === "AP" && currentPricing.plano_mensal ? (
+                      {isApoio(selectedSpecialty) ? (
                         <div>
-                          <span className="text-muted-foreground">Plano Mensal (AP): </span>
-                          <span className="font-semibold text-foreground">
-                            {currentPricing.plano_mensal}
+                          <span className="text-muted-foreground">Frequência/Cobrança (Apoio): </span>
+                          <span className="font-semibold text-foreground text-xs block mt-0.5">
+                            {apoioFrequencia === "avulso" && `Sessão Avulsa - R$ ${Number(apoioValorPersonalizado || 50).toFixed(2)} por sessão`}
+                            {apoioFrequencia === "1x" && `1x por semana - R$ ${Number(apoioValorPersonalizado || 120).toFixed(2)} mensal`}
+                            {apoioFrequencia === "3x" && `3x por semana - R$ ${Number(apoioValorPersonalizado || 360).toFixed(2)} mensal`}
+                            {apoioFrequencia === "semana_toda" && `Semana Toda - R$ ${Number(apoioValorPersonalizado || 450).toFixed(2)} mensal`}
                           </span>
                         </div>
                       ) : (

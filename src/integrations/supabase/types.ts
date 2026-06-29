@@ -434,6 +434,8 @@ export type Database = {
       }
       pacientes: {
         Row: {
+          apoio_frequencia: string | null
+          apoio_valor_personalizado: number | null
           cid_principal: string | null
           cids_secundarios: string[] | null
           convenio_nome: string | null
@@ -450,6 +452,8 @@ export type Database = {
           valor_mensal: number | null
         }
         Insert: {
+          apoio_frequencia?: string | null
+          apoio_valor_personalizado?: number | null
           cid_principal?: string | null
           cids_secundarios?: string[] | null
           convenio_nome?: string | null
@@ -466,6 +470,8 @@ export type Database = {
           valor_mensal?: number | null
         }
         Update: {
+          apoio_frequencia?: string | null
+          apoio_valor_personalizado?: number | null
           cid_principal?: string | null
           cids_secundarios?: string[] | null
           convenio_nome?: string | null

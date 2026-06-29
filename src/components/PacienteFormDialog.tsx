@@ -82,6 +82,8 @@ export function PacienteFormDialog({
     telefone: "",
     cpf: paciente?.cpf ?? "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
+    apoio_frequencia: paciente?.apoio_frequencia ?? "avulso",
+    apoio_valor_personalizado: paciente?.apoio_valor_personalizado ? String(paciente.apoio_valor_personalizado) : "",
   });
   const { data: profissionais = EMPTY_ARRAY } = useQuery({
     queryKey: ["profissionais"],
@@ -204,6 +206,8 @@ export function PacienteFormDialog({
         observacoes: form.observacoes || null,
         cpf: form.cpf || null,
         valor_mensal: form.valor_mensal ? Number(form.valor_mensal) : null,
+        apoio_frequencia: form.apoio_frequencia,
+        apoio_valor_personalizado: form.apoio_valor_personalizado ? Number(form.apoio_valor_personalizado) : null,
       };
       if (paciente) {
         // Edit mode
@@ -251,6 +255,17 @@ export function PacienteFormDialog({
           });
           if (rError) throw rError;
         }
+
+        // Recalculate Apoio package if applicable
+        if (form.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP")) {
+          const today = new Date();
+          const competencia = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+          await supabase.rpc("fn_recalculate_apoio_package", {
+            p_paciente_id: paciente.id,
+            p_competencia: competencia
+          });
+        }
+
         return { ...paciente, ...payload };
       } else {
         // Create mode
@@ -279,6 +294,17 @@ export function PacienteFormDialog({
           });
           if (rError) throw rError;
         }
+
+        // Recalculate Apoio package if applicable
+        if (newPaciente && form.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP")) {
+          const today = new Date();
+          const competencia = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+          await supabase.rpc("fn_recalculate_apoio_package", {
+            p_paciente_id: newPaciente.id,
+            p_competencia: competencia
+          });
+        }
+
         return newPaciente;
       }
     },
@@ -362,6 +388,42 @@ export function PacienteFormDialog({
             })}
           </div>
         </div>
+        
+        {form.cids_secundarios.some((s) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP") && (
+          <div className="grid grid-cols-2 gap-3 p-3 border rounded-lg bg-primary/5 border-dashed border-border/80 animate-in fade-in duration-200">
+            <div className="col-span-2 text-xs font-bold uppercase tracking-wider text-primary">
+              Configurações do Apoio
+            </div>
+            <div className="space-y-1.5">
+              <Label>Frequência do Aluno</Label>
+              <Select
+                value={form.apoio_frequencia}
+                onValueChange={(v) => setForm({ ...form, apoio_frequencia: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="avulso">Sessão Avulsa (R$ 50,00)</SelectItem>
+                  <SelectItem value="1x">1x por semana (R$ 120,00)</SelectItem>
+                  <SelectItem value="3x">3x por semana (R$ 360,00)</SelectItem>
+                  <SelectItem value="semana_toda">Semana Toda (R$ 450,00)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Valor Customizado / Desconto</Label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder={form.apoio_frequencia === 'avulso' ? "Ex: 40.00 (por sessão)" : "Ex: 100.00 (mensal)"}
+                value={form.apoio_valor_personalizado}
+                onChange={(e) => setForm({ ...form, apoio_valor_personalizado: e.target.value })}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="space-y-1.5 animate-in fade-in duration-200">
           <Label>Profissionais Acompanhantes</Label>
           <div className="flex flex-wrap gap-2">

@@ -1734,14 +1734,24 @@ Agradecemos a atenção!
   const mensalPatients = useMemo(() => {
     return filteredConsolidated.filter((c) => {
       const p = patientDetailsMap.get(c.pacienteId);
-      return p && Number(p.valor_mensal) > 0;
+      if (!p) return false;
+      const hasApoio = Array.isArray(p.cids_secundarios) && p.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
+      if (hasApoio) {
+        return p.apoio_frequencia && p.apoio_frequencia !== "avulso";
+      }
+      return p.valor_mensal && p.valor_mensal > 0;
     });
   }, [filteredConsolidated, patientDetailsMap]);
 
   const sessaoPatients = useMemo(() => {
     return filteredConsolidated.filter((c) => {
       const p = patientDetailsMap.get(c.pacienteId);
-      return !p || !Number(p.valor_mensal) || Number(p.valor_mensal) === 0;
+      if (!p) return true;
+      const hasApoio = Array.isArray(p.cids_secundarios) && p.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
+      if (hasApoio) {
+        return !p.apoio_frequencia || p.apoio_frequencia === "avulso";
+      }
+      return !p.valor_mensal || p.valor_mensal === 0;
     });
   }, [filteredConsolidated, patientDetailsMap]);
 
@@ -1780,7 +1790,26 @@ Agradecemos a atenção!
               return (
                 <TableRow key={c.pacienteId} className="hover:bg-muted/30">
                   <TableCell className="font-semibold text-foreground">
-                    {c.nome}
+                    <div>{c.nome}</div>
+                    {(() => {
+                      const p = patientDetailsMap.get(c.pacienteId);
+                      const hasApoio = p?.cids_secundarios?.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
+                      if (hasApoio) {
+                        const freq = p?.apoio_frequencia || 'avulso';
+                        const customVal = p?.apoio_valor_personalizado;
+                        let label = "";
+                        if (freq === 'avulso') label = `Apoio: Avulso (${customVal ? brl(customVal) : "R$ 50,00"}/sessão)`;
+                        else if (freq === '1x') label = `Apoio: 1x/semana (${customVal ? brl(customVal) : "R$ 120,00"}/mês)`;
+                        else if (freq === '3x') label = `Apoio: 3x/semana (${customVal ? brl(customVal) : "R$ 360,00"}/mês)`;
+                        else if (freq === 'semana_toda') label = `Apoio: Semana Toda (${customVal ? brl(customVal) : "R$ 450,00"}/mês)`;
+                        return (
+                          <span className="text-[10px] text-muted-foreground font-normal block mt-0.5 bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5 w-max">
+                            {label}
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1 max-w-[155px]">
