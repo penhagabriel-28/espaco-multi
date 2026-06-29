@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -135,6 +135,7 @@ function Agenda() {
           .eq("ativo", true)
           .order("nome")
       ).data ?? [],
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: pacientes = [] } = useQuery({
@@ -146,6 +147,7 @@ function Agenda() {
           .select("id, nome")
           .order("nome")
       ).data ?? [],
+    staleTime: 5 * 60 * 1000,
   });
   const sortedProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
@@ -198,6 +200,7 @@ function Agenda() {
       if (error) throw error;
       return data;
     },
+    staleTime: 15 * 1000,
   });
 
   const filteredAgs = useMemo(() => {
@@ -803,86 +806,95 @@ const syncAgendamentoFinanceiro = async (
   }
 };
 
-function FragmentRow({ h, days, ags, onCellClick, onEdit }: any) {
-  return (
-    <>
-      <div className="border-b border-r p-1 text-right text-xs text-muted-foreground">
-        {String(h).padStart(2, "0")}:00
-      </div>
-      {days.map((d: Date) => {
-        const cellAgs = Array.isArray(ags)
-          ? ags.filter((a: any) => {
-              const dt = new Date(a.data_inicio);
-              return isSameDay(dt, d) && dt.getHours() === h;
-            })
-          : [];
-        return (
-          <div
-            key={d.toString() + h}
-            className="group relative min-h-[60px] border-b border-r p-1 hover:bg-muted/10 transition-colors"
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onCellClick(d);
-              }}
-              className="absolute top-1 right-1 z-10 flex h-8 w-8 md:h-5 md:w-5 items-center justify-center rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200 shadow-sm border border-primary/20 cursor-pointer before:content-[''] before:absolute before:-inset-2 md:before:hidden"
-              title="Adicionar sessão"
+const FragmentRow = memo(
+  function FragmentRow({ h, days, ags, onCellClick, onEdit }: any) {
+    return (
+      <>
+        <div className="border-b border-r p-1 text-right text-xs text-muted-foreground">
+          {String(h).padStart(2, "0")}:00
+        </div>
+        {days.map((d: Date) => {
+          const cellAgs = Array.isArray(ags)
+            ? ags.filter((a: any) => {
+                const dt = new Date(a.data_inicio);
+                return isSameDay(dt, d) && dt.getHours() === h;
+              })
+            : [];
+          return (
+            <div
+              key={d.toString() + h}
+              className="group relative min-h-[60px] border-b border-r p-1 hover:bg-muted/10 transition-colors"
             >
-              <Plus className="h-4 w-4 md:h-3.5 md:w-3.5" />
-            </button>
-            {cellAgs.map((a: any) => (
               <button
-                key={a.id}
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onEdit(a);
+                  onCellClick(d);
                 }}
-                className="mb-1 block w-full rounded-md border-l-4 bg-card pl-2 pr-6 py-1 text-left text-xs shadow-sm transition hover:shadow"
-                style={{ borderLeftColor: a.profissionais?.cor ?? "var(--primary)" }}
+                className="absolute top-1 right-1 z-10 flex h-8 w-8 md:h-5 md:w-5 items-center justify-center rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200 shadow-sm border border-primary/20 cursor-pointer before:content-[''] before:absolute before:-inset-2 md:before:hidden"
+                title="Adicionar sessão"
               >
-                <div className="truncate font-medium text-foreground">{a.pacientes?.nome}</div>
-                <div className="truncate text-[10px] text-muted-foreground">
-                  {safeFormatDate(a.data_inicio, "HH:mm")} {a.salas?.nome ? `• ${a.salas.nome}` : ""}
-                </div>
-                <div className="truncate text-[9px] text-muted-foreground">
-                  {a.profissionais?.nome}
-                </div>
-                {getEspecialidade(a) && (
-                  <div className="truncate text-[9px] font-medium text-primary">
-                    {getEspecialidade(a)}
-                  </div>
-                )}
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "mt-1 h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
-                    a.status === "confirmado" &&
-                      "border-green-500/30 text-green-600 bg-green-50/50",
-                    a.status === "pago" &&
-                      "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                    a.status === "cancelado" &&
-                      "border-red-500/30 text-red-600 bg-red-50/50",
-                    a.status === "realizado" &&
-                      "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                    a.status === "falta" &&
-                      "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                    a.status === "pendente" &&
-                      "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
-                  )}
-                >
-                  {STATUS_LABEL[a.status] || a.status}
-                </Badge>
+                <Plus className="h-4 w-4 md:h-3.5 md:w-3.5" />
               </button>
-            ))}
-          </div>
-        );
-      })}
-    </>
-  );
-}
+              {cellAgs.map((a: any) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(a);
+                  }}
+                  className="mb-1 block w-full rounded-md border-l-4 bg-card pl-2 pr-6 py-1 text-left text-xs shadow-sm transition hover:shadow"
+                  style={{ borderLeftColor: a.profissionais?.cor ?? "var(--primary)" }}
+                >
+                  <div className="truncate font-medium text-foreground">{a.pacientes?.nome}</div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {safeFormatDate(a.data_inicio, "HH:mm")} {a.salas?.nome ? `• ${a.salas.nome}` : ""}
+                  </div>
+                  <div className="truncate text-[9px] text-muted-foreground">
+                    {a.profissionais?.nome}
+                  </div>
+                  {getEspecialidade(a) && (
+                    <div className="truncate text-[9px] font-medium text-primary">
+                      {getEspecialidade(a)}
+                    </div>
+                  )}
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "mt-1 h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
+                      a.status === "confirmado" &&
+                        "border-green-500/30 text-green-600 bg-green-50/50",
+                      a.status === "pago" &&
+                        "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                      a.status === "cancelado" &&
+                        "border-red-500/30 text-red-600 bg-red-50/50",
+                      a.status === "realizado" &&
+                        "border-blue-500/30 text-blue-600 bg-blue-50/50",
+                      a.status === "falta" &&
+                        "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                      a.status === "pendente" &&
+                        "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                    )}
+                  >
+                    {STATUS_LABEL[a.status] || a.status}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </>
+    );
+  },
+  (prevProps, nextProps) => {
+    return (
+      prevProps.h === nextProps.h &&
+      prevProps.ags === nextProps.ags &&
+      prevProps.days === nextProps.days
+    );
+  }
+);
 
 function AgendamentoDialog({
   editing,
@@ -963,6 +975,7 @@ function AgendamentoDialog({
   const { data: pacientes = [] } = useQuery({
     queryKey: ["pac-min"],
     queryFn: async () => (await supabase.from("pacientes").select("id, nome, valor_mensal, apoio_frequencia, apoio_valor_personalizado, cids_secundarios").order("nome")).data ?? [],
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: profPacientes = [] } = useQuery({
@@ -988,6 +1001,7 @@ function AgendamentoDialog({
           .eq("ativo", true)
           .order("nome")
       ).data ?? [],
+    staleTime: 5 * 60 * 1000,
   });
   const { data: servicos = [] } = useQuery({
     queryKey: ["serv-min"],
@@ -999,6 +1013,7 @@ function AgendamentoDialog({
           .eq("ativo", true)
           .order("nome")
       ).data ?? [],
+    staleTime: 5 * 60 * 1000,
   });
   const { data: salas = [] } = useQuery({
     queryKey: ["salas-dialog"],
@@ -1010,6 +1025,7 @@ function AgendamentoDialog({
           .eq("ativo", true)
           .order("nome")
       ).data ?? [],
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: patientAgs = [] } = useQuery({
