@@ -962,7 +962,7 @@ function AgendamentoDialog({
 
   const { data: pacientes = [] } = useQuery({
     queryKey: ["pac-min"],
-    queryFn: async () => (await supabase.from("pacientes").select("*").order("nome")).data ?? [],
+    queryFn: async () => (await supabase.from("pacientes").select("id, nome, valor_mensal, apoio_frequencia, apoio_valor_personalizado, cids_secundarios").order("nome")).data ?? [],
   });
 
   const { data: profPacientes = [] } = useQuery({
@@ -1020,7 +1020,8 @@ function AgendamentoDialog({
         .from("agendamentos")
         .select("*, profissionais(nome, cor), servicos(nome), salas(nome)")
         .eq("paciente_id", form.paciente_id)
-        .order("data_inicio", { ascending: true });
+        .order("data_inicio", { ascending: false })
+        .limit(30);
       if (error) throw error;
       return data ?? [];
     },
