@@ -134,25 +134,13 @@ function Agenda() {
   });
   const sortedProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
-    return [...profissionais].sort((a, b) => {
-      const aSelected = selectedProfs.includes(a.id);
-      const bSelected = selectedProfs.includes(b.id);
-      if (aSelected && !bSelected) return -1;
-      if (!aSelected && bSelected) return 1;
-      return (a.nome || "").localeCompare(b.nome || "");
-    });
-  }, [profissionais, selectedProfs]);
+    return [...profissionais].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  }, [profissionais]);
 
   const sortedPacientesList = useMemo(() => {
     if (!Array.isArray(pacientes)) return [];
-    return [...pacientes].sort((a, b) => {
-      const aSelected = selectedPacs.includes(a.id);
-      const bSelected = selectedPacs.includes(b.id);
-      if (aSelected && !bSelected) return -1;
-      if (!aSelected && bSelected) return 1;
-      return (a.nome || "").localeCompare(b.nome || "");
-    });
-  }, [pacientes, selectedPacs]);
+    return [...pacientes].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  }, [pacientes]);
   const { data: ags = [] } = useQuery({
     queryKey: ["ags", weekStart.toISOString()],
     queryFn: async () => {
@@ -309,7 +297,7 @@ function Agenda() {
                       <div className="border-t border-border" />
                       <CommandGroup>
                         <CommandItem
-                          onSelect={() => setSelectedProfs([])}
+                          onSelect={() => setTimeout(() => setSelectedProfs([]), 0)}
                           className="justify-center text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1.5 cursor-pointer"
                         >
                           Limpar filtros
@@ -399,7 +387,7 @@ function Agenda() {
                       <div className="border-t border-border" />
                       <CommandGroup>
                         <CommandItem
-                          onSelect={() => setSelectedPacs([])}
+                          onSelect={() => setTimeout(() => setSelectedPacs([]), 0)}
                           className="justify-center text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1.5 cursor-pointer"
                         >
                           Limpar filtros
