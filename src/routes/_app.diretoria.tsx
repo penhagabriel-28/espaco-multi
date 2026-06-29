@@ -1860,24 +1860,6 @@ Agradecemos a atenção!
                             <span className="text-[10px] text-muted-foreground font-normal block bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5 w-max">
                               {label}
                             </span>
-                            <div className="flex gap-1.5 flex-wrap">
-                              <Link
-                                to="/frequencia"
-                                className="inline-flex items-center gap-1 text-[9px] font-semibold text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/40 rounded px-1.5 py-0.5 transition hover:shadow-xs cursor-pointer"
-                                title="Ver frequência do aluno (Apoio não requer presença de sessão)"
-                              >
-                                <span>Frequência (Sem Presença)</span>
-                                <ExternalLink className="h-2.5 w-2.5" />
-                              </Link>
-                              <Link
-                                to="/agenda"
-                                className="inline-flex items-center gap-1 text-[9px] font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/40 rounded px-1.5 py-0.5 transition hover:shadow-xs cursor-pointer"
-                                title="Ver agenda do aluno onde constam os valores estipulados para cobrança individual"
-                              >
-                                <span>Agenda (Cobrança Individual)</span>
-                                <ExternalLink className="h-2.5 w-2.5" />
-                              </Link>
-                            </div>
                           </div>
                         );
                       }
