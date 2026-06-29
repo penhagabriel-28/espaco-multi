@@ -36,6 +36,7 @@ import {
   Pencil,
   FileText,
   Activity,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
@@ -89,9 +90,23 @@ function Agenda() {
   const [cancelTarget, setCancelTarget] = useState<any>(null);
 
   const [selectedProfs, setSelectedProfs] = useState<string[]>([]);
+  const [profSearch, setProfSearch] = useState("");
   const [profsPopoverOpen, setProfsPopoverOpen] = useState(false);
   const [selectedPacs, setSelectedPacs] = useState<string[]>([]);
+  const [pacSearch, setPacSearch] = useState("");
   const [pacsPopoverOpen, setPacsPopoverOpen] = useState(false);
+
+  useEffect(() => {
+    if (!profsPopoverOpen) {
+      setProfSearch("");
+    }
+  }, [profsPopoverOpen]);
+
+  useEffect(() => {
+    if (!pacsPopoverOpen) {
+      setPacSearch("");
+    }
+  }, [pacsPopoverOpen]);
 
   const [patientDialogState, setPatientDialogState] = useState<{
     open: boolean;
@@ -134,13 +149,41 @@ function Agenda() {
   });
   const sortedProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
-    return [...profissionais].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  }, [profissionais]);
+    return [...profissionais].sort((a, b) => {
+      const aSelected = selectedProfs.includes(a.id);
+      const bSelected = selectedProfs.includes(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return (a.nome || "").localeCompare(b.nome || "");
+    });
+  }, [profissionais, selectedProfs]);
+
+  const filteredProfissionaisList = useMemo(() => {
+    const searchLower = normalizeString(profSearch);
+    if (!searchLower) return sortedProfissionais;
+    return sortedProfissionais.filter(p => 
+      normalizeString(p.nome || "").includes(searchLower)
+    );
+  }, [sortedProfissionais, profSearch]);
 
   const sortedPacientesList = useMemo(() => {
     if (!Array.isArray(pacientes)) return [];
-    return [...pacientes].sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-  }, [pacientes]);
+    return [...pacientes].sort((a, b) => {
+      const aSelected = selectedPacs.includes(a.id);
+      const bSelected = selectedPacs.includes(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return (a.nome || "").localeCompare(b.nome || "");
+    });
+  }, [pacientes, selectedPacs]);
+
+  const filteredPacientesList = useMemo(() => {
+    const searchLower = normalizeString(pacSearch);
+    if (!searchLower) return sortedPacientesList;
+    return sortedPacientesList.filter(p => 
+      normalizeString(p.nome || "").includes(searchLower)
+    );
+  }, [sortedPacientesList, pacSearch]);
   const { data: ags = [] } = useQuery({
     queryKey: ["ags", weekStart.toISOString()],
     queryFn: async () => {
@@ -257,20 +300,28 @@ function Agenda() {
                   </>
                 )}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[200px] p-0" align="start">
-              <Command>
-                <CommandInput placeholder="Buscar profissional..." className="h-8 text-xs" />
-                <CommandList>
-                  <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">Nenhum profissional encontrado.</CommandEmpty>
-                  <CommandGroup>
-                    {sortedProfissionais.map((p: any) => {
+            </PopoverTrigger>            <PopoverContent className="w-[200px] p-2" align="start">
+              <div className="space-y-2">
+                <div className="flex items-center border-b pb-2 px-1 gap-2 border-border/80">
+                  <Search className="h-4 w-4 shrink-0 opacity-50" />
+                  <input
+                    placeholder="Buscar profissional..."
+                    className="flex h-7 w-full rounded-md bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                    value={profSearch}
+                    onChange={(e) => setProfSearch(e.target.value)}
+                  />
+                </div>
+                
+                <div className="max-h-[250px] overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
+                  {filteredProfissionaisList.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">Nenhum profissional encontrado.</div>
+                  ) : (
+                    filteredProfissionaisList.map((p: any) => {
                       const isSelected = selectedProfs.includes(p.id);
                       return (
-                        <CommandItem
+                        <div
                           key={p.id}
-                          value={`${normalizeString(p.nome)}-${p.id}`}
-                          onSelect={() => {
+                          onClick={() => {
                             if (isSelected) {
                               setSelectedProfs(selectedProfs.filter((id) => id !== p.id));
                             } else {
@@ -278,35 +329,33 @@ function Agenda() {
                             }
                           }}
                           className={cn(
-                            "flex items-center gap-2 cursor-pointer text-xs py-1.5",
-                            isSelected && "bg-primary/5 font-semibold text-primary",
+                            "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                            isSelected && "bg-primary/5 font-semibold text-primary"
                           )}
                         >
-                          <Checkbox checked={isSelected} className="pointer-events-none h-3.5 w-3.5" />
+                          <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
                           <div
                             className="h-2 w-2 rounded-full shrink-0"
                             style={{ backgroundColor: p.cor || "var(--primary)" }}
                           />
                           <span className="truncate">{p.nome}</span>
-                        </CommandItem>
+                        </div>
                       );
-                    })}
-                  </CommandGroup>
-                  {selectedProfs.length > 0 && (
-                    <>
-                      <div className="border-t border-border" />
-                      <CommandGroup>
-                        <CommandItem
-                          onSelect={() => setTimeout(() => setSelectedProfs([]), 0)}
-                          className="justify-center text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1.5 cursor-pointer"
-                        >
-                          Limpar filtros
-                        </CommandItem>
-                      </CommandGroup>
-                    </>
+                    })
                   )}
-                </CommandList>
-              </Command>
+                </div>
+                
+                {selectedProfs.length > 0 && (
+                  <div className="border-t border-border pt-1.5 mt-1">
+                    <button
+                      onClick={() => setSelectedProfs([])}
+                      className="w-full text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1 rounded-sm hover:bg-accent transition-colors cursor-pointer"
+                    >
+                      Limpar filtros
+                    </button>
+                  </div>
+                )}
+              </div>
             </PopoverContent>
           </Popover>
 
@@ -351,20 +400,28 @@ function Agenda() {
                   </>
                 )}
               </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[220px] p-0" align="start">
-              <Command>
-                <CommandInput placeholder="Buscar paciente..." className="h-8 text-xs" />
-                <CommandList>
-                  <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">Nenhum paciente encontrado.</CommandEmpty>
-                  <CommandGroup className="max-h-[250px] overflow-y-auto">
-                    {sortedPacientesList.map((p: any) => {
+            </PopoverTrigger>             <PopoverContent className="w-[220px] p-2" align="start">
+              <div className="space-y-2">
+                <div className="flex items-center border-b pb-2 px-1 gap-2 border-border/80">
+                  <Search className="h-4 w-4 shrink-0 opacity-50" />
+                  <input
+                    placeholder="Buscar paciente..."
+                    className="flex h-7 w-full rounded-md bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                    value={pacSearch}
+                    onChange={(e) => setPacSearch(e.target.value)}
+                  />
+                </div>
+                
+                <div className="max-h-[250px] overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
+                  {filteredPacientesList.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-muted-foreground">Nenhum paciente encontrado.</div>
+                  ) : (
+                    filteredPacientesList.map((p: any) => {
                       const isSelected = selectedPacs.includes(p.id);
                       return (
-                        <CommandItem
+                        <div
                           key={p.id}
-                          value={`${normalizeString(p.nome)}-${p.id}`}
-                          onSelect={() => {
+                          onClick={() => {
                             if (isSelected) {
                               setSelectedPacs(selectedPacs.filter((id) => id !== p.id));
                             } else {
@@ -372,31 +429,29 @@ function Agenda() {
                             }
                           }}
                           className={cn(
-                            "flex items-center gap-2 cursor-pointer text-xs py-1.5",
-                            isSelected && "bg-primary/5 font-semibold text-primary",
+                            "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                            isSelected && "bg-primary/5 font-semibold text-primary"
                           )}
                         >
-                          <Checkbox checked={isSelected} className="pointer-events-none h-3.5 w-3.5" />
+                          <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
                           <span className="truncate">{p.nome}</span>
-                        </CommandItem>
+                        </div>
                       );
-                    })}
-                  </CommandGroup>
-                  {selectedPacs.length > 0 && (
-                    <>
-                      <div className="border-t border-border" />
-                      <CommandGroup>
-                        <CommandItem
-                          onSelect={() => setTimeout(() => setSelectedPacs([]), 0)}
-                          className="justify-center text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1.5 cursor-pointer"
-                        >
-                          Limpar filtros
-                        </CommandItem>
-                      </CommandGroup>
-                    </>
+                    })
                   )}
-                </CommandList>
-              </Command>
+                </div>
+                
+                {selectedPacs.length > 0 && (
+                  <div className="border-t border-border pt-1.5 mt-1">
+                    <button
+                      onClick={() => setSelectedPacs([])}
+                      className="w-full text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1 rounded-sm hover:bg-accent transition-colors cursor-pointer"
+                    >
+                      Limpar filtros
+                    </button>
+                  </div>
+                )}
+              </div>
             </PopoverContent>
           </Popover>
 
