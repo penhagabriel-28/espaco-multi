@@ -406,6 +406,7 @@ export function PacienteFormDialog({
                 <SelectContent>
                   <SelectItem value="avulso">Sessão Avulsa (R$ 50,00)</SelectItem>
                   <SelectItem value="1x">1x por semana (R$ 120,00)</SelectItem>
+                  <SelectItem value="2x">2x por semana (R$ 240,00)</SelectItem>
                   <SelectItem value="3x">3x por semana (R$ 360,00)</SelectItem>
                   <SelectItem value="semana_toda">Semana Toda (R$ 450,00)</SelectItem>
                 </SelectContent>

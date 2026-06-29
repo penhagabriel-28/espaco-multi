@@ -3,7 +3,7 @@ ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS apoio_frequencia TEXT DEFA
 ALTER TABLE public.pacientes ADD COLUMN IF NOT EXISTS apoio_valor_personalizado NUMERIC;
 
 -- Comment on columns
-COMMENT ON COLUMN public.pacientes.apoio_frequencia IS 'Frequência do aluno no Apoio: avulso, 1x, 3x, semana_toda';
+COMMENT ON COLUMN public.pacientes.apoio_frequencia IS 'Frequência do aluno no Apoio: avulso, 1x, 2x, 3x, semana_toda';
 COMMENT ON COLUMN public.pacientes.apoio_valor_personalizado IS 'Valor personalizado (desconto) para o Apoio: mensal se pacote, ou por sessão se avulso';
 
 
@@ -83,6 +83,9 @@ BEGIN
   IF v_apoio_frequencia = '1x' THEN
     v_package_valor := COALESCE(v_apoio_valor_personalizado, 120.00);
     v_package_desc := 'Pacote Apoio - 1x por semana';
+  ELSIF v_apoio_frequencia = '2x' THEN
+    v_package_valor := COALESCE(v_apoio_valor_personalizado, 240.00);
+    v_package_desc := 'Pacote Apoio - 2x por semana';
   ELSIF v_apoio_frequencia = '3x' THEN
     v_package_valor := COALESCE(v_apoio_valor_personalizado, 360.00);
     v_package_desc := 'Pacote Apoio - 3x por semana';
@@ -121,7 +124,10 @@ BEGIN
     ELSIF v_max_weekly_freq = 2 THEN
       v_package_valor := 240.00;
       v_package_desc := 'Pacote Apoio - 2x por semana';
-    ELSIF v_max_weekly_freq >= 3 THEN
+    ELSIF v_max_weekly_freq = 3 THEN
+      v_package_valor := 360.00;
+      v_package_desc := 'Pacote Apoio - 3x por semana';
+    ELSIF v_max_weekly_freq >= 4 THEN
       v_package_valor := 450.00;
       v_package_desc := 'Pacote Apoio - Semana Inteira';
     ELSE

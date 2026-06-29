@@ -1853,6 +1853,7 @@ Agradecemos a atenção!
                         let label = "";
                         if (freq === 'avulso') label = `Apoio: Avulso (${customVal ? brl(customVal) : "R$ 50,00"}/sessão)`;
                         else if (freq === '1x') label = `Apoio: 1x/semana (${customVal ? brl(customVal) : "R$ 120,00"}/mês)`;
+                        else if (freq === '2x') label = `Apoio: 2x/semana (${customVal ? brl(customVal) : "R$ 240,00"}/mês)`;
                         else if (freq === '3x') label = `Apoio: 3x/semana (${customVal ? brl(customVal) : "R$ 360,00"}/mês)`;
                         else if (freq === 'semana_toda') label = `Apoio: Semana Toda (${customVal ? brl(customVal) : "R$ 450,00"}/mês)`;
                         return (

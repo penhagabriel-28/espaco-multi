@@ -905,7 +905,7 @@ function AgendamentoDialog({
   const [pacienteOpen, setPacienteOpen] = useState(false);
   const [recorrenciaConfirmOpen, setRecorrenciaConfirmOpen] = useState(false);
   const [planoAbaOpen, setPlanoAbaOpen] = useState(false);
-  const [apoioFrequencia, setApoioFrequencia] = useState<'avulso' | '1x' | '3x' | 'semana_toda'>('avulso');
+  const [apoioFrequencia, setApoioFrequencia] = useState<'avulso' | '1x' | '2x' | '3x' | 'semana_toda'>('avulso');
   const [apoioValorPersonalizado, setApoioValorPersonalizado] = useState<string>('');
 
   const [selectedSpecialty, setSelectedSpecialty] = useState(() => {
@@ -2115,6 +2115,7 @@ Fico à disposição para qualquer dúvida!`;
                         <SelectContent>
                           <SelectItem value="avulso">Sessão Avulsa (R$ 50,00)</SelectItem>
                           <SelectItem value="1x">1x por semana (R$ 120,00)</SelectItem>
+                          <SelectItem value="2x">2x por semana (R$ 240,00)</SelectItem>
                           <SelectItem value="3x">3x por semana (R$ 360,00)</SelectItem>
                           <SelectItem value="semana_toda">Semana Toda (R$ 450,00)</SelectItem>
                         </SelectContent>
@@ -2152,6 +2153,7 @@ Fico à disposição para qualquer dúvida!`;
                           <span className="font-semibold text-foreground text-xs block mt-0.5">
                             {apoioFrequencia === "avulso" && `Sessão Avulsa - R$ ${Number(apoioValorPersonalizado || 50).toFixed(2)} por sessão`}
                             {apoioFrequencia === "1x" && `1x por semana - R$ ${Number(apoioValorPersonalizado || 120).toFixed(2)} mensal`}
+                            {apoioFrequencia === "2x" && `2x por semana - R$ ${Number(apoioValorPersonalizado || 240).toFixed(2)} mensal`}
                             {apoioFrequencia === "3x" && `3x por semana - R$ ${Number(apoioValorPersonalizado || 360).toFixed(2)} mensal`}
                             {apoioFrequencia === "semana_toda" && `Semana Toda - R$ ${Number(apoioValorPersonalizado || 450).toFixed(2)} mensal`}
                           </span>
