@@ -947,11 +947,12 @@ export function PlanoAbaDialog({
             <Button
               type="button"
               size="sm"
+              disabled={saving}
               className="h-9 px-4 font-bold text-xs bg-purple-600 hover:bg-purple-700 text-white flex gap-1.5"
               onClick={handleSave}
             >
               <Save className="h-4 w-4" />
-              Confirmar Plano ABA
+              {saving ? "Salvando…" : "Confirmar Plano ABA"}
             </Button>
           </div>
         </DialogFooter>
