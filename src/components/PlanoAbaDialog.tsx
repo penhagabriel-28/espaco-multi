@@ -741,12 +741,12 @@ export function PlanoAbaDialog({
                       </td>
 
                       {/* Program description */}
-                      <td className="p-0 border-r">
-                        <Input
+                      <td className="p-0 border-r align-middle">
+                        <Textarea
                           value={prog.descricao || ""}
                           onChange={(e) => handleProgramDescChange(prog.id, e.target.value)}
                           placeholder="Descrição..."
-                          className="h-8 text-[11px] md:text-xs border-transparent hover:border-border focus:border-primary px-1 focus:bg-white"
+                          className="min-h-[32px] h-9 py-1 px-1.5 resize-y text-[11px] md:text-xs font-medium border-transparent hover:border-border focus:border-primary focus:bg-white leading-tight focus-visible:ring-0 shadow-none rounded-none"
                         />
                       </td>
 
