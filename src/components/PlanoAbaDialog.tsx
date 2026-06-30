@@ -59,6 +59,7 @@ interface PlanoAbaProps {
   profissionalNome: string;
   value: any;
   onChange: (value: any) => void;
+  onConfirm?: (value: any) => Promise<void> | void;
 }
 
 const DEFAULT_PROGRAMAS: Programa[] = [
