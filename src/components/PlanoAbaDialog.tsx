@@ -170,90 +170,100 @@ export function PlanoAbaDialog({
   const [observacoesMedica, setObservacoesMedica] = useState("");
   const [programas, setProgramas] = useState<Programa[]>([]);
 
-  // Initialize fields when opening
+  // Initialize fields when opening (only once per open cycle)
+  const initializedRef = useRef(false);
   useEffect(() => {
-    if (open) {
-      if (value && typeof value === "object" && Array.isArray(value.programas)) {
-        // Load existing plan
-        setSupervisorId(value.supervisor_id ?? "");
-        setTentativasMax(value.tentativas_max ?? 19);
-        setAvaliacoesPreferencia(
-          Array.isArray(value.avaliacoes_preferencia)
-            ? [...value.avaliacoes_preferencia, "", "", "", ""].slice(0, 4)
-            : ["", "", "", ""]
-        );
-        setObservacoesMedica(value.observacoes_medica ?? "");
-        setProgramas(value.programas);
-      } else {
-        // Look up previous session for this patient
-        const loadHistory = async () => {
-          try {
-            const { data, error } = await supabase
-              .from("agendamentos")
-              .select("plano_aba")
-              .eq("paciente_id", pacienteId)
-              .not("plano_aba", "is", null)
-              .order("data_inicio", { ascending: false })
-              .limit(1);
-
-            if (!error && data && data.length > 0 && data[0].plano_aba) {
-              const prevPlan = data[0].plano_aba as any;
-              setSupervisorId(prevPlan.supervisor_id ?? "");
-              setTentativasMax(prevPlan.tentativas_max ?? 19);
-              setAvaliacoesPreferencia(
-                Array.isArray(prevPlan.avaliacoes_preferencia)
-                  ? [...prevPlan.avaliacoes_preferencia, "", "", "", ""].slice(0, 4)
-                  : ["", "", "", ""]
-              );
-              setObservacoesMedica(prevPlan.observacoes_medica ?? "");
-              
-              // Copy programs but reset trial responses for the new session
-              const cleanedPrograms = (prevPlan.programas ?? []).map((p: any) => ({
-                id: p.id || generateUUID(),
-                nome: p.nome || "",
-                descricao: p.descricao || "",
-                tentativas_prog: p.tentativas_prog ?? 12,
-                respostas: {},
-              }));
-              setProgramas(cleanedPrograms);
-              toast.success("Estrutura do Plano ABA copiada do último atendimento!");
-            } else {
-              // Populate default template
-              setProgramas(
-                DEFAULT_PROGRAMAS.map((p) => ({
-                  ...p,
-                  id: generateUUID(),
-                  respostas: {},
-                }))
-              );
-              // Auto-select Bráulio Roosevelt if found
-              const braulio = Array.isArray(profissionais) ? profissionais.find((p) => {
-                const name = p.nome ? String(p.nome).toLowerCase() : "";
-                return name.includes("bráulio");
-              }) : undefined;
-              if (braulio) {
-                setSupervisorId(braulio.id);
-              } else if (Array.isArray(supervisores) && supervisores.length > 0) {
-                setSupervisorId(supervisores[0].id);
-              }
-            }
-          } catch (err) {
-            console.error("Failed to load historical Plano ABA:", err);
-            // Fallback to default
-            setProgramas(
-              DEFAULT_PROGRAMAS.map((p) => ({
-                ...p,
-                id: generateUUID(),
-                respostas: {},
-              }))
-            );
-          }
-        };
-
-        loadHistory();
-      }
+    if (!open) {
+      initializedRef.current = false;
+      return;
     }
-  }, [open, value, pacienteId, profissionais, supervisores]);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
+    if (value && typeof value === "object" && Array.isArray(value.programas)) {
+      // Load existing plan
+      setSupervisorId(value.supervisor_id ?? "");
+      setTentativasMax(value.tentativas_max ?? 19);
+      setAvaliacoesPreferencia(
+        Array.isArray(value.avaliacoes_preferencia)
+          ? [...value.avaliacoes_preferencia, "", "", "", ""].slice(0, 4)
+          : ["", "", "", ""]
+      );
+      setObservacoesMedica(value.observacoes_medica ?? "");
+      setProgramas(value.programas);
+      return;
+    }
+
+    // Look up previous session for this patient
+    const loadHistory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("agendamentos")
+          .select("plano_aba")
+          .eq("paciente_id", pacienteId)
+          .not("plano_aba", "is", null)
+          .order("data_inicio", { ascending: false })
+          .limit(1);
+
+        if (!error && data && data.length > 0 && data[0].plano_aba) {
+          const prevPlan = data[0].plano_aba as any;
+          setSupervisorId(prevPlan.supervisor_id ?? "");
+          setTentativasMax(prevPlan.tentativas_max ?? 19);
+          setAvaliacoesPreferencia(
+            Array.isArray(prevPlan.avaliacoes_preferencia)
+              ? [...prevPlan.avaliacoes_preferencia, "", "", "", ""].slice(0, 4)
+              : ["", "", "", ""]
+          );
+          setObservacoesMedica(prevPlan.observacoes_medica ?? "");
+
+          const cleanedPrograms = (prevPlan.programas ?? []).map((p: any) => ({
+            id: p.id || generateUUID(),
+            nome: p.nome || "",
+            descricao: p.descricao || "",
+            tentativas_prog: p.tentativas_prog ?? 12,
+            respostas: {},
+          }));
+          setProgramas(cleanedPrograms);
+          toast.success("Estrutura do Plano ABA copiada do último atendimento!");
+        } else {
+          setProgramas(
+            DEFAULT_PROGRAMAS.map((p) => ({
+              ...p,
+              id: generateUUID(),
+              respostas: {},
+            }))
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load historical Plano ABA:", err);
+        setProgramas(
+          DEFAULT_PROGRAMAS.map((p) => ({
+            ...p,
+            id: generateUUID(),
+            respostas: {},
+          }))
+        );
+      }
+    };
+
+    loadHistory();
+  }, [open, value, pacienteId]);
+
+  // Auto-select supervisor when professional list arrives (only if none chosen yet)
+  useEffect(() => {
+    if (!open) return;
+    if (supervisorId) return;
+    if (!Array.isArray(profissionais) || profissionais.length === 0) return;
+    const braulio = profissionais.find((p: any) => {
+      const name = p.nome ? String(p.nome).toLowerCase() : "";
+      return name.includes("bráulio");
+    });
+    if (braulio) {
+      setSupervisorId(braulio.id);
+    } else if (supervisores.length > 0) {
+      setSupervisorId(supervisores[0].id);
+    }
+  }, [open, profissionais, supervisores, supervisorId]);
 
   // Fetch history manually
   const handleCopyHistory = async () => {
