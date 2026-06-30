@@ -700,7 +700,7 @@ export function PlanoAbaDialog({
             </div>
 
             {/* Scrollable Table Area */}
-            <div className="h-[420px] xl:h-auto xl:flex-1 border rounded-lg overflow-auto bg-white dark:bg-slate-950 shadow-sm min-h-[350px] shrink-0 relative">
+            <div className="h-[420px] xl:h-auto xl:flex-1 border rounded-lg overflow-auto bg-white dark:bg-slate-950 shadow-sm min-h-[200px] relative">
               <table className="w-full text-left border-collapse table-fixed">
                 <thead>
                   <tr className="bg-slate-100/80 dark:bg-slate-900 border-b text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider sticky top-0 z-20">
@@ -915,7 +915,7 @@ export function PlanoAbaDialog({
           </div>
 
           {/* Right Sidebar - Metadata & Assessments (1 Column - Desktop Only) */}
-          <div className="hidden xl:flex flex-col gap-4 overflow-y-auto pr-1">
+          <div className="hidden xl:flex flex-col gap-4 overflow-y-auto pr-1 min-h-0">
             {cardDados}
             {cardPreferencias}
             {cardObservacoes}
