@@ -133,6 +133,7 @@ export function PlanoAbaDialog({
   profissionalNome,
   value,
   onChange,
+  onConfirm,
 }: PlanoAbaProps) {
   // Query active professionals to populate supervisor options
   const { data: profissionais = [] } = useQuery({
