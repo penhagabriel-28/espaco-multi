@@ -75,6 +75,28 @@ const STATUS_LABEL: Record<string, string> = {
 
 function Agenda() {
   const qc = useQueryClient();
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("agendamentos-realtime-sync")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "agendamentos",
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["ags"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [qc]);
+
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
   const days = useMemo(

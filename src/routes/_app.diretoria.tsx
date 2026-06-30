@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -148,6 +148,38 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
 
 function DiretoriaPageContent() {
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("diretoria-realtime-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "faturas" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "fatura_itens" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pacientes" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
   const today = new Date();
   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
   const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
