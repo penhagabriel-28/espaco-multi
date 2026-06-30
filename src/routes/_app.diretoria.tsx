@@ -1323,7 +1323,9 @@ function DiretoriaPageContent() {
     const map = new Map<
       string,
       {
+        key: string;
         pacienteId: string;
+        billingType: "mensal" | "sessao";
         nome: string;
         faturasPendentesCount: number;
         totalPendente: number;
@@ -1343,11 +1345,20 @@ function DiretoriaPageContent() {
       const pId = f.paciente_id;
       if (!pId) continue;
       const patientName = patientMap.get(pId) || "Paciente Desconhecido";
+      const pDetails = patientDetailsMap.get(pId);
+      
+      const billingType = f.especialidade === "Apoio" 
+        ? "mensal" 
+        : (pDetails && pDetails.valor_mensal && pDetails.valor_mensal > 0 ? "mensal" : "sessao");
 
-      let entry = map.get(pId);
+      const key = `${pId}-${billingType}`;
+
+      let entry = map.get(key);
       if (!entry) {
         entry = {
+          key,
           pacienteId: pId,
+          billingType,
           nome: patientName,
           faturasPendentesCount: 0,
           totalPendente: 0,
@@ -1356,7 +1367,7 @@ function DiretoriaPageContent() {
           temAtraso: false,
           faturas: [],
         };
-        map.set(pId, entry);
+        map.set(key, entry);
       }
 
       entry.faturas.push(f);
@@ -1385,7 +1396,7 @@ function DiretoriaPageContent() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [faturas, patientMap, profFilter, faturaProfIdsMap]);
+  }, [faturas, patientMap, profFilter, faturaProfIdsMap, patientDetailsMap]);
 
   const filteredConsolidated = useMemo(() => {
     return consolidatedPatients.filter((c) => {
@@ -1785,28 +1796,12 @@ Agradecemos a atenção!
       .sort((a, b) => new Date(a.competencia).getTime() - new Date(b.competencia).getTime());
   }, [faturas, searchPatient, statusFilter, profFilter, faturaProfIdsMap, patientMap]);
   const mensalPatients = useMemo(() => {
-    return filteredConsolidated.filter((c) => {
-      const p = patientDetailsMap.get(c.pacienteId);
-      if (!p) return false;
-      const hasApoio = Array.isArray(p.cids_secundarios) && p.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
-      if (hasApoio) {
-        return p.apoio_frequencia && p.apoio_frequencia !== "avulso";
-      }
-      return p.valor_mensal && p.valor_mensal > 0;
-    });
-  }, [filteredConsolidated, patientDetailsMap]);
+    return filteredConsolidated.filter((c) => c.billingType === "mensal");
+  }, [filteredConsolidated]);
 
   const sessaoPatients = useMemo(() => {
-    return filteredConsolidated.filter((c) => {
-      const p = patientDetailsMap.get(c.pacienteId);
-      if (!p) return true;
-      const hasApoio = Array.isArray(p.cids_secundarios) && p.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
-      if (hasApoio) {
-        return !p.apoio_frequencia || p.apoio_frequencia === "avulso";
-      }
-      return !p.valor_mensal || p.valor_mensal === 0;
-    });
-  }, [filteredConsolidated, patientDetailsMap]);
+    return filteredConsolidated.filter((c) => c.billingType === "sessao");
+  }, [filteredConsolidated]);
 
   const renderPatientTable = (list: typeof filteredConsolidated, emptyMessage: string) => {
     if (list.length === 0) {
@@ -1841,7 +1836,7 @@ Agradecemos a atenção!
                 resps[0];
 
               return (
-                <TableRow key={c.pacienteId} className="hover:bg-muted/30">
+                <TableRow key={c.key} className="hover:bg-muted/30">
                   <TableCell className="font-semibold text-foreground">
                     <div>{c.nome}</div>
                     {(() => {

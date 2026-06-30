@@ -673,137 +673,20 @@ const getEspecialidade = (a: any) => {
 };
 
 const syncAgendamentoFinanceiro = async (
-  agendamentoId: string,
-  pacienteId: string,
-  profissionalId: string,
-  dataInicio: string,
-  status: string,
-  tipoAgendamento: "sessao" | "anamnese",
-  especialidade: string,
-  valor: number,
-  meioPagamento?: string,
+  _agendamentoId: string,
+  _pacienteId: string,
+  _profissionalId: string,
+  _dataInicio: string,
+  _status: string,
+  _tipoAgendamento: "sessao" | "anamnese",
+  _especialidade: string,
+  _valor: number,
+  _meioPagamento?: string,
 ) => {
-  try {
-    if (isApoio(especialidade)) {
-      return;
-    }
-    const numValor = Number(valor || 0);
-
-    // 1. Fetch existing fatura item for this agendamento if any
-    const { data: existingItens, error: fetchItensErr } = await supabase
-      .from("fatura_itens")
-      .select("*, faturas(status, valor)")
-      .eq("agendamento_id", agendamentoId);
-
-    if (fetchItensErr) {
-      console.error("Error fetching fatura items:", fetchItensErr);
-      return;
-    }
-
-    const existingItem = existingItens?.[0];
-    const oldFatura = existingItem?.faturas as any;
-
-    // If status is NOT realizado, NOT pago, and NOT falta:
-    if (status !== "realizado" && status !== "pago" && status !== "falta") {
-      // If there is an existing item, delete it and subtract its value from the fatura
-      if (existingItem) {
-        if (oldFatura?.status === "aberta" || oldFatura?.status === "paga") {
-          const newFaturaValor = Math.max(0, Number(oldFatura.valor) - Number(existingItem.total));
-          await supabase
-            .from("faturas")
-            .update({ valor: newFaturaValor })
-            .eq("id", existingItem.fatura_id);
-        }
-
-        await supabase.from("fatura_itens").delete().eq("id", existingItem.id);
-
-        // Clean up fatura if it has no more items
-        if (oldFatura?.status === "aberta" || oldFatura?.status === "paga") {
-          const { data: remaining } = await supabase
-            .from("fatura_itens")
-            .select("id")
-            .eq("fatura_id", existingItem.fatura_id)
-            .limit(1);
-          if (!remaining || remaining.length === 0) {
-            await supabase.from("faturas").delete().eq("id", existingItem.fatura_id);
-          }
-        }
-      }
-      return;
-    }
-
-    // If status IS realizado, pago, or falta:
-    const targetStatus = status === "pago" || status === "falta" ? "paga" : "aberta";
-    const d = new Date(dataInicio);
-    const competencia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-    const dateStr = format(d, "dd/MM/yyyy HH:mm");
-    const descricao =
-      tipoAgendamento === "anamnese"
-        ? `${especialidade || "Avaliação"} (Avaliação) - ${dateStr}`
-        : `${especialidade || "Sessão"} - ${dateStr}`;
-
-    const mappedMetodo = meioPagamento?.toLowerCase() === "espécie" ? "dinheiro" : "pix";
-    let faturaId = "";
-
-    if (existingItem) {
-      faturaId = existingItem.fatura_id;
-      // Update existing invoice's status and payment info
-      const updatePayload: any = {
-        status: targetStatus,
-        pago_em: targetStatus === "paga" ? (dataInicio || new Date().toISOString()) : null,
-        metodo: targetStatus === "paga" ? mappedMetodo : null,
-      };
-      await supabase
-        .from("faturas")
-        .update(updatePayload)
-        .eq("id", faturaId);
-
-      // Update the item description, unit price and total
-      await supabase
-        .from("fatura_itens")
-        .update({
-          descricao,
-          valor_unitario: numValor,
-          total: numValor,
-        })
-        .eq("id", existingItem.id);
-    } else {
-      // Create new invoice for this session
-      const insertData: any = {
-        paciente_id: pacienteId,
-        competencia,
-        valor: 0,
-        status: targetStatus,
-      };
-      if (targetStatus === "paga") {
-        insertData.pago_em = dataInicio || new Date().toISOString();
-        insertData.metodo = mappedMetodo;
-      }
-      const { data: newFatura, error: createFaturaErr } = await supabase
-        .from("faturas")
-        .insert(insertData)
-        .select()
-        .single();
-
-      if (createFaturaErr) {
-        console.error("Error creating fatura:", createFaturaErr);
-        return;
-      }
-      faturaId = newFatura.id;
-
-      // Create new item pointing to the new invoice
-      await supabase.from("fatura_itens").insert({
-        fatura_id: faturaId,
-        agendamento_id: agendamentoId,
-        descricao,
-        quantidade: 1,
-        valor_unitario: numValor,
-        total: numValor,
-      });
-    }
-  } catch (err) {
-    console.error("Error in syncAgendamentoFinanceiro:", err);
-  }
+  // O banco de dados (através do trigger tg_sync_agendamento_financeiro) gerencia
+  // todo o sincronismo e cálculo de faturas/itens de forma atômica e consistente.
+  // Retornamos imediatamente para evitar race conditions ou sobrescrever valores customizados.
+  return;
 };
 
 const FragmentRow = memo(
