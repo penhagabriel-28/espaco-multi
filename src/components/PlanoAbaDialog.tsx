@@ -319,8 +319,10 @@ export function PlanoAbaDialog({
     toast.success("Plano ABA restaurado para o modelo padrão.");
   };
 
-  // Save changes and return to parent
-  const handleSave = () => {
+  const [saving, setSaving] = useState(false);
+
+  // Save changes — persist directly when onConfirm is provided
+  const handleSave = async () => {
     const supervisor = Array.isArray(profissionais) ? profissionais.find((p) => p.id === supervisorId) : undefined;
     const payload = {
       supervisor_id: supervisorId || null,
@@ -331,8 +333,21 @@ export function PlanoAbaDialog({
       programas: programas,
     };
     onChange(payload);
-    onOpenChange(false);
-    toast.success("Plano ABA salvo temporariamente no agendamento!");
+    if (onConfirm) {
+      try {
+        setSaving(true);
+        await onConfirm(payload);
+        toast.success("Plano ABA salvo no agendamento!");
+        onOpenChange(false);
+      } catch (err: any) {
+        toast.error("Erro ao salvar Plano ABA: " + (err?.message ?? String(err)));
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      onOpenChange(false);
+      toast.success("Plano ABA salvo temporariamente no agendamento!");
+    }
   };
 
   // Cycle trial cell response
