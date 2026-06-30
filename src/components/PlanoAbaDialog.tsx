@@ -46,6 +46,7 @@ const generateUUID = () => {
 interface Programa {
   id: string;
   nome: string;
+  descricao?: string;
   tentativas_prog: number;
   respostas: Record<number, "RI" | "AP" | "AT" | "E" | "">;
 }
@@ -208,6 +209,7 @@ export function PlanoAbaDialog({
               const cleanedPrograms = (prevPlan.programas ?? []).map((p: any) => ({
                 id: p.id || generateUUID(),
                 nome: p.nome || "",
+                descricao: p.descricao || "",
                 tentativas_prog: p.tentativas_prog ?? 12,
                 respostas: {},
               }));
@@ -279,6 +281,7 @@ export function PlanoAbaDialog({
         const cleanedPrograms = (prevPlan.programas ?? []).map((p: any) => ({
           id: p.id || generateUUID(),
           nome: p.nome || "",
+          descricao: p.descricao || "",
           tentativas_prog: p.tentativas_prog ?? 12,
           respostas: {},
         }));
@@ -382,6 +385,7 @@ export function PlanoAbaDialog({
       {
         id: generateUUID(),
         nome: `Programa ${prev.length + 1}`,
+        descricao: "",
         tentativas_prog: 12,
         respostas: {},
       },
@@ -397,6 +401,13 @@ export function PlanoAbaDialog({
   const handleProgramNameChange = (id: string, name: string) => {
     setProgramas((prev) =>
       prev.map((p) => (p.id === id ? { ...p, nome: name } : p))
+    );
+  };
+
+  // Edit program description
+  const handleProgramDescChange = (id: string, desc: string) => {
+    setProgramas((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, descricao: desc } : p))
     );
   };
 
@@ -668,6 +679,7 @@ export function PlanoAbaDialog({
                   <tr className="bg-slate-100/80 dark:bg-slate-900 border-b text-[10px] text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider sticky top-0 z-20">
                     <th className="w-8 md:w-10 p-1 text-center sticky left-0 bg-slate-100 dark:bg-slate-900 border-r z-30">Nº</th>
                     <th className="w-[128px] md:w-[240px] p-1 sticky left-8 md:left-10 bg-slate-100 dark:bg-slate-900 border-r z-30">Programas</th>
+                    <th className="w-[100px] md:w-[150px] p-2 text-center border-r">Descrição</th>
                     <th className="w-[60px] md:w-[70px] p-2 text-center border-r">Tents</th>
                     
                     {/* Render columns up to tentativasMax */}
@@ -698,6 +710,16 @@ export function PlanoAbaDialog({
                           value={prog.nome}
                           onChange={(e) => handleProgramNameChange(prog.id, e.target.value)}
                           className="h-8 text-[11px] md:text-xs font-medium border-transparent hover:border-border focus:border-primary px-1 focus:bg-white"
+                        />
+                      </td>
+
+                      {/* Program description */}
+                      <td className="p-0 border-r">
+                        <Input
+                          value={prog.descricao || ""}
+                          onChange={(e) => handleProgramDescChange(prog.id, e.target.value)}
+                          placeholder="Descrição..."
+                          className="h-8 text-[11px] md:text-xs border-transparent hover:border-border focus:border-primary px-1 focus:bg-white"
                         />
                       </td>
 
