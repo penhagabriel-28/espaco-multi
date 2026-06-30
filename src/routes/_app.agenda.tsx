@@ -2313,6 +2313,17 @@ Fico à disposição para qualquer dúvida!`;
           profissionalNome={Array.isArray(profissionais) ? (profissionais.find((p: any) => p.id === form.profissional_id)?.nome || "") : ""}
           value={form.plano_aba}
           onChange={(val) => setForm((prev) => ({ ...prev, plano_aba: val }))}
+          onConfirm={editing?.id ? async (val) => {
+            const { error } = await supabase
+              .from("agendamentos")
+              .update({ plano_aba: val })
+              .eq("id", editing.id);
+            if (error) throw error;
+            await Promise.all([
+              qc.invalidateQueries({ queryKey: ["agendamentos"] }),
+              qc.invalidateQueries({ queryKey: ["paciente-ags"] }),
+            ]);
+          } : undefined}
         />
       </form>
     </DialogContent>
