@@ -163,7 +163,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pacientes")
-        .select("id, nome")
+        .select("id, nome, cids_secundarios")
         .eq("status", "ativo")
         .order("nome");
       if (error) throw error;
@@ -752,6 +752,14 @@ function RelatoriosPage() {
 
   // --- Módulo de Evolução AT ABA ---
   const [selectedAbaPacienteId, setSelectedAbaPacienteId] = useState("");
+  const abaPatients = useMemo(() => {
+    return activePatients.filter((p: any) => {
+      const pacSpecs = Array.isArray(p.cids_secundarios)
+        ? p.cids_secundarios.map((s: any) => String(s).trim().toLowerCase())
+        : [];
+      return pacSpecs.includes("at aba");
+    });
+  }, [activePatients]);
   const [abaInicio, setAbaInicio] = useState(() => {
     const d = addDays(new Date(), -180); // Default last 6 months
     return format(startOfMonth(d), "yyyy-MM-dd");
@@ -1544,7 +1552,7 @@ function RelatoriosPage() {
                     <SelectValue placeholder="Selecione o paciente..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {activePatients.map((p: any) => (
+                    {abaPatients.map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.nome}
                       </SelectItem>
