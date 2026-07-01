@@ -210,42 +210,44 @@ export function AnamneseFormDialog({
     enabled: !!pacienteId && pacienteId !== "",
   });
 
-  // Populate data when loaded
+  // Populate data when loaded — only once per open to avoid resetting user edits
+  const initializedRef = useRef(false);
   useEffect(() => {
+    if (initializedRef.current) return;
+    if (isLoadingPaciente || isLoadingResponsaveis || isLoadingAnamnese) return;
+
     if (existingAnamnese?.respostas) {
       setRespostas((prev) => ({
         ...prev,
         ...(existingAnamnese.respostas as Record<string, string>),
       }));
     } else {
-      // Auto-prepopulate from patient card
-      setRespostas((prev) => {
-        const formattedBirth = paciente?.data_nascimento
-          ? formatBirthDateForDisplay(paciente.data_nascimento)
-          : "";
-        const age = paciente?.data_nascimento
-          ? calculateAge(paciente.data_nascimento)
-          : "";
-        const formattedBirthWithAge = formattedBirth
-          ? `${formattedBirth} (${age} anos)`
-          : "";
+      const formattedBirth = paciente?.data_nascimento
+        ? formatBirthDateForDisplay(paciente.data_nascimento)
+        : "";
+      const age = paciente?.data_nascimento
+        ? calculateAge(paciente.data_nascimento)
+        : "";
+      const formattedBirthWithAge = formattedBirth
+        ? `${formattedBirth} (${age} anos)`
+        : "";
 
-        const primaryResp = responsaveis?.[0];
-        const contactInfo = primaryResp
-          ? [primaryResp.telefone, primaryResp.whatsapp, primaryResp.email].filter(Boolean).join(" / ")
-          : "";
+      const primaryResp = responsaveis?.[0];
+      const contactInfo = primaryResp
+        ? [primaryResp.telefone, primaryResp.whatsapp, primaryResp.email].filter(Boolean).join(" / ")
+        : "";
 
-        return {
-          ...prev,
-          nome_completo: paciente?.nome ?? "",
-          data_nascimento: formattedBirthWithAge,
-          diagnostico: paciente?.cid_principal ?? "",
-          responsavel: primaryResp?.nome ?? "",
-          contato: contactInfo,
-        };
-      });
+      setRespostas((prev) => ({
+        ...prev,
+        nome_completo: paciente?.nome ?? "",
+        data_nascimento: formattedBirthWithAge,
+        diagnostico: paciente?.cid_principal ?? "",
+        responsavel: primaryResp?.nome ?? "",
+        contato: contactInfo,
+      }));
     }
-  }, [paciente, responsaveis, existingAnamnese]);
+    initializedRef.current = true;
+  }, [paciente, responsaveis, existingAnamnese, isLoadingPaciente, isLoadingResponsaveis, isLoadingAnamnese]);
 
   const calculateAge = (birthDateStr: any) => {
     if (!birthDateStr) return "";
