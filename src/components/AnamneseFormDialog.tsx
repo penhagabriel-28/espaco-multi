@@ -174,7 +174,7 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session && !!pacienteId && pacienteId !== "",
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Fetch existing anamnese
