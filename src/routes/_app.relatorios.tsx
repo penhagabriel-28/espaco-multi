@@ -963,67 +963,161 @@ function RelatoriosPage() {
     toast.success("Sessão baixada com sucesso!");
   };
 
-  // Export consolidated evolution history as CSV
-  const downloadConsolidatedCSV = () => {
+  const handlePrintConsolidated = () => {
     if (chartData.length === 0) {
       toast.error("Nenhuma sessão disponível para exportar.");
       return;
     }
+    
+    const pacNome = activePatients.find((p: any) => p.id === selectedAbaPacienteId)?.nome || "";
+    
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Por favor, permita pop-ups para imprimir.");
+      return;
+    }
+    
+    const sortedData = [...chartData].sort((a: any, b: any) => a.dataCompleta.localeCompare(b.dataCompleta));
+    
+    const tableRowsHtml = sortedData.map((session: any, idx: number) => {
+      return `
+        <tr>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; font-weight: bold;">${idx + 1}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; font-family: monospace;">${session.dataCompleta.split(' ')[0]}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px;">${session.profissional}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px;">${session.supervisor}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; font-weight: bold; color: #059669;">${session.pctRI}%</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; color: #d97706;">${session.pctAP}%</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; color: #dc2626;">${session.pctAT}%</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; color: #4f46e5;">${session.pctE}%</td>
+        </tr>
+      `;
+    }).join("");
 
-    const headers = [
-      "Data",
-      "Terapeuta",
-      "Supervisor",
-      "Total Respostas",
-      "Total RI",
-      "Pct RI (%)",
-      "Total AP",
-      "Pct AP (%)",
-      "Total AT",
-      "Pct AT (%)",
-      "Total E",
-      "Pct E (%)"
-    ];
+    const avgRI = abaMetrics.avgRI;
+    const avgAP = chartData.length > 0 ? Math.round(chartData.reduce((acc, curr) => acc + curr.pctAP, 0) / chartData.length) : 0;
+    const avgAT = chartData.length > 0 ? Math.round(chartData.reduce((acc, curr) => acc + curr.pctAT, 0) / chartData.length) : 0;
+    const avgE = chartData.length > 0 ? Math.round(chartData.reduce((acc, curr) => acc + curr.pctE, 0) / chartData.length) : 0;
 
-    const metaRows = [
-      ["Relatorio de Evolucao Consolidada - ABA"],
-      ["Paciente", activePatients.find((p: any) => p.id === selectedAbaPacienteId)?.nome || ""],
-      ["Periodo", `${abaInicio} a ${abaFim}`],
-      ["Total de Sessoes", String(chartData.length)],
-      []
-    ];
+    const programsSummaryHtml = uniquePrograms.map((progName: string) => {
+      const progScores = sortedData.map((session: any) => {
+        const prog = (session.plano?.programas || []).find((p: any) => p.nome === progName);
+        if (!prog) return null;
+        let totRI = 0, totRespostas = 0;
+        const tCount = prog.tentativas_prog || 12;
+        for (let i = 1; i <= tCount; i++) {
+          const res = prog.respostas?.[i] || "";
+          if (res === "RI") totRI++;
+          if (["RI", "AP", "AT", "E"].includes(res)) totRespostas++;
+        }
+        return totRespostas > 0 ? Math.round((totRI / totRespostas) * 100) : 0;
+      }).filter(v => v !== null) as number[];
 
-    const sessionRows = chartData.map((session: any) => [
-      session.dataCompleta,
-      session.profissional,
-      session.supervisor,
-      String(session.totRespostas),
-      String(session.totRI),
-      `${session.pctRI}%`,
-      String(session.totAP),
-      `${session.pctAP}%`,
-      String(session.totAT),
-      `${session.pctAT}%`,
-      String(session.totE),
-      `${session.pctE}%`
-    ]);
+      const initialScore = progScores.length > 0 ? `${progScores[0]}%` : "—";
+      const finalScore = progScores.length > 0 ? `${progScores[progScores.length - 1]}%` : "—";
 
-    const csvContent = [
-      ...metaRows.map((r: string[]) => r.map((val: string) => `"${val.replace(/"/g, '""')}"`).join(",")),
-      headers.join(","),
-      ...sessionRows.map((r: string[]) => r.map((val: string) => `"${val.replace(/"/g, '""')}"`).join(","))
-    ].join("\n");
+      return `
+        <tr>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; font-weight: bold;">${progName}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center;">${initialScore}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; font-weight: bold; color: #4f46e5;">${finalScore}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: center; font-weight: bold; color: #059669;">
+            ${progScores.length > 1 ? (progScores[progScores.length - 1] >= progScores[0] ? "📈 Melhora" : "📉 Estável/Oscilando") : "—"}
+          </td>
+        </tr>
+      `;
+    }).join("");
 
-    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    const pacNome = activePatients.find((p: any) => p.id === selectedAbaPacienteId)?.nome || "paciente";
-    link.setAttribute("download", `evolucao_consolidada_aba_${pacNome.replace(/\s+/g, "_")}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    toast.success("Evolução consolidada baixada com sucesso!");
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Relatório de Evolução Consolidada ABA - ${pacNome}</title>
+        <style>
+          body { font-family: sans-serif; margin: 30px; color: #1e293b; }
+          h1 { font-size: 22px; font-weight: bold; color: #4f46e5; margin-bottom: 5px; }
+          .header-title { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+          .meta-grid { display: grid; grid-template-cols: 1fr 1fr; gap: 15px; margin-top: 20px; margin-bottom: 25px; font-size: 13px; }
+          .meta-item { border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; }
+          .meta-label { font-weight: bold; color: #64748b; font-size: 11px; text-transform: uppercase; }
+          .meta-value { font-weight: 500; font-size: 13px; margin-top: 2px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
+          th { background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-weight: bold; font-size: 11px; color: #475569; }
+          td { border: 1px solid #cbd5e1; padding: 8px; }
+          .section-title { font-size: 15px; font-weight: bold; color: #334155; margin-top: 30px; margin-bottom: 10px; border-left: 4px solid #4f46e5; padding-left: 8px; }
+          .totals-summary { display: flex; gap: 20px; margin-top: 20px; margin-bottom: 20px; }
+          .tot-card { flex: 1; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; text-align: center; }
+          .tot-val { font-size: 18px; font-weight: bold; margin-top: 5px; }
+          @media print {
+            body { margin: 15px; }
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header-title">
+          <div>
+            <h1>Relatório Clínico de Evolução Consolidada</h1>
+            <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Espaço Multi — Intervenção Comportamental (ABA)</div>
+          </div>
+          <button onclick="window.print()" style="padding: 8px 16px; background: #4f46e5; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Salvar como PDF</button>
+        </div>
+        
+        <div class="meta-grid">
+          <div class="meta-item"><div class="meta-label">Paciente</div><div class="meta-value" style="font-size: 15px; font-weight: bold;">${pacNome}</div></div>
+          <div class="meta-item"><div class="meta-label">Período de Análise</div><div class="meta-value">${abaInicio.split('-').reverse().join('/')} a ${abaFim.split('-').reverse().join('/')}</div></div>
+          <div class="meta-item"><div class="meta-label">Total de Sessões Registradas</div><div class="meta-value">${chartData.length} sessões</div></div>
+          <div class="meta-item"><div class="meta-label">Média Geral de Acertos Independentes (RI)</div><div class="meta-value" style="color: #047857; font-weight: bold;">${avgRI}%</div></div>
+        </div>
+
+        <div class="section-title">Resumo de Desempenho Clínico Geral</div>
+        <div class="totals-summary">
+          <div class="tot-card" style="background-color: #ecfdf5; border-color: #a7f3d0;"><div class="meta-label" style="color: #065f46;">Independente (RI)</div><div class="tot-val" style="color: #047857;">${avgRI}%</div></div>
+          <div class="tot-card" style="background-color: #fffbeb; border-color: #fde68a;"><div class="meta-label" style="color: #92400e;">Ajuda Parcial (AP)</div><div class="tot-val" style="color: #b45309;">${avgAP}%</div></div>
+          <div class="tot-card" style="background-color: #fef2f2; border-color: #fecaca;"><div class="meta-label" style="color: #991b1b;">Ajuda Total (AT)</div><div class="tot-val" style="color: #b91c1c;">${avgAT}%</div></div>
+          <div class="tot-card" style="background-color: #f5f3ff; border-color: #ddd6fe;"><div class="meta-label" style="color: #3730a3;">Ecoico (E)</div><div class="tot-val" style="color: #4f46e5;">${avgE}%</div></div>
+        </div>
+
+        <div class="section-title">Evolução por Habilidade / Programa</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Programa</th>
+              <th style="width: 120px; text-align: center;">Nível Inicial (% RI)</th>
+              <th style="width: 120px; text-align: center;">Nível Atual (% RI)</th>
+              <th style="width: 150px; text-align: center;">Status de Evolução</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${programsSummaryHtml}
+          </tbody>
+        </table>
+
+        <div class="section-title">Histórico Detalhado de Sessões</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 30px; text-align: center;">Nº</th>
+              <th style="width: 90px;">Data</th>
+              <th>Terapeuta</th>
+              <th>Supervisor ABA</th>
+              <th style="width: 60px; text-align: center;">% RI</th>
+              <th style="width: 60px; text-align: center;">% AP</th>
+              <th style="width: 60px; text-align: center;">% AT</th>
+              <th style="width: 60px; text-align: center;">% E</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   const handlePrintSession = (session: any) => {
@@ -1479,12 +1573,11 @@ function RelatoriosPage() {
 
               <div className="flex gap-2">
                 <Button
-                  onClick={downloadConsolidatedCSV}
+                  onClick={handlePrintConsolidated}
                   disabled={!selectedAbaPacienteId || chartData.length === 0}
-                  variant="outline"
-                  className="gap-1.5"
+                  className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold"
                 >
-                  <Download className="h-4 w-4" /> Exportar Evolução
+                  <Printer className="h-4 w-4" /> Gerar PDF da Evolução
                 </Button>
               </div>
             </CardContent>
@@ -1684,36 +1777,26 @@ function RelatoriosPage() {
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-right">
-                                  <div className="flex justify-end items-center gap-1 opacity-90 group-hover:opacity-100">
+                                  <div className="flex justify-end items-center gap-2 opacity-90 group-hover:opacity-100">
                                     <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-8 w-8 text-slate-500 hover:text-slate-800"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 px-2.5 text-xs font-semibold gap-1.5"
                                       title="Visualizar Sessão"
                                       onClick={() => {
                                         setViewAbaSession(session);
                                         setViewAbaOpen(true);
                                       }}
                                     >
-                                      <Eye className="h-4 w-4" />
+                                      <Eye className="h-3.5 w-3.5" /> Visualizar
                                     </Button>
                                     <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-8 w-8 text-emerald-600 hover:text-emerald-700"
-                                      title="Baixar CSV da Sessão"
-                                      onClick={() => downloadSessionCSV(session)}
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-8 w-8 text-indigo-600 hover:text-indigo-700"
-                                      title="Imprimir / Gerar PDF"
+                                      size="sm"
+                                      className="h-8 px-2.5 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                      title="Salvar como PDF / Imprimir"
                                       onClick={() => handlePrintSession(session)}
                                     >
-                                      <Printer className="h-4 w-4" />
+                                      <Printer className="h-3.5 w-3.5" /> Gerar PDF
                                     </Button>
                                   </div>
                                 </TableCell>
@@ -1759,21 +1842,11 @@ function RelatoriosPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs font-semibold gap-1.5"
-                    onClick={() => downloadSessionCSV(viewAbaSession)}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Baixar CSV
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs font-semibold gap-1.5 text-indigo-600 hover:text-indigo-700"
+                    className="h-8 text-xs font-semibold gap-1.5 text-indigo-600 hover:text-indigo-700 border-indigo-200"
                     onClick={() => handlePrintSession(viewAbaSession)}
                   >
                     <Printer className="h-3.5 w-3.5" />
-                    Imprimir / PDF
+                    Gerar PDF / Imprimir
                   </Button>
                 </div>
               </DialogHeader>
