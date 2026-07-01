@@ -207,7 +207,7 @@ export function AnamneseFormDialog({
       
       return data;
     },
-    enabled: !!session && !!pacienteId && pacienteId !== "",
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Populate data when loaded
