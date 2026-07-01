@@ -307,6 +307,8 @@ export function AnamneseFormDialog({
     onSuccess: () => {
       toast.success("Ficha de anamnese salva com sucesso!");
       qc.invalidateQueries({ queryKey: ["anamnese-data"] });
+      qc.invalidateQueries({ queryKey: ["agendamentos"] });
+      onClose();
     },
     onError: (err: any) => {
       toast.error(`Erro ao salvar: ${err.message}`);
