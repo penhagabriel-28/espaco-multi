@@ -68,6 +68,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   X,
+  Printer,
 } from "lucide-react";
 
 export const Route = createFileRoute("/_app/diretoria")({
@@ -1530,6 +1531,230 @@ function DiretoriaPageContent() {
     });
   }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, profFilter]);
 
+  const handlePrintAllBilling = () => {
+    if (filteredConsolidated.length === 0) {
+      toast.error("Nenhuma cobrança encontrada nos filtros selecionados para imprimir.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Por favor, permita pop-ups para imprimir.");
+      return;
+    }
+
+    const brl = (val: number) =>
+      val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+    const getRowDateStr = (row: any) => {
+      const rawDate = row.item?.agendamento_id ? agendamentoDateMap.get(row.item.agendamento_id) : null;
+      if (rawDate) {
+        return format(new Date(rawDate), "dd/MM/yyyy HH:mm");
+      }
+      if (row.competencia) {
+        return format(new Date(row.competencia + "T12:00:00"), "MM/yyyy");
+      }
+      return "—";
+    };
+
+    const patientBlocksHtml = filteredConsolidated.map((c: any) => {
+      const pFats = c.faturas.filter((f: any) => {
+        let matchesProf = true;
+        if (profFilter !== "all") {
+          const profIds = faturaProfIdsMap.get(f.id);
+          matchesProf = profIds ? profIds.has(profFilter) : false;
+        }
+        return matchesProf;
+      });
+
+      const rows: any[] = [];
+      pFats.forEach((f: any) => {
+        let items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
+        if (f.especialidade === "Apoio") {
+          items = items.filter((item: any) => !item.agendamento_id);
+        }
+        if (items.length === 0) {
+          const rowProfId = f.profissional_id;
+          if (profFilter !== "all" && rowProfId !== profFilter) return;
+
+          rows.push({
+            id: `fatura-${f.id}`,
+            faturaId: f.id,
+            paciente_id: f.paciente_id,
+            competencia: f.competencia,
+            vencimento: f.vencimento,
+            pago_em: f.pago_em,
+            status: f.status,
+            metodo: f.metodo,
+            valor: Number(f.valor) || 0,
+            descricao: f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual"),
+            profissionalNome: f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—",
+            especialidade: f.especialidade || null,
+            fatura: f,
+            isFaturaOnly: true,
+          });
+        } else {
+          items.forEach((item: any) => {
+            const isApoioMatch = f.especialidade === "Apoio" && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
+            const rowProfId = isApoioMatch 
+              ? profFilter 
+              : (item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id);
+            if (profFilter !== "all" && rowProfId !== profFilter) return;
+
+            const profName = isApoioMatch 
+              ? (professionalMap.get(profFilter) || "—") 
+              : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
+            const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
+            
+            rows.push({
+              id: `item-${item.id}`,
+              faturaId: f.id,
+              paciente_id: f.paciente_id,
+              competencia: f.competencia,
+              vencimento: f.vencimento,
+              pago_em: f.pago_em,
+              status: f.status,
+              metodo: f.metodo,
+              valor: Number(item.total || 0),
+              descricao: item.descricao || "Sessão",
+              profissionalNome: finalProfName,
+              especialidade: f.especialidade || null,
+              fatura: f,
+              item: item,
+              isFaturaOnly: false,
+            });
+          });
+        }
+      });
+
+      rows.sort((a, b) => {
+        const timeA = a.item?.agendamento_id ? (agendamentoDateMap.get(a.item.agendamento_id) ? new Date(agendamentoDateMap.get(a.item.agendamento_id)!).getTime() : null) : null;
+        const timeB = b.item?.agendamento_id ? (agendamentoDateMap.get(b.item.agendamento_id) ? new Date(agendamentoDateMap.get(b.item.agendamento_id)!).getTime() : null) : null;
+
+        const dateA = timeA || (a.competencia ? new Date(a.competencia).getTime() : 0);
+        const dateB = timeB || (b.competencia ? new Date(b.competencia).getTime() : 0);
+
+        return dateA - dateB;
+      });
+
+      const profGroups = new Map<string, any[]>();
+      rows.forEach((row) => {
+        const list = profGroups.get(row.profissionalNome) || [];
+        list.push(row);
+        profGroups.set(row.profissionalNome, list);
+      });
+
+      const profSectionsHtml = Array.from(profGroups.entries()).map(([profName, groupRows]) => {
+        const groupTotal = groupRows.reduce((acc, r) => acc + r.valor, 0);
+        const groupRowsHtml = groupRows.map((row) => {
+          let statusStyle = "color: #e11d48; font-weight: bold;";
+          if (row.status === "paga") statusStyle = "color: #059669; font-weight: bold;";
+          else if (row.status === "aberta") statusStyle = "color: #d97706; font-weight: bold;";
+          
+          return `
+            <tr>
+              <td style="border: 1px solid #cbd5e1; padding: 6px; font-family: monospace;">${getRowDateStr(row)}</td>
+              <td style="border: 1px solid #cbd5e1; padding: 6px;">${row.descricao}</td>
+              <td style="border: 1px solid #cbd5e1; padding: 6px; text-transform: capitalize; ${statusStyle}">${row.status}</td>
+              <td style="border: 1px solid #cbd5e1; padding: 6px; text-align: right; font-weight: bold;">${brl(row.valor)}</td>
+            </tr>
+          `;
+        }).join("");
+
+        return `
+          <div style="margin-top: 15px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; page-break-inside: avoid;">
+            <div style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0; padding: 8px 12px; font-weight: bold; color: #1e293b; display: flex; justify-content: space-between;">
+              <span>👤 Profissional: ${profName}</span>
+              <span style="color: #4f46e5;">Subtotal: ${brl(groupTotal)}</span>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr style="background-color: #ffffff; border-bottom: 1px solid #cbd5e1; color: #475569; font-weight: bold;">
+                  <th style="padding: 6px; text-align: left; width: 130px;">Data/Período</th>
+                  <th style="padding: 6px; text-align: left;">Descrição da Sessão/Fatura</th>
+                  <th style="padding: 6px; text-align: left; width: 80px;">Status</th>
+                  <th style="padding: 6px; text-align: right; width: 90px;">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${groupRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div style="margin-bottom: 40px; border-bottom: 2px dashed #cbd5e1; padding-bottom: 25px; page-break-after: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <h2 style="margin: 0; font-size: 16px; color: #1e293b; font-weight: bold;">${c.nome}</h2>
+              <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                Tipo de Faturamento: <span style="font-weight: bold; text-transform: uppercase;">${c.billingType}</span>
+              </div>
+            </div>
+            <div style="text-align: right; font-size: 11px; color: #1e293b;">
+              <div>Soma Pendente: <span style="color: #e11d48; font-weight: bold; font-size: 13px;">${brl(c.totalPendente)}</span></div>
+              <div style="margin-top: 2px;">Soma Paga: <span style="color: #059669; font-weight: bold;">${brl(c.totalPago)}</span></div>
+              <div style="margin-top: 2px;">Soma Total: <span style="color: #4f46e5; font-weight: bold;">${brl(c.totalGeral)}</span></div>
+            </div>
+          </div>
+          
+          ${rows.length === 0 ? `
+            <div style="padding: 15px; border: 1px dashed #cbd5e1; border-radius: 6px; text-align: center; font-size: 12px; color: #64748b; margin-top: 15px;">
+              Nenhum item ou sessão de cobrança encontrado para os filtros ativos.
+            </div>
+          ` : profSectionsHtml}
+        </div>
+      `;
+    }).join("");
+
+    const statusLabel = statusFilter === "all" ? "Todos os Status" : statusFilter;
+    const profLabel = profFilter === "all" ? "Todos os Profissionais" : (professionalMap.get(profFilter) || profFilter);
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Relatório Geral da Central de Cobrança</title>
+        <style>
+          body { font-family: sans-serif; margin: 30px; color: #1e293b; }
+          h1 { font-size: 20px; font-weight: bold; color: #4f46e5; margin: 0; }
+          .header-title { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #cbd5e1; padding-bottom: 12px; }
+          .filter-summary { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 15px; margin-top: 15px; margin-bottom: 25px; font-size: 11px; display: grid; grid-template-cols: 1fr 1fr 1fr; gap: 10px; }
+          .filter-item span { font-weight: bold; color: #64748b; text-transform: uppercase; font-size: 9px; display: block; }
+          .filter-item div { font-size: 11px; font-weight: 600; margin-top: 2px; }
+          @media print {
+            body { margin: 15px; }
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header-title">
+          <div>
+            <h1>Relatório Geral da Central de Cobrança</h1>
+            <div style="font-size: 11px; color: #64748b; margin-top: 3px;">Espaço Multi — Gestão Financeira Consolidada</div>
+          </div>
+          <button onclick="window.print()" style="padding: 8px 16px; background: #4f46e5; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Imprimir Relatório / Salvar como PDF</button>
+        </div>
+        
+        <div class="filter-summary">
+          <div class="filter-item"><span>Período Selecionado</span><div>${inicio.split('-').reverse().join('/')} a ${fim.split('-').reverse().join('/')}</div></div>
+          <div class="filter-item"><span>Filtro de Status</span><div>${statusLabel}</div></div>
+          <div class="filter-item"><span>Filtro de Profissional</span><div>${profLabel}</div></div>
+        </div>
+
+        ${patientBlocksHtml}
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
     const resps = responsaveisMap.get(pacienteId) || [];
     const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
@@ -2193,25 +2418,35 @@ Agradecemos a atenção!
                   pagamentos.
                 </CardDescription>
               </div>
-              <Button
-                onClick={() => {
-                  setFaturaForm({
-                    paciente_id: "",
-                    competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                    vencimento: "",
-                    valor: "",
-                    status: "aberta",
-                    pago_em: "",
-                    observacoes: "",
-                    profissional_id: "",
-                    especialidade: "",
-                  });
-                  setCreateDialog(true);
-                }}
-                className="gap-1.5 self-start sm:self-center"
-              >
-                <Plus className="h-4 w-4" /> Nova Cobrança
-              </Button>
+              <div className="flex gap-2 self-start sm:self-center">
+                <Button
+                  onClick={handlePrintAllBilling}
+                  disabled={filteredConsolidated.length === 0}
+                  variant="outline"
+                  className="gap-1.5 border-primary/20 text-primary hover:bg-primary/5"
+                >
+                  <Printer className="h-4 w-4" /> Imprimir Relatório Geral
+                </Button>
+                <Button
+                  onClick={() => {
+                    setFaturaForm({
+                      paciente_id: "",
+                      competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
+                      vencimento: "",
+                      valor: "",
+                      status: "aberta",
+                      pago_em: "",
+                      observacoes: "",
+                      profissional_id: "",
+                      especialidade: "",
+                    });
+                    setCreateDialog(true);
+                  }}
+                  className="gap-1.5"
+                >
+                  <Plus className="h-4 w-4" /> Nova Cobrança
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Sub-tabs Switcher */}
