@@ -62,7 +62,7 @@ export function AnamneseFormDialog({
   onClose,
 }: AnamneseFormDialogProps) {
   const qc = useQueryClient();
-  const { session } = useAuth();
+  
   const [activeTab, setActiveTab] = useState("identificacao");
 
   // State to hold all form fields
