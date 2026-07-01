@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { FileText, Printer, Save, Loader2, User, HelpCircle, Users, Activity, GraduationCap, MessageSquare, Brain, RefreshCw, Heart, Milestone, MapPin, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useAuth } from "@/hooks/useAuth";
+
 
 const formatBirthDateForDisplay = (dateStr: any) => {
   if (!dateStr) return "";
