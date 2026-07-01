@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { FileText, Printer, Save, Loader2, User, HelpCircle, Users, Activity, GraduationCap, MessageSquare, Brain, RefreshCw, Heart, Milestone, MapPin, ClipboardList } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { useAuth } from "@/hooks/useAuth";
+
 
 const formatBirthDateForDisplay = (dateStr: any) => {
   if (!dateStr) return "";
@@ -62,7 +62,7 @@ export function AnamneseFormDialog({
   onClose,
 }: AnamneseFormDialogProps) {
   const qc = useQueryClient();
-  const { session } = useAuth();
+  
   const [activeTab, setActiveTab] = useState("identificacao");
 
   // State to hold all form fields
@@ -154,7 +154,7 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data;
     },
-    enabled: !!session && !!pacienteId && pacienteId !== "",
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Fetch responsible people
@@ -174,7 +174,7 @@ export function AnamneseFormDialog({
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!session && !!pacienteId && pacienteId !== "",
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
   // Fetch existing anamnese
@@ -207,45 +207,47 @@ export function AnamneseFormDialog({
       
       return data;
     },
-    enabled: !!session && !!pacienteId && pacienteId !== "",
+    enabled: !!pacienteId && pacienteId !== "",
   });
 
-  // Populate data when loaded
+  // Populate data when loaded — only once per open to avoid resetting user edits
+  const initializedRef = useRef(false);
   useEffect(() => {
+    if (initializedRef.current) return;
+    if (isLoadingPaciente || isLoadingResponsaveis || isLoadingAnamnese) return;
+
     if (existingAnamnese?.respostas) {
       setRespostas((prev) => ({
         ...prev,
         ...(existingAnamnese.respostas as Record<string, string>),
       }));
     } else {
-      // Auto-prepopulate from patient card
-      setRespostas((prev) => {
-        const formattedBirth = paciente?.data_nascimento
-          ? formatBirthDateForDisplay(paciente.data_nascimento)
-          : "";
-        const age = paciente?.data_nascimento
-          ? calculateAge(paciente.data_nascimento)
-          : "";
-        const formattedBirthWithAge = formattedBirth
-          ? `${formattedBirth} (${age} anos)`
-          : "";
+      const formattedBirth = paciente?.data_nascimento
+        ? formatBirthDateForDisplay(paciente.data_nascimento)
+        : "";
+      const age = paciente?.data_nascimento
+        ? calculateAge(paciente.data_nascimento)
+        : "";
+      const formattedBirthWithAge = formattedBirth
+        ? `${formattedBirth} (${age} anos)`
+        : "";
 
-        const primaryResp = responsaveis?.[0];
-        const contactInfo = primaryResp
-          ? [primaryResp.telefone, primaryResp.whatsapp, primaryResp.email].filter(Boolean).join(" / ")
-          : "";
+      const primaryResp = responsaveis?.[0];
+      const contactInfo = primaryResp
+        ? [primaryResp.telefone, primaryResp.whatsapp, primaryResp.email].filter(Boolean).join(" / ")
+        : "";
 
-        return {
-          ...prev,
-          nome_completo: paciente?.nome ?? "",
-          data_nascimento: formattedBirthWithAge,
-          diagnostico: paciente?.cid_principal ?? "",
-          responsavel: primaryResp?.nome ?? "",
-          contato: contactInfo,
-        };
-      });
+      setRespostas((prev) => ({
+        ...prev,
+        nome_completo: paciente?.nome ?? "",
+        data_nascimento: formattedBirthWithAge,
+        diagnostico: paciente?.cid_principal ?? "",
+        responsavel: primaryResp?.nome ?? "",
+        contato: contactInfo,
+      }));
     }
-  }, [paciente, responsaveis, existingAnamnese]);
+    initializedRef.current = true;
+  }, [paciente, responsaveis, existingAnamnese, isLoadingPaciente, isLoadingResponsaveis, isLoadingAnamnese]);
 
   const calculateAge = (birthDateStr: any) => {
     if (!birthDateStr) return "";
@@ -305,6 +307,8 @@ export function AnamneseFormDialog({
     onSuccess: () => {
       toast.success("Ficha de anamnese salva com sucesso!");
       qc.invalidateQueries({ queryKey: ["anamnese-data"] });
+      qc.invalidateQueries({ queryKey: ["agendamentos"] });
+      onClose();
     },
     onError: (err: any) => {
       toast.error(`Erro ao salvar: ${err.message}`);
