@@ -1387,6 +1387,35 @@ function DiretoriaPageContent() {
     setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
   };
 
+  const getApoioFaturaValor = (fatura: any) => {
+    const p = patientDetailsMap.get(fatura.paciente_id);
+    if (!p) return Number(fatura.valor) || 0;
+    
+    const freq = p.apoio_frequencia || 'avulso';
+    const customVal = p.apoio_valor_personalizado;
+    
+    if (freq === 'avulso') {
+      const sessionsCount = (faturaItens || []).filter(
+        (item: any) => item.fatura_id === fatura.id && item.agendamento_id
+      ).length;
+      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "") 
+        ? Number(customVal) 
+        : 50.00;
+      return sessionsCount > 0 ? (sessionsCount * rate) : rate;
+    } else {
+      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+        return Number(customVal);
+      }
+      const defaultRates: Record<string, number> = {
+        "1x": 120.00,
+        "2x": 240.00,
+        "3x": 360.00,
+        semana_toda: 450.00
+      };
+      return defaultRates[freq] ?? 120.00;
+    }
+  };
+
   // Memoized consolidated billing by patient
   const consolidatedPatients = useMemo(() => {
     const map = new Map<
@@ -1440,7 +1469,7 @@ function DiretoriaPageContent() {
       }
 
       entry.faturas.push(f);
-      const val = Number(f.valor) || 0;
+      const val = f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0);
 
       if (f.status === "paga") {
         entry.totalPago += val;
@@ -1465,7 +1494,7 @@ function DiretoriaPageContent() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [faturas, patientMap, profFilter, faturaProfIdsMap, patientDetailsMap]);
+  }, [faturas, patientMap, profFilter, faturaProfIdsMap, patientDetailsMap, faturaItens]);
 
   const filteredConsolidated = useMemo(() => {
     return consolidatedPatients.filter((c) => {
@@ -1545,7 +1574,7 @@ function DiretoriaPageContent() {
           pago_em: f.pago_em,
           status: f.status,
           metodo: f.metodo,
-          valor: Number(f.valor) || 0,
+          valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
           descricao: rowDesc,
           profissionalNome: profNome,
           especialidade: f.especialidade || null,
@@ -1609,7 +1638,7 @@ function DiretoriaPageContent() {
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
-            valor: Number(item.total || 0),
+            valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
             descricao: rowDesc,
             profissionalNome: finalProfName,
             especialidade: f.especialidade || null,
@@ -1720,7 +1749,7 @@ function DiretoriaPageContent() {
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
-            valor: Number(f.valor) || 0,
+            valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
             descricao: rowDesc,
             profissionalNome: profNome,
             especialidade: f.especialidade || null,
@@ -1783,7 +1812,7 @@ function DiretoriaPageContent() {
               pago_em: f.pago_em,
               status: f.status,
               metodo: f.metodo,
-              valor: Number(item.total || 0),
+              valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
               descricao: rowDesc,
               profissionalNome: finalProfName,
               especialidade: f.especialidade || null,
