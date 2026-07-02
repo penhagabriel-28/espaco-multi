@@ -197,8 +197,10 @@ function DiretoriaPageContent() {
         
         if (error) throw error;
         
-        if (data && data.length > 0 && data[0].competencia) {
-          setInicio(data[0].competencia);
+        if (data && data.length > 0 && data[0]?.competencia) {
+          const rawDate = data[0].competencia;
+          const formattedDate = typeof rawDate === "string" ? rawDate.substring(0, 10) : format(new Date(rawDate), "yyyy-MM-dd");
+          setInicio(formattedDate);
         }
       } catch (err) {
         console.error("Erro ao buscar competência mais antiga pendente:", err);
