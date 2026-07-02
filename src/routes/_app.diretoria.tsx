@@ -221,6 +221,17 @@ function DiretoriaPageContent() {
         pros.forEach((p) => names.add(p));
       }
     });
+
+    const p = patientDetailsMap.get(pacienteId);
+    if (p && p.paciente_profissional) {
+      p.paciente_profissional.forEach((pp: any) => {
+        const name = professionalMap.get(pp.profissional_id);
+        if (name) {
+          names.add(name);
+        }
+      });
+    }
+
     return Array.from(names);
   };
 
@@ -920,6 +931,18 @@ function DiretoriaPageContent() {
 
   const faturaProfessionalsMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
+    
+    (faturas || []).forEach((f: any) => {
+      if (f.profissional_id) {
+        const profName = professionalMap.get(f.profissional_id);
+        if (profName) {
+          const set = map.get(f.id) || new Set<string>();
+          set.add(profName);
+          map.set(f.id, set);
+        }
+      }
+    });
+
     (faturaItens || []).forEach((item: any) => {
       const fatId = item.fatura_id || item.faturas?.id;
       if (!fatId) return;
@@ -935,7 +958,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturaItens, agendamentoProfIdMap, professionalMap]);
+  }, [faturas, faturaItens, agendamentoProfIdMap, professionalMap]);
 
   const faturaProfIdsMap = useMemo(() => {
     const map = new Map<string, Set<string>>();
