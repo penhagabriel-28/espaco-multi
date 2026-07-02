@@ -1948,11 +1948,6 @@ function DiretoriaPageContent() {
                 Tipo de Faturamento: <span style="font-weight: bold; text-transform: uppercase;">${c.billingType}</span>
               </div>
             </div>
-            <div style="text-align: right; font-size: 11px; color: #1e293b;">
-              <div>Soma Pendente: <span style="color: #e11d48; font-weight: bold; font-size: 13px;">${brl(c.totalPendente)}</span></div>
-              <div style="margin-top: 2px;">Soma Paga: <span style="color: #059669; font-weight: bold;">${brl(c.totalPago)}</span></div>
-              <div style="margin-top: 2px;">Soma Total: <span style="color: #4f46e5; font-weight: bold;">${brl(c.totalGeral)}</span></div>
-            </div>
           </div>
           
           ${rows.length === 0 ? `
