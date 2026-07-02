@@ -964,9 +964,19 @@ function DiretoriaPageContent() {
     const map = new Map<string, Set<string>>();
 
     (faturas || []).forEach((f: any) => {
+      const set = map.get(f.id) || new Set<string>();
       if (f.profissional_id) {
-        const set = map.get(f.id) || new Set<string>();
         set.add(f.profissional_id);
+      } else {
+        // Fallback for faturas without a professional_id:
+        // Use the patient's accompanying professional IDs
+        const p = patientDetailsMap.get(f.paciente_id);
+        const pProfs = p?.paciente_profissional || [];
+        pProfs.forEach((pp: any) => {
+          set.add(pp.profissional_id);
+        });
+      }
+      if (set.size > 0) {
         map.set(f.id, set);
       }
     });
@@ -983,7 +993,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturas, faturaItens, agendamentoProfIdMap]);
+  }, [faturas, faturaItens, agendamentoProfIdMap, patientDetailsMap]);
 
   // Helper to resolve specialty of an appointment
   const getAppointmentSpecialty = (a: any) => {
