@@ -184,6 +184,29 @@ function DiretoriaPageContent() {
   const today = new Date();
   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
   const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
+
+  useEffect(() => {
+    async function fetchOldestPendingCompetence() {
+      try {
+        const { data, error } = await supabase
+          .from("faturas")
+          .select("competencia")
+          .in("status", ["aberta", "vencida"])
+          .order("competencia", { ascending: true })
+          .limit(1);
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0 && data[0].competencia) {
+          setInicio(data[0].competencia);
+        }
+      } catch (err) {
+        console.error("Erro ao buscar competência mais antiga pendente:", err);
+      }
+    }
+    void fetchOldestPendingCompetence();
+  }, []);
+
   const normalizeString = (str: string) =>
     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
 
