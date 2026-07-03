@@ -2053,7 +2053,95 @@ function DiretoriaPageContent() {
     const monthIndex = inicio ? parseInt(inicio.split("-")[1], 10) - 1 : -1;
     const mesRef = months[monthIndex] || "";
 
-    const textMsg = `Olá, ${primaryResp.nome}! Gostaríamos de lembrar do pagamento referente aos atendimentos de ${mesRef} de *${patientName}* no valor total de *${brl(totalPendente)}*. Poderia, por gentileza, realizar a confirmação do pagamento?
+    const periodFats = (faturas || []).filter(
+      (f) => f.paciente_id === pacienteId && (f.status === "aberta" || f.status === "vencida")
+    );
+
+    const summaryLines: string[] = [];
+    const groupedSessions: Record<string, { count: number; spec: string; profName: string }> = {};
+    const groupedPackages: Record<string, { desc: string; profName: string }> = {};
+
+    periodFats.forEach((f) => {
+      let items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
+      if (f.especialidade === "Apoio") {
+        items = items.filter((item: any) => !item.agendamento_id);
+      }
+
+      if (items.length === 0) {
+        let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—";
+        if (f.especialidade === "Apoio" && profNome === "—") {
+          const fatProfs = faturaProfIdsMap.get(f.id);
+          if (fatProfs && fatProfs.size > 0) {
+            profNome = Array.from(fatProfs)
+              .map((pId: string) => professionalMap.get(pId))
+              .filter(Boolean)
+              .join(", ") || "—";
+          } else {
+            const p = patientDetailsMap.get(f.paciente_id);
+            const pProfs = p?.paciente_profissional || [];
+            profNome = pProfs
+              .filter((pp: any) => professionalMatchesSpecialty(pp.profissional_id, f.especialidade))
+              .map((pp: any) => professionalMap.get(pp.profissional_id))
+              .filter(Boolean)
+              .join(", ") || "—";
+          }
+        }
+
+        if (f.especialidade === "Apoio") {
+          const p = patientDetailsMap.get(f.paciente_id);
+          const freq = p?.apoio_frequencia || 'avulso';
+          const freqLabels: Record<string, string> = {
+            avulso: "Pacote Apoio - Sessões Avulsas",
+            "1x": "Pacote Apoio - 1x por semana",
+            "2x": "Pacote Apoio - 2x por semana",
+            "3x": "Pacote Apoio - 3x por semana",
+            semana_toda: "Pacote Apoio - Semana Inteira",
+          };
+          const desc = freqLabels[freq] || "Pacote Apoio";
+          const key = `${desc}-${profNome}`;
+          groupedPackages[key] = { desc, profName };
+        } else {
+          const spec = f.especialidade || "Cobrança Manual";
+          const key = `${spec}-${profNome}`;
+          if (!groupedSessions[key]) {
+            groupedSessions[key] = { count: 0, spec, profName };
+          }
+          groupedSessions[key].count += 1;
+        }
+      } else {
+        items.forEach((item: any) => {
+          const profId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
+          const profName = profId ? (professionalMap.get(profId) || "—") : "—";
+          
+          if (f.especialidade === "Apoio") {
+            const desc = item.descricao || "Pacote Apoio";
+            const key = `${desc}-${profName}`;
+            groupedPackages[key] = { desc, profName };
+          } else {
+            const spec = item.descricao ? item.descricao.split(" - ")[0].trim() : (f.especialidade || "Sessão");
+            const key = `${spec}-${profName}`;
+            if (!groupedSessions[key]) {
+              groupedSessions[key] = { count: 0, spec, profName };
+            }
+            groupedSessions[key].count += 1;
+          }
+        });
+      }
+    });
+
+    Object.values(groupedPackages).forEach((p) => {
+      summaryLines.push(`• ${p.desc} (${p.profName})`);
+    });
+
+    Object.values(groupedSessions).forEach((s) => {
+      summaryLines.push(`• ${s.count} sessão(ões) de ${s.spec} com ${s.profName}`);
+    });
+
+    const summaryText = summaryLines.length > 0 ? "\n\nResumo:\n" + summaryLines.join("\n") : "";
+
+    const textMsg = `Olá, ${primaryResp.nome}! Gostaríamos de lembrar do pagamento referente aos atendimentos de ${mesRef} de *${patientName}* no valor total de *${brl(totalPendente)}*.${summaryText}
+
+Poderia, por gentileza, realizar a confirmação do pagamento?
 
 Nosso pix: 54.747.611/0001-27
 
