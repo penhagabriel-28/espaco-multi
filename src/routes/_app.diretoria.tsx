@@ -733,6 +733,19 @@ function DiretoriaPageContent() {
     return new Map<string, string>((profissionais || []).map((p) => [p.id, p.nome]));
   }, [profissionais]);
 
+  const professionalSpecsMap = useMemo(() => {
+    return new Map<string, string>((profissionais || []).map((p) => [p.id, p.especialidade || ""]));
+  }, [profissionais]);
+
+  const professionalMatchesSpecialty = (profId: string, fatSpecialty: string | null | undefined) => {
+    if (!fatSpecialty) return true;
+    const specsStr = professionalSpecsMap.get(profId);
+    if (specsStr === undefined) return true; // Fallback if we don't have professional info in our active list
+    const cleanFat = fatSpecialty.trim().toLowerCase();
+    const cleanSpecs = specsStr.split(",").map((s) => s.trim().toLowerCase());
+    return cleanSpecs.includes(cleanFat);
+  };
+
   const getProfessionalsForFatura = (fatura: any) => {
     const set = new Set<string>();
     const prosSet = faturaProfessionalsMap.get(fatura.id);
@@ -973,7 +986,9 @@ function DiretoriaPageContent() {
         const p = patientDetailsMap.get(f.paciente_id);
         const pProfs = p?.paciente_profissional || [];
         pProfs.forEach((pp: any) => {
-          set.add(pp.profissional_id);
+          if (professionalMatchesSpecialty(pp.profissional_id, f.especialidade)) {
+            set.add(pp.profissional_id);
+          }
         });
       }
       if (set.size > 0) {
@@ -993,7 +1008,7 @@ function DiretoriaPageContent() {
       }
     });
     return map;
-  }, [faturas, faturaItens, agendamentoProfIdMap, patientDetailsMap]);
+  }, [faturas, faturaItens, agendamentoProfIdMap, patientDetailsMap, professionalSpecsMap]);
 
   // Helper to resolve specialty of an appointment
   const getAppointmentSpecialty = (a: any) => {
@@ -1617,6 +1632,7 @@ function DiretoriaPageContent() {
             const p = patientDetailsMap.get(f.paciente_id);
             const pProfs = p?.paciente_profissional || [];
             profNome = pProfs
+              .filter((pp: any) => professionalMatchesSpecialty(pp.profissional_id, f.especialidade))
               .map((pp: any) => professionalMap.get(pp.profissional_id))
               .filter(Boolean)
               .join(", ") || "—";
@@ -1663,6 +1679,7 @@ function DiretoriaPageContent() {
               const p = patientDetailsMap.get(f.paciente_id);
               const pProfs = p?.paciente_profissional || [];
               finalProfName = pProfs
+                .filter((pp: any) => professionalMatchesSpecialty(pp.profissional_id, f.especialidade))
                 .map((pp: any) => professionalMap.get(pp.profissional_id))
                 .filter(Boolean)
                 .join(", ") || "—";
@@ -1792,6 +1809,7 @@ function DiretoriaPageContent() {
               const p = patientDetailsMap.get(f.paciente_id);
               const pProfs = p?.paciente_profissional || [];
               profNome = pProfs
+                .filter((pp: any) => professionalMatchesSpecialty(pp.profissional_id, f.especialidade))
                 .map((pp: any) => professionalMap.get(pp.profissional_id))
                 .filter(Boolean)
                 .join(", ") || "—";
@@ -1837,6 +1855,7 @@ function DiretoriaPageContent() {
                 const p = patientDetailsMap.get(f.paciente_id);
                 const pProfs = p?.paciente_profissional || [];
                 finalProfName = pProfs
+                  .filter((pp: any) => professionalMatchesSpecialty(pp.profissional_id, f.especialidade))
                   .map((pp: any) => professionalMap.get(pp.profissional_id))
                   .filter(Boolean)
                   .join(", ") || "—";
@@ -2251,8 +2270,11 @@ Agradecemos a atenção!
     let profId = fatura.profissional_id || "";
     if (fatura.especialidade === "Apoio" && !profId) {
       const p = patientDetailsMap.get(fatura.paciente_id);
-      if (p?.paciente_profissional?.length > 0) {
-        profId = p.paciente_profissional[0].profissional_id;
+      const matchedProf = p?.paciente_profissional?.find((pp: any) =>
+        professionalMatchesSpecialty(pp.profissional_id, fatura.especialidade)
+      );
+      if (matchedProf) {
+        profId = matchedProf.profissional_id;
       }
     }
 
@@ -4055,7 +4077,12 @@ Agradecemos a atenção!
                     if (isApoio) {
                       spec = "Apoio";
                       if (!profId && p?.paciente_profissional?.length > 0) {
-                        profId = p.paciente_profissional[0].profissional_id;
+                        const matchedProf = p.paciente_profissional.find((pp: any) =>
+                          professionalMatchesSpecialty(pp.profissional_id, spec)
+                        );
+                        if (matchedProf) {
+                          profId = matchedProf.profissional_id;
+                        }
                       }
                     }
                     const price = getFaturaPrice(val, profId, spec);
@@ -4190,7 +4217,12 @@ Agradecemos a atenção!
                       if (spec === "Apoio" && !profId && prev.paciente_id) {
                         const p = patientDetailsMap.get(prev.paciente_id);
                         if (p?.paciente_profissional?.length > 0) {
-                          profId = p.paciente_profissional[0].profissional_id;
+                          const matchedProf = p.paciente_profissional.find((pp: any) =>
+                            professionalMatchesSpecialty(pp.profissional_id, spec)
+                          );
+                          if (matchedProf) {
+                            profId = matchedProf.profissional_id;
+                          }
                         }
                       }
                       const price = getFaturaPrice(prev.paciente_id, profId, spec);
