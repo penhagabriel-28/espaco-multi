@@ -2046,14 +2046,18 @@ function DiretoriaPageContent() {
       phoneWithCountry = "55" + cleanNum;
     }
 
-    const textMsg = `Olá, ${primaryResp.nome}!
-Gostaríamos de lembrar que constam pendências financeiras em aberto referentes aos atendimentos de *${patientName}* no valor total de *${brl(totalPendente)}*.
+    const months = [
+      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+    ];
+    const monthIndex = inicio ? parseInt(inicio.split("-")[1], 10) - 1 : -1;
+    const mesRef = months[monthIndex] || "";
 
-Poderia, por gentileza, realizar a confirmação do pagamento?
-Caso já tenha pago, por favor nos envie o comprovante.
+    const textMsg = `Olá, ${primaryResp.nome}! Gostaríamos de lembrar do pagamento referente aos atendimentos de ${mesRef} de *${patientName}* no valor total de *${brl(totalPendente)}*. Poderia, por gentileza, realizar a confirmação do pagamento?
 
-Agradecemos a atenção!
-*Espaço Multi*`;
+Nosso pix: 54.747.611/0001-27
+
+ Agradecemos a atenção! *Espaço Multi*`;
 
     const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`;
     window.open(url, "_blank");
