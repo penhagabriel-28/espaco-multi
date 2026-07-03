@@ -980,3 +980,80 @@ GRANT ALL ON public.paciente_profissional TO service_role;
 ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS assinatura_responsavel text;
 ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS nome_assinante text;
 ALTER TABLE public.agendamentos ADD COLUMN IF NOT EXISTS data_assinatura timestamp with time zone;
+
+-- Recalculate faturas when professional config changes
+CREATE OR REPLACE FUNCTION public.fn_recalculate_faturas_on_prof_config_change()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_item record;
+  v_fatura record;
+  v_especialidade text;
+  v_tipo_agendamento text;
+  v_new_price numeric;
+  v_fatura_total numeric;
+BEGIN
+  IF OLD.valores_config IS DISTINCT FROM NEW.valores_config OR OLD.valor_sessao IS DISTINCT FROM NEW.valor_sessao THEN
+    FOR v_item IN 
+      SELECT fi.id as item_id, fi.fatura_id, fi.descricao, fi.agendamento_id, f.paciente_id, f.especialidade as fat_spec
+      FROM public.fatura_itens fi
+      JOIN public.faturas f ON f.id = fi.fatura_id
+      LEFT JOIN public.agendamentos a ON a.id = fi.agendamento_id
+      WHERE f.status IN ('aberta', 'vencida')
+        AND (f.profissional_id = NEW.id OR a.profissional_id = NEW.id)
+    LOOP
+      IF v_item.agendamento_id IS NOT NULL THEN
+        SELECT public.fn_get_especialidade(a.servico_id, a.paciente_id, a.profissional_id) INTO v_especialidade
+        FROM public.agendamentos a WHERE a.id = v_item.agendamento_id;
+        
+        IF EXISTS (SELECT 1 FROM public.agendamentos a WHERE a.id = v_item.agendamento_id AND a.observacoes LIKE '[Tipo: Anamnese]%') THEN
+          v_tipo_agendamento := 'anamnese';
+        ELSE
+          v_tipo_agendamento := 'sessao';
+        END IF;
+      ELSE
+        v_especialidade := v_item.fat_spec;
+        v_tipo_agendamento := 'sessao';
+      END IF;
+
+      IF v_especialidade = 'Apoio' AND v_item.agendamento_id IS NULL THEN
+        CONTINUE;
+      END IF;
+
+      v_new_price := public.fn_get_pricing(v_item.paciente_id, NEW.id, v_especialidade, v_tipo_agendamento);
+
+      IF v_new_price IS NOT NULL THEN
+        UPDATE public.fatura_itens
+        SET valor_unitario = v_new_price, total = v_new_price
+        WHERE id = v_item.item_id;
+      END IF;
+    END LOOP;
+
+    FOR v_fatura IN
+      SELECT DISTINCT f.id, f.especialidade
+      FROM public.faturas f
+      JOIN public.fatura_itens fi ON fi.fatura_id = f.id
+      LEFT JOIN public.agendamentos a ON a.id = fi.agendamento_id
+      WHERE f.status IN ('aberta', 'vencida')
+        AND (f.profissional_id = NEW.id OR a.profissional_id = NEW.id)
+    LOOP
+      IF v_fatura.especialidade = 'Apoio' THEN
+        NULL;
+      ELSE
+        SELECT COALESCE(SUM(total), 0) INTO v_fatura_total
+        FROM public.fatura_itens
+        WHERE fatura_id = v_fatura.id;
+
+        UPDATE public.faturas
+        SET valor = v_fatura_total
+        WHERE id = v_fatura.id;
+      END IF;
+    END LOOP;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER tr_recalculate_faturas_on_prof_config_change
+AFTER UPDATE ON public.profissionais
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_recalculate_faturas_on_prof_config_change();
