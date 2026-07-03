@@ -2141,8 +2141,6 @@ function DiretoriaPageContent() {
 
     const textMsg = `Olá, ${primaryResp.nome}! Gostaríamos de lembrar do pagamento referente aos atendimentos de ${mesRef} de *${patientName}* no valor total de *${brl(totalPendente)}*.${summaryText}
 
-Poderia, por gentileza, realizar a confirmação do pagamento?
-
 Nosso pix: 54.747.611/0001-27
 
  Agradecemos a atenção! *Espaço Multi*`;
