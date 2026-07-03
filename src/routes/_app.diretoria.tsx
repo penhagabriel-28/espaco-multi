@@ -340,6 +340,60 @@ function DiretoriaPageContent() {
     },
   });
 
+  // Confirm all patient payments mutation
+  const confirmAllPatientPaymentsMutation = useMutation({
+    mutationFn: async ({ pacienteId, patientName }: { pacienteId: string; patientName: string }) => {
+      const patientFats = (faturas || []).filter(
+        (f) => f.paciente_id === pacienteId && (f.status === "aberta" || f.status === "vencida")
+      );
+
+      if (patientFats.length === 0) return;
+
+      const fatIds = patientFats.map(f => f.id);
+      
+      const { data: items } = await supabase
+        .from("fatura_itens")
+        .select("id, agendamento_id, fatura_id")
+        .in("fatura_id", fatIds);
+
+      const agIds = (items || [])
+        .map((item) => item.agendamento_id)
+        .filter(Boolean) as string[];
+
+      if (agIds.length > 0) {
+        const { error: agErr } = await supabase
+          .from("agendamentos")
+          .update({ status: "pago" })
+          .in("id", agIds);
+        if (agErr) throw agErr;
+      }
+
+      const faturasWithAgendamento = new Set((items || []).filter(item => item.agendamento_id).map(item => item.fatura_id));
+      const manualFatIds = fatIds.filter(id => !faturasWithAgendamento.has(id));
+
+      if (manualFatIds.length > 0) {
+        const { error: fatErr } = await supabase
+          .from("faturas")
+          .update({
+            status: "paga",
+            pago_em: new Date().toISOString(),
+            metodo: "pix",
+          })
+          .in("id", manualFatIds);
+        if (fatErr) throw fatErr;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      toast.success("Todos os pagamentos do período foram confirmados!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao confirmar pagamentos: " + err.message);
+    },
+  });
+
   // Create billing (manual) mutation
   const createFaturaMutation = useMutation({
     mutationFn: async (newFatura: {
@@ -2615,6 +2669,30 @@ Nosso pix: 54.747.611/0001-27
                       className="flex justify-end gap-1.5"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {c.totalPendente > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="Confirmar pagamento de todas as faturas do período"
+                          className="h-8 gap-1 font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `Deseja confirmar o pagamento de todas as faturas pendentes do período do paciente ${c.nome} no valor total de ${brl(c.totalPendente)}?`
+                              )
+                            ) {
+                              confirmAllPatientPaymentsMutation.mutate({
+                                pacienteId: c.pacienteId,
+                                patientName: c.nome,
+                              });
+                            }
+                          }}
+                          disabled={confirmAllPatientPaymentsMutation.isPending}
+                        >
+                          <Check className="h-4 w-4" />
+                          Confirmar Tudo
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
