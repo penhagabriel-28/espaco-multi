@@ -892,7 +892,7 @@ BEGIN
           v_competencia, 
           0, 
           v_target_status,
-          CASE WHEN v_target_status = 'paga'::public.fatura_status THEN COALESCE(NEW.data_inicio, now()) ELSE NULL END,
+          CASE WHEN v_target_status = 'paga'::public.fatura_status THEN now() ELSE NULL END,
           CASE WHEN v_target_status = 'paga'::public.metodo_pagamento THEN 'pix'::public.metodo_pagamento ELSE NULL END
         )
         RETURNING id INTO v_fatura_id;
