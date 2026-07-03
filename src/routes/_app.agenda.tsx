@@ -494,7 +494,7 @@ function Agenda() {
 
       <Card>
         <CardContent className="overflow-auto max-h-[calc(100dvh-180px)] md:max-h-[calc(100vh-220px)] p-0">
-          <div className="grid min-w-[900px] grid-cols-[60px_repeat(6,1fr)]">
+          <div className="grid min-w-[650px] md:min-w-[800px] lg:min-w-0 grid-cols-[60px_repeat(6,1fr)]">
             <div className="sticky top-0 z-20 border-b border-r bg-card p-2 text-xs font-medium text-muted-foreground"></div>
             {days.map((d) => {
               const isToday = isSameDay(d, new Date());
