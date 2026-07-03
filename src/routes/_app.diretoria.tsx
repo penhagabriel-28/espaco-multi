@@ -2523,13 +2523,13 @@ Nosso pix: 54.747.611/0001-27
             <TableRow>
               <TableHead>Paciente</TableHead>
               <TableHead>Profissionais</TableHead>
-              <TableHead>Responsável Financeiro</TableHead>
-              <TableHead className="text-center">Faturas Pendentes</TableHead>
-              <TableHead>Soma Pendente</TableHead>
+              <TableHead>Responsável</TableHead>
+              <TableHead className="text-center">Fats. Pend.</TableHead>
+              <TableHead>Soma Pend.</TableHead>
               <TableHead>Soma Paga</TableHead>
               <TableHead>Soma Geral</TableHead>
               <TableHead>Situação</TableHead>
-              <TableHead className="w-[180px] text-right">Ações</TableHead>
+              <TableHead className="w-[130px] text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -2600,15 +2600,14 @@ Nosso pix: 54.747.611/0001-27
                         {(primaryResp.whatsapp || primaryResp.telefone) && (
                           <Button
                             variant="outline"
-                            size="sm"
-                            className="h-7 px-2.5 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 flex items-center gap-1"
+                            size="icon"
+                            className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0"
                             onClick={() =>
                               handleWhatsAppClick(c.pacienteId, c.totalPendente, c.nome)
                             }
                             title={`Chamar no WhatsApp: ${primaryResp.whatsapp || primaryResp.telefone}`}
                           >
-                            <MessageCircle className="h-3.5 w-3.5 fill-emerald-600/10 shrink-0" />
-                            WhatsApp
+                            <MessageCircle className="h-4 w-4 fill-emerald-600/10" />
                           </Button>
                         )}
                       </div>
@@ -2672,9 +2671,9 @@ Nosso pix: 54.747.611/0001-27
                       {c.totalPendente > 0 && (
                         <Button
                           variant="outline"
-                          size="sm"
+                          size="icon"
                           title="Confirmar pagamento de todas as faturas do período"
-                          className="h-8 gap-1 font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40"
+                          className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40"
                           onClick={() => {
                             if (
                               confirm(
@@ -2690,17 +2689,16 @@ Nosso pix: 54.747.611/0001-27
                           disabled={confirmAllPatientPaymentsMutation.isPending}
                         >
                           <Check className="h-4 w-4" />
-                          Confirmar Tudo
                         </Button>
                       )}
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="h-8 gap-1 font-medium"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Ver Faturas"
                         onClick={() => handleOpenPatientFaturas(c.pacienteId, c.nome)}
                       >
-                        <Eye className="h-3.5 w-3.5" />
-                        Ver Faturas
+                        <Eye className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
