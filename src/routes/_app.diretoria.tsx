@@ -2099,12 +2099,12 @@ function DiretoriaPageContent() {
           };
           const desc = freqLabels[freq] || "Pacote Apoio";
           const key = `${desc}-${profNome}`;
-          groupedPackages[key] = { desc, profName };
+          groupedPackages[key] = { desc, profName: profNome };
         } else {
           const spec = f.especialidade || "Cobrança Manual";
           const key = `${spec}-${profNome}`;
           if (!groupedSessions[key]) {
-            groupedSessions[key] = { count: 0, spec, profName };
+            groupedSessions[key] = { count: 0, spec, profName: profNome };
           }
           groupedSessions[key].count += 1;
         }
