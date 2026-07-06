@@ -80,6 +80,8 @@ export function PacienteFormDialog({
     observacoes: paciente?.observacoes ?? "",
     responsavel: "",
     telefone: "",
+    responsavel_secundario: "",
+    telefone_secundario: "",
     cpf: paciente?.cpf ?? "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
     apoio_frequencia: paciente?.apoio_frequencia ?? "avulso",
@@ -176,8 +178,10 @@ export function PacienteFormDialog({
     if (isResponsaveisSuccess && responsaveis && responsaveis.length > 0 && !hasLoadedResponsavel) {
       setForm((f) => ({
         ...f,
-        responsavel: responsaveis[0].nome,
-        telefone: formatPhone(responsaveis[0].telefone ?? ""),
+        responsavel: responsaveis[0]?.nome || "",
+        telefone: formatPhone(responsaveis[0]?.telefone ?? ""),
+        responsavel_secundario: responsaveis[1]?.nome || "",
+        telefone_secundario: formatPhone(responsaveis[1]?.telefone ?? ""),
       }));
       setHasLoadedResponsavel(true);
     }
@@ -192,6 +196,10 @@ export function PacienteFormDialog({
     mutationFn: async () => {
       if (form.telefone.trim() && !form.responsavel.trim()) {
         throw new Error("O nome do responsável é obrigatório quando o telefone é informado.");
+      }
+
+      if (form.telefone_secundario.trim() && !form.responsavel_secundario.trim()) {
+        throw new Error("O nome do responsável adicional é obrigatório quando o telefone adicional é informado.");
       }
 
       let dbBirthDate: string | null = null;
@@ -268,6 +276,35 @@ export function PacienteFormDialog({
           if (rError) throw rError;
         }
 
+        if (responsaveis.length > 1) {
+          if (!form.responsavel_secundario.trim() && !form.telefone_secundario.trim()) {
+            // Delete secondary responsible
+            const { error: rError } = await supabase
+              .from("responsaveis")
+              .delete()
+              .eq("id", responsaveis[1].id);
+            if (rError) throw rError;
+          } else {
+            // Update secondary responsible
+            const { error: rError } = await supabase
+              .from("responsaveis")
+              .update({
+                nome: form.responsavel_secundario.trim(),
+                telefone: form.telefone_secundario.trim() || null,
+              })
+              .eq("id", responsaveis[1].id);
+            if (rError) throw rError;
+          }
+        } else if (form.responsavel_secundario.trim()) {
+          // Insert secondary responsible
+          const { error: rError } = await supabase.from("responsaveis").insert({
+            paciente_id: paciente.id,
+            nome: form.responsavel_secundario.trim(),
+            telefone: form.telefone_secundario.trim() || null,
+          });
+          if (rError) throw rError;
+        }
+
         // Recalculate Apoio package if applicable
         if (form.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP")) {
           const today = new Date();
@@ -303,6 +340,15 @@ export function PacienteFormDialog({
             paciente_id: newPaciente.id,
             nome: form.responsavel.trim(),
             telefone: form.telefone.trim() || null,
+          });
+          if (rError) throw rError;
+        }
+
+        if (form.responsavel_secundario.trim() && newPaciente) {
+          const { error: rError } = await supabase.from("responsaveis").insert({
+            paciente_id: newPaciente.id,
+            nome: form.responsavel_secundario.trim(),
+            telefone: form.telefone_secundario.trim() || null,
           });
           if (rError) throw rError;
         }
@@ -500,6 +546,26 @@ export function PacienteFormDialog({
             />
           </div>
         </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Responsável Adicional (Opcional)</Label>
+            <Input
+              value={form.responsavel_secundario || ""}
+              onChange={(e) => setForm({ ...form, responsavel_secundario: e.target.value })}
+              placeholder="Nome do segundo responsável..."
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Telefone do Resp. Adicional (Opcional)</Label>
+            <Input
+              value={form.telefone_secundario || ""}
+              onChange={(e) => setForm({ ...form, telefone_secundario: formatPhone(e.target.value) })}
+              placeholder="(XX) XXXXX-XXXX"
+            />
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label>Tipo de atendimento</Label>
