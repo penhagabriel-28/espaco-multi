@@ -1818,6 +1818,9 @@ function DiretoriaPageContent() {
     };
 
     const patientBlocksHtml = filteredConsolidated.map((c: any) => {
+      const resps = responsaveisMap.get(c.pacienteId) || [];
+      const respNames = resps.map((r: any) => `${r.nome}${r.parentesco ? ` (${r.parentesco})` : ""}`).join(", ");
+
       const pFats = c.faturas.filter((f: any) => {
         let matchesProf = true;
         if (profFilter !== "all") {
@@ -2017,6 +2020,7 @@ function DiretoriaPageContent() {
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div>
               <h2 style="margin: 0; font-size: 16px; color: #1e293b; font-weight: bold;">${c.nome}</h2>
+              ${respNames ? `<div style="font-size: 11px; color: #475569; margin-top: 2px; font-weight: 500;">Responsável: ${respNames}</div>` : ""}
               <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
                 Tipo de Faturamento: <span style="font-weight: bold; text-transform: uppercase;">${c.billingType}</span>
               </div>
