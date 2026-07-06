@@ -357,7 +357,7 @@ function DiretoriaPageContent() {
         .in("fatura_id", fatIds);
 
       const agIds = (items || [])
-        .map((item) => item.agendamento_id)
+        .map((item: any) => item.agendamento_id)
         .filter(Boolean) as string[];
 
       if (agIds.length > 0) {
@@ -368,7 +368,7 @@ function DiretoriaPageContent() {
         if (agErr) throw agErr;
       }
 
-      const faturasWithAgendamento = new Set((items || []).filter(item => item.agendamento_id).map(item => item.fatura_id));
+      const faturasWithAgendamento = new Set((items || []).filter((item: any) => item.agendamento_id).map((item: any) => item.fatura_id));
       const manualFatIds = fatIds.filter(id => !faturasWithAgendamento.has(id));
 
       if (manualFatIds.length > 0) {
