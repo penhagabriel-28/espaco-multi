@@ -554,9 +554,10 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     enabled: !!prof?.id,
   });
 
-  const config = {
+  const config: any = {
     especialidades: (prof?.valores_config as any)?.especialidades || [],
     descontos: (prof?.valores_config as any)?.descontos || [],
+    ativo_ate: (prof?.valores_config as any)?.ativo_ate,
   };
 
   const [form, setForm] = useState(() => {

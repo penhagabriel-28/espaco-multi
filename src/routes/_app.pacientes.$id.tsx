@@ -132,6 +132,7 @@ function PacienteDetail() {
   const diasFixos = parseDiasFixos(paciente?.observacoes);
 
   const handleRemoveDiaFixo = async (dfId: string) => {
+    if (!paciente) return;
     const currentDiasFixos = parseDiasFixos(paciente.observacoes);
     const updated = currentDiasFixos.filter((x) => x.id !== dfId);
     const newObs = serializeObservacoes(paciente.observacoes, updated);
@@ -823,7 +824,7 @@ function GerarSemanaDialog({
       if (occurrencesToInsert.length > 0) {
         const { error: insertError } = await supabase
           .from("agendamentos")
-          .insert(occurrencesToInsert);
+          .insert(occurrencesToInsert as any);
         if (insertError) throw insertError;
       }
 
