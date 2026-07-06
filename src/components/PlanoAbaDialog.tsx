@@ -135,31 +135,43 @@ export function PlanoAbaDialog({
   onChange,
   onConfirm,
 }: PlanoAbaProps) {
+  // Plano ABA local states
+  const [supervisorId, setSupervisorId] = useState("");
+
   // Query active professionals to populate supervisor options
   const { data: profissionais = [] } = useQuery({
     queryKey: ["profissionais-aba"],
     queryFn: async () => {
       const { data } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade")
-        .eq("ativo", true)
+        .select("id, nome, especialidade, valores_config, ativo")
         .order("nome");
       return data ?? [];
     },
     enabled: open,
   });
 
-  // Filter or sort professionals to prioritize supervisors
-  const supervisores = useMemo(() => {
+  const activeProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
     return profissionais.filter((p: any) => {
+      if (p.id === supervisorId) return true;
+      if (p.ativo) return true;
+      const config = p.valores_config as any;
+      if (config?.ativo_ate) {
+        const targetMonth = new Date().toISOString().substring(0, 7);
+        return targetMonth <= config.ativo_ate;
+      }
+      return false;
+    });
+  }, [profissionais, supervisorId]);
+
+  // Filter or sort professionals to prioritize supervisors
+  const supervisores = useMemo(() => {
+    return activeProfissionais.filter((p: any) => {
       const spec = p.especialidade ? String(p.especialidade).toLowerCase() : "";
       return spec.includes("supervisor") || spec.includes("coordenad");
     });
-  }, [profissionais]);
-
-  // Plano ABA local states
-  const [supervisorId, setSupervisorId] = useState("");
+  }, [activeProfissionais]);
   const [tentativasMax, setTentativasMax] = useState(19);
   const [avaliacoesPreferencia, setAvaliacoesPreferencia] = useState<string[]>([
     "",
@@ -492,8 +504,8 @@ export function PlanoAbaDialog({
                   {p.nome}
                 </SelectItem>
               ))
-            ) : Array.isArray(profissionais) ? (
-              profissionais.map((p: any) => (
+            ) : Array.isArray(activeProfissionais) ? (
+              activeProfissionais.map((p: any) => (
                 <SelectItem key={p.id} value={p.id} className="text-xs">
                   {p.nome} ({p.especialidade || "Profissional"})
                 </SelectItem>

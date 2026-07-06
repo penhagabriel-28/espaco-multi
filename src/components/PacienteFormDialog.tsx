@@ -99,8 +99,7 @@ export function PacienteFormDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, cor, especialidade")
-        .eq("ativo", true)
+        .select("id, nome, cor, especialidade, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data ?? [];
@@ -120,6 +119,19 @@ export function PacienteFormDialog({
     },
     enabled: !!paciente?.id,
   });
+
+  const displayedProfissionaisList = useMemo(() => {
+    return (profissionaisList || []).filter((prof: any) => {
+      if (prof.ativo) return true;
+      if (currentProfs.includes(prof.id)) return true;
+      const config = prof.valores_config as any;
+      if (config?.ativo_ate) {
+        const targetMonth = new Date().toISOString().substring(0, 7);
+        return targetMonth <= config.ativo_ate;
+      }
+      return false;
+    });
+  }, [profissionaisList, currentProfs]);
 
   const [selectedProfs, setSelectedProfs] = useState<string[]>(() => {
     if (paciente?.id) {
@@ -428,7 +440,7 @@ export function PacienteFormDialog({
         <div className="space-y-1.5 animate-in fade-in duration-200">
           <Label>Profissionais Acompanhantes</Label>
           <div className="flex flex-wrap gap-2">
-            {(profissionaisList || []).map((prof: any) => {
+            {(displayedProfissionaisList || []).map((prof: any) => {
               const selected = selectedProfs.includes(prof.id);
               return (
                 <button
@@ -454,7 +466,7 @@ export function PacienteFormDialog({
                 </button>
               );
             })}
-            {(profissionaisList || []).length === 0 && (
+            {(displayedProfissionaisList || []).length === 0 && (
               <span className="text-xs text-muted-foreground italic">
                 Nenhum profissional ativo cadastrado.
               </span>

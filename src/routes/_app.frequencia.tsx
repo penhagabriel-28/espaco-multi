@@ -222,13 +222,25 @@ function FrequenciaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor")
-        .eq("ativo", true)
+        .select("id, nome, especialidade, cor, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data ?? [];
     },
   });
+
+  const activeProfissionais = useMemo(() => {
+    return (profissionais || []).filter((p: any) => {
+      if (p.id === selectedProfId) return true;
+      if (p.ativo) return true;
+      const config = p.valores_config as any;
+      if (config?.ativo_ate) {
+        const targetMonth = inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM");
+        return targetMonth <= config.ativo_ate;
+      }
+      return false;
+    });
+  }, [profissionais, inicio, selectedProfId]);
 
   // Fetch Appointments
   const { data: agendamentos = [], isLoading: loadingAgs } = useQuery({
@@ -418,7 +430,7 @@ function FrequenciaPage() {
                 <SelectValue placeholder="Selecione o profissional..." />
               </SelectTrigger>
               <SelectContent>
-                {profissionais.map((p: any) => (
+                {activeProfissionais.map((p: any) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.nome}
                   </SelectItem>

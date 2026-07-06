@@ -189,8 +189,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, telefone")
-        .eq("ativo", true)
+        .select("id, nome, telefone, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data ?? [];
@@ -2155,11 +2154,22 @@ function RelatoriosPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhum profissional</SelectItem>
-                    {activeProfessionals.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
+                    {activeProfessionals
+                      .filter((p: any) => {
+                        if (p.id === formData.profissional_id) return true;
+                        if (p.ativo) return true;
+                        const config = p.valores_config as any;
+                        if (config?.ativo_ate) {
+                          const targetMonth = formData.data_solicitacao ? formData.data_solicitacao.substring(0, 7) : (inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM"));
+                          return targetMonth <= config.ativo_ate;
+                        }
+                        return false;
+                      })
+                      .map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
 

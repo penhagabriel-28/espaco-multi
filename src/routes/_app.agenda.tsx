@@ -153,8 +153,7 @@ function Agenda() {
       (
         await supabase
           .from("profissionais")
-          .select("id, nome, cor, especialidade, valor_sessao, valores_config")
-          .eq("ativo", true)
+          .select("id, nome, cor, especialidade, valor_sessao, valores_config, ativo")
           .order("nome")
       ).data ?? [],
     staleTime: 5 * 60 * 1000,
@@ -173,14 +172,27 @@ function Agenda() {
   });
   const sortedProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
-    return [...profissionais].sort((a, b) => {
+    
+    // Filter active professionals in the selected week
+    const activeInWeek = profissionais.filter((p: any) => {
+      if (selectedProfs.includes(p.id)) return true;
+      if (p.ativo) return true;
+      const config = p.valores_config as any;
+      if (config?.ativo_ate) {
+        const targetMonth = format(weekStart, "yyyy-MM");
+        return targetMonth <= config.ativo_ate;
+      }
+      return false;
+    });
+
+    return [...activeInWeek].sort((a, b) => {
       const aSelected = selectedProfs.includes(a.id);
       const bSelected = selectedProfs.includes(b.id);
       if (aSelected && !bSelected) return -1;
       if (!aSelected && bSelected) return 1;
       return (a.nome || "").localeCompare(b.nome || "");
     });
-  }, [profissionais, selectedProfs]);
+  }, [profissionais, selectedProfs, weekStart]);
 
   const filteredProfissionaisList = useMemo(() => {
     const searchLower = normalizeString(profSearch);
@@ -902,8 +914,7 @@ function AgendamentoDialog({
       (
         await supabase
           .from("profissionais")
-          .select("id, nome, cor, especialidade, valor_sessao, valores_config")
-          .eq("ativo", true)
+          .select("id, nome, cor, especialidade, valor_sessao, valores_config, ativo")
           .order("nome")
       ).data ?? [],
     staleTime: 5 * 60 * 1000,
@@ -1849,11 +1860,22 @@ Fico à disposição para qualquer dúvida!`;
                   </SelectTrigger>
                   <SelectContent>
                     {Array.isArray(profissionais) ? (
-                      profissionais.map((p: any) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.nome}
-                        </SelectItem>
-                      ))
+                      profissionais
+                        .filter((p: any) => {
+                          if (p.id === form.profissional_id) return true;
+                          if (p.ativo) return true;
+                          const config = p.valores_config as any;
+                          if (config?.ativo_ate) {
+                            const targetMonth = form.data_inicio ? form.data_inicio.substring(0, 7) : format(new Date(), "yyyy-MM");
+                            return targetMonth <= config.ativo_ate;
+                          }
+                          return false;
+                        })
+                        .map((p: any) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome}
+                          </SelectItem>
+                        ))
                     ) : null}
                   </SelectContent>
                 </Select>

@@ -365,13 +365,20 @@ function ProfissionaisPage() {
                         </div>
                       </div>
                     </div>
-                    <Badge
-                      variant={p.ativo ? "default" : "secondary"}
-                      onDragStart={(e) => e.stopPropagation()}
-                      className="shrink-0 text-[10px] h-5 px-1.5"
-                    >
-                      {p.ativo ? "Ativo" : "Inativo"}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {p.valores_config && (p.valores_config as any).ativo_ate && (
+                        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border/40 font-medium">
+                          Ativo até: {String((p.valores_config as any).ativo_ate).split("-").reverse().join("/")}
+                        </span>
+                      )}
+                      <Badge
+                        variant={p.ativo ? "default" : "secondary"}
+                        onDragStart={(e) => e.stopPropagation()}
+                        className="shrink-0 text-[10px] h-5 px-1.5"
+                      >
+                        {p.ativo ? "Ativo" : "Inativo"}
+                      </Badge>
+                    </div>
                   </div>
 
                   {/* Pricing Details */}
@@ -586,6 +593,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
       telefone: prof?.telefone ?? "",
       cor: prof?.cor ?? CORES[0],
       ativo: prof?.ativo ?? true,
+      ativo_ate: config.ativo_ate ?? "",
     };
   });
 
@@ -637,6 +645,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
               valor_avaliacao: isAtABA ? null : parseMoneyValue(d.valor_avaliacao),
             };
           }),
+        ativo_ate: form.ativo_ate || null,
       };
 
       const payload: any = {
@@ -853,6 +862,20 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         <Label htmlFor="ativo" className="text-sm font-medium leading-none cursor-pointer">
           Ativo
         </Label>
+      </div>
+
+      <div className="space-y-1.5 pt-2">
+        <Label htmlFor="ativo_ate">Ativo até (Mês/Ano) - Opcional</Label>
+        <Input
+          type="month"
+          id="ativo_ate"
+          value={form.ativo_ate || ""}
+          onChange={(e) => setForm({ ...form, ativo_ate: e.target.value })}
+          className="w-full"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Se definido, o profissional aparecerá como ativo nas agendas, relatórios e cobranças até o mês selecionado. A partir do mês seguinte, ele será tratado como inativo.
+        </p>
       </div>
     </div>
   );

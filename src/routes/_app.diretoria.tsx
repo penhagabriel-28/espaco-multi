@@ -776,8 +776,7 @@ function DiretoriaPageContent() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valor_sessao, valores_config")
-        .eq("ativo", true)
+        .select("id, nome, especialidade, cor, valor_sessao, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data || [];
@@ -2974,11 +2973,22 @@ Nosso pix: 54.747.611/0001-27
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Todos os Profissionais</SelectItem>
-                      {(profissionais || []).map((p: any) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.nome}
-                        </SelectItem>
-                      ))}
+                      {(profissionais || [])
+                        .filter((p: any) => {
+                          if (p.id === profFilter) return true;
+                          if (p.ativo) return true;
+                          const config = p.valores_config as any;
+                          if (config?.ativo_ate) {
+                            const targetMonth = inicio.substring(0, 7);
+                            return targetMonth <= config.ativo_ate;
+                          }
+                          return false;
+                        })
+                        .map((p: any) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.nome}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -3332,11 +3342,22 @@ Nosso pix: 54.747.611/0001-27
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todos os Profissionais</SelectItem>
-                    {(profissionais || []).map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
+                    {(profissionais || [])
+                      .filter((p: any) => {
+                        if (p.id === selectedProfId) return true;
+                        if (p.ativo) return true;
+                        const config = p.valores_config as any;
+                        if (config?.ativo_ate) {
+                          const targetMonth = inicio.substring(0, 7);
+                          return targetMonth <= config.ativo_ate;
+                        }
+                        return false;
+                      })
+                      .map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -4365,11 +4386,22 @@ Nosso pix: 54.747.611/0001-27
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhum</SelectItem>
-                    {(profissionais || []).map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
+                    {(profissionais || [])
+                      .filter((p: any) => {
+                        if (p.id === faturaForm.profissional_id) return true;
+                        if (p.ativo) return true;
+                        const config = p.valores_config as any;
+                        if (config?.ativo_ate) {
+                          const targetMonth = faturaForm.competencia ? faturaForm.competencia.substring(0, 7) : (inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM"));
+                          return targetMonth <= config.ativo_ate;
+                        }
+                        return false;
+                      })
+                      .map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -4811,11 +4843,22 @@ Nosso pix: 54.747.611/0001-27
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">Nenhum</SelectItem>
-                          {(profissionais || []).map((p: any) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.nome}
-                            </SelectItem>
-                          ))}
+                          {(profissionais || [])
+                            .filter((p: any) => {
+                              if (p.id === detailsFaturaForm.profissional_id) return true;
+                              if (p.ativo) return true;
+                              const config = p.valores_config as any;
+                              if (config?.ativo_ate) {
+                                const targetMonth = detailsFaturaForm.competencia ? detailsFaturaForm.competencia.substring(0, 7) : (inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM"));
+                                return targetMonth <= config.ativo_ate;
+                              }
+                              return false;
+                            })
+                            .map((p: any) => (
+                              <SelectItem key={p.id} value={p.id}>
+                                {p.nome}
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                     </div>
