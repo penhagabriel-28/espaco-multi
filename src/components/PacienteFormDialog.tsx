@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { Plus } from "lucide-react";
 
 export const formatBirthDate = (value: string) => {
   const nums = value.replace(/\D/g, "");
@@ -63,6 +64,7 @@ export function PacienteFormDialog({
 }) {
   const qc = useQueryClient();
   const [hasLoadedResponsavel, setHasLoadedResponsavel] = useState(false);
+  const [showSecondaryResponsible, setShowSecondaryResponsible] = useState(false);
   const [form, setForm] = useState({
     nome: paciente?.nome ?? "",
     data_nascimento: paciente?.data_nascimento
@@ -183,6 +185,9 @@ export function PacienteFormDialog({
         responsavel_secundario: responsaveis[1]?.nome || "",
         telefone_secundario: formatPhone(responsaveis[1]?.telefone ?? ""),
       }));
+      if (responsaveis.length > 1) {
+        setShowSecondaryResponsible(true);
+      }
       setHasLoadedResponsavel(true);
     }
   }, [responsaveis, isResponsaveisSuccess, hasLoadedResponsavel]);
@@ -521,7 +526,19 @@ export function PacienteFormDialog({
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <Label>Responsável</Label>
+            <div className="flex items-center justify-between">
+              <Label>Responsável</Label>
+              {!showSecondaryResponsible && (
+                <button
+                  type="button"
+                  onClick={() => setShowSecondaryResponsible(true)}
+                  className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer bg-transparent border-none p-0 font-medium"
+                  title="Adicionar responsável adicional"
+                >
+                  <Plus className="h-2.5 w-2.5" /> Adicionar outro
+                </button>
+              )}
+            </div>
             <Input
               value={form.responsavel}
               onChange={(e) => setForm({ ...form, responsavel: e.target.value })}
@@ -547,24 +564,39 @@ export function PacienteFormDialog({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Responsável Adicional (Opcional)</Label>
-            <Input
-              value={form.responsavel_secundario || ""}
-              onChange={(e) => setForm({ ...form, responsavel_secundario: e.target.value })}
-              placeholder="Nome do segundo responsável..."
-            />
+        {showSecondaryResponsible && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Responsável Adicional (Opcional)</Label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSecondaryResponsible(false);
+                    setForm({ ...form, responsavel_secundario: "", telefone_secundario: "" });
+                  }}
+                  className="text-[10px] text-destructive hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
+                  title="Remover responsável adicional"
+                >
+                  Remover
+                </button>
+              </div>
+              <Input
+                value={form.responsavel_secundario || ""}
+                onChange={(e) => setForm({ ...form, responsavel_secundario: e.target.value })}
+                placeholder="Nome do segundo responsável..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Telefone do Resp. Adicional (Opcional)</Label>
+              <Input
+                value={form.telefone_secundario || ""}
+                onChange={(e) => setForm({ ...form, telefone_secundario: formatPhone(e.target.value) })}
+                placeholder="(XX) XXXXX-XXXX"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Telefone do Resp. Adicional (Opcional)</Label>
-            <Input
-              value={form.telefone_secundario || ""}
-              onChange={(e) => setForm({ ...form, telefone_secundario: formatPhone(e.target.value) })}
-              placeholder="(XX) XXXXX-XXXX"
-            />
-          </div>
-        </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
