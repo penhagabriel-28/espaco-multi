@@ -51,6 +51,10 @@ export const formatCPF = (value: string) => {
 
 const EMPTY_ARRAY: any[] = [];
 
+const getCleanObservacoes = (rawObs: string | null | undefined): string => {
+  return (rawObs || "").replace(/<!--DIAS_FIXOS:.*?-->/, "").trim();
+};
+
 export function PacienteFormDialog({
   paciente,
   onSaved,
@@ -79,7 +83,7 @@ export function PacienteFormDialog({
     tipo_atendimento: paciente?.tipo_atendimento ?? "particular",
     convenio_nome: paciente?.convenio_nome ?? "",
     status: paciente?.status ?? "ativo",
-    observacoes: paciente?.observacoes ?? "",
+    observacoes: getCleanObservacoes(paciente?.observacoes),
     responsavel: "",
     telefone: "",
     responsavel_secundario: "",
@@ -220,6 +224,14 @@ export function PacienteFormDialog({
         }
         dbBirthDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
       }
+      let finalObservacoes = form.observacoes || null;
+      if (paciente?.observacoes) {
+        const match = paciente.observacoes.match(/<!--DIAS_FIXOS:.*?-->/);
+        if (match) {
+          finalObservacoes = `${form.observacoes || ""}\n\n${match[0]}`.trim() || null;
+        }
+      }
+
       const payload: any = {
         nome: form.nome,
         data_nascimento: dbBirthDate,
@@ -228,7 +240,7 @@ export function PacienteFormDialog({
         tipo_atendimento: form.tipo_atendimento,
         convenio_nome: form.tipo_atendimento === "convenio" ? form.convenio_nome : null,
         status: form.status,
-        observacoes: form.observacoes || null,
+        observacoes: finalObservacoes,
         cpf: form.cpf || null,
         valor_mensal: form.valor_mensal ? Number(form.valor_mensal) : null,
         apoio_frequencia: form.apoio_frequencia,
