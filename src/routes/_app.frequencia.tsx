@@ -216,7 +216,6 @@ function FrequenciaPage() {
   });
 
   const [nomeResponsavel, setNomeResponsavel] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
 
   // Multi-select filters (like in agenda)
   const [selectedProfs, setSelectedProfs] = useState<string[]>([]);
@@ -240,7 +239,6 @@ function FrequenciaPage() {
 
   // Reset filters when date range changes
   useEffect(() => {
-    setSearchTerm("");
     setSelectedProfs([]);
     setSelectedPacs([]);
   }, [inicio, fim]);
@@ -353,13 +351,8 @@ function FrequenciaPage() {
     if (selectedPacs.length > 0) {
       list = list.filter((a: any) => selectedPacs.includes(a.paciente_id));
     }
-
-    if (!searchTerm.trim()) return list;
-    const term = normalizeString(searchTerm);
-    return list.filter((a: any) =>
-      normalizeString(a.pacientes?.nome || "").includes(term)
-    );
-  }, [agendamentos, searchTerm, selectedProfs, selectedPacs]);
+    return list;
+  }, [agendamentos, selectedProfs, selectedPacs]);
 
   // Fetch all Patients who have sessions for reporting dropdown
   const reportPatients = useMemo(() => {
@@ -583,34 +576,36 @@ function FrequenciaPage() {
                       onChange={(e) => setProfSearch(e.target.value)}
                     />
                   </div>
-                  
                   <div className="max-h-[250px] overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
                     {filteredProfissionaisList.length === 0 ? (
                       <div className="py-6 text-center text-xs text-muted-foreground">Nenhum profissional encontrado.</div>
                     ) : (
-                      filteredProfissionaisList.map((p: any) => {
+                      filteredProfissionaisList.map((p: any, index: number) => {
                         const isSelected = selectedProfs.includes(p.id);
+                        const showDivider = !isSelected && index > 0 && selectedProfs.includes(filteredProfissionaisList[index - 1].id);
                         return (
-                          <div
-                            key={p.id}
-                            onClick={() => {
-                              if (isSelected) {
-                                setSelectedProfs(selectedProfs.filter((id) => id !== p.id));
-                              } else {
-                                setSelectedProfs([...selectedProfs, p.id]);
-                              }
-                            }}
-                            className={cn(
-                              "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
-                              isSelected && "bg-primary/5 font-semibold text-primary"
-                            )}
-                          >
-                            <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                          <div key={p.id}>
+                            {showDivider && <div className="h-[1px] bg-border/60 my-1 mx-1" />}
                             <div
-                              className="h-2 w-2 rounded-full shrink-0"
-                              style={{ backgroundColor: p.cor || "var(--primary)" }}
-                            />
-                            <span className="truncate">{p.nome}</span>
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedProfs(selectedProfs.filter((id) => id !== p.id));
+                                } else {
+                                  setSelectedProfs([...selectedProfs, p.id]);
+                                }
+                              }}
+                              className={cn(
+                                "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                                isSelected && "bg-primary/5 font-semibold text-primary"
+                              )}
+                            >
+                              <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                              <div
+                                className="h-2 w-2 rounded-full shrink-0"
+                                style={{ backgroundColor: p.cor || "var(--primary)" }}
+                              />
+                              <span className="truncate">{p.nome}</span>
+                            </div>
                           </div>
                         );
                       })
@@ -675,25 +670,28 @@ function FrequenciaPage() {
                     {filteredPacientesList.length === 0 ? (
                       <div className="py-6 text-center text-xs text-muted-foreground">Nenhum paciente encontrado.</div>
                     ) : (
-                      filteredPacientesList.map((p: any) => {
+                      filteredPacientesList.map((p: any, index: number) => {
                         const isSelected = selectedPacs.includes(p.id);
+                        const showDivider = !isSelected && index > 0 && selectedPacs.includes(filteredPacientesList[index - 1].id);
                         return (
-                          <div
-                            key={p.id}
-                            onClick={() => {
-                              if (isSelected) {
-                                setSelectedPacs(selectedPacs.filter((id) => id !== p.id));
-                              } else {
-                                setSelectedPacs([...selectedPacs, p.id]);
-                              }
-                            }}
-                            className={cn(
-                              "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
-                              isSelected && "bg-primary/5 font-semibold text-primary"
-                            )}
-                          >
-                            <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
-                            <span className="truncate">{p.nome}</span>
+                          <div key={p.id}>
+                            {showDivider && <div className="h-[1px] bg-border/60 my-1 mx-1" />}
+                            <div
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedPacs(selectedPacs.filter((id) => id !== p.id));
+                                } else {
+                                  setSelectedPacs([...selectedPacs, p.id]);
+                                }
+                              }}
+                              className={cn(
+                                "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                                isSelected && "bg-primary/5 font-semibold text-primary"
+                              )}
+                            >
+                              <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                              <span className="truncate">{p.nome}</span>
+                            </div>
                           </div>
                         );
                       })
@@ -715,18 +713,7 @@ function FrequenciaPage() {
             </Popover>
           </div>
 
-          <div className="space-y-1.5 flex-1 min-w-[160px]">
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <Search className="h-3.5 w-3.5" /> Buscar por Nome
-            </Label>
-            <Input
-              type="text"
-              placeholder="Digitar nome..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="h-10"
-            />
-          </div>
+
 
           {agendamentos.length > 0 && (
             <Button
