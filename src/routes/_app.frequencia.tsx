@@ -210,11 +210,13 @@ function FrequenciaPage() {
 
   const [nomeResponsavel, setNomeResponsavel] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedPacienteId, setSelectedPacienteId] = useState<string>("all");
 
-  // Reset search term when selectedProfId changes
+  // Reset search term and selected patient when selectedProfId, inicio or fim changes
   useEffect(() => {
     setSearchTerm("");
-  }, [selectedProfId]);
+    setSelectedPacienteId("all");
+  }, [selectedProfId, inicio, fim]);
 
   // Fetch Professionals
   const { data: profissionais = [] } = useQuery({
@@ -264,11 +266,15 @@ function FrequenciaPage() {
   const filteredAgendamentos = useMemo(() => {
     // Only display sessions that are signed OR are unsigned but have the "Assinar digitalmente" button
     // (i.e. status is not cancelado)
-    const list = agendamentos.filter(
+    let list = agendamentos.filter(
       (a: any) =>
         !!a.assinatura_responsavel ||
         a.status !== "cancelado"
     );
+
+    if (selectedPacienteId && selectedPacienteId !== "all") {
+      list = list.filter((a: any) => a.paciente_id === selectedPacienteId);
+    }
 
     if (!searchTerm.trim()) return list;
     const normalizeString = (str: string) =>
@@ -277,7 +283,7 @@ function FrequenciaPage() {
     return list.filter((a: any) =>
       normalizeString(a.pacientes?.nome || "").includes(term)
     );
-  }, [agendamentos, searchTerm]);
+  }, [agendamentos, searchTerm, selectedPacienteId]);
 
   // Fetch all Patients who have sessions for reporting dropdown
   const reportPatients = useMemo(() => {
@@ -461,18 +467,39 @@ function FrequenciaPage() {
             />
           </div>
           {selectedProfId && (
-            <div className="space-y-1.5 flex-1 min-w-[200px]">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <Search className="h-3.5 w-3.5" /> Buscar Paciente
-              </Label>
-              <Input
-                type="text"
-                placeholder="Nome do paciente..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-10"
-              />
-            </div>
+            <>
+              <div className="space-y-1.5 flex-1 min-w-[200px]">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5" /> Filtrar Paciente
+                </Label>
+                <Select value={selectedPacienteId} onValueChange={setSelectedPacienteId}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Todos os pacientes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os pacientes</SelectItem>
+                    {reportPatients.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5 flex-1 min-w-[200px]">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Search className="h-3.5 w-3.5" /> Buscar por Nome
+                </Label>
+                <Input
+                  type="text"
+                  placeholder="Digitar nome..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-10"
+                />
+              </div>
+            </>
           )}
           {selectedProfId && agendamentos.length > 0 && (
             <Button
@@ -515,13 +542,13 @@ function FrequenciaPage() {
               </div>
               <div className="flex gap-2">
                 <Badge variant="secondary" className="px-2.5 py-1 text-xs">
-                  {agendamentos.length} Sessões
+                  {filteredAgendamentos.length} Sessões
                 </Badge>
                 <Badge
                   variant="outline"
                   className="px-2.5 py-1 text-xs text-green-600 border-green-200 bg-green-50/20"
                 >
-                  {agendamentos.filter((a: any) => a.assinatura_responsavel).length} Assinadas
+                  {filteredAgendamentos.filter((a: any) => a.assinatura_responsavel).length} Assinadas
                 </Badge>
               </div>
             </div>
