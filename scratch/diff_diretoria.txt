@@ -1,0 +1,499 @@
+﻿diff --git a/src/routes/_app.diretoria.tsx b/src/routes/_app.diretoria.tsx
+index 5e99eb8..7abcd4c 100644
+--- a/src/routes/_app.diretoria.tsx
++++ b/src/routes/_app.diretoria.tsx
+@@ -184,6 +184,29 @@ function DiretoriaPageContent() {
+   const today = new Date();
+   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
+   const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
++
++  useEffect(() => {
++    async function fetchOldestPendingCompetence() {
++      try {
++        const { data, error } = await supabase
++          .from("faturas")
++          .select("competencia")
++          .in("status", ["aberta", "vencida"])
++          .order("competencia", { ascending: true })
++          .limit(1);
++        
++        if (error) throw error;
++        
++        if (data && data.length > 0 && data[0].competencia) {
++          setInicio(data[0].competencia);
++        }
++      } catch (err) {
++        console.error("Erro ao buscar compet├¬ncia mais antiga pendente:", err);
++      }
++    }
++    void fetchOldestPendingCompetence();
++  }, []);
++
+   const normalizeString = (str: string) =>
+     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
+ 
+@@ -205,7 +228,17 @@ function DiretoriaPageContent() {
+     queryFn: async () => {
+       const { data, error } = await supabase
+         .from("pacientes")
+-        .select("id, nome, valor_mensal, cids_secundarios, apoio_frequencia, apoio_valor_personalizado")
++        .select(`
++          id, 
++          nome, 
++          valor_mensal, 
++          cids_secundarios, 
++          apoio_frequencia, 
++          apoio_valor_personalizado,
++          paciente_profissional (
++            profissional_id
++          )
++        `)
+         .order("nome");
+       if (error) throw error;
+       return data;
+@@ -600,9 +633,22 @@ function DiretoriaPageContent() {
+     }
+     if (items.length === 0) {
+       if (fatura.especialidade) {
++        let label = fatura.especialidade;
++        if (fatura.especialidade === "Apoio") {
++          const p = patientDetailsMap.get(fatura.paciente_id);
++          const freq = p?.apoio_frequencia || 'avulso';
++          const freqLabels: Record<string, string> = {
++            avulso: "Pacote Apoio - Sess├Áes Avulsas",
++            "1x": "Pacote Apoio - 1x por semana",
++            "2x": "Pacote Apoio - 2x por semana",
++            "3x": "Pacote Apoio - 3x por semana",
++            semana_toda: "Pacote Apoio - Semana Inteira",
++          };
++          label = freqLabels[freq] || "Pacote Apoio";
++        }
+         return (
+           <span className="text-[10px] font-semibold text-foreground bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded whitespace-nowrap block w-max">
+-            {fatura.especialidade} (Manual)
++            {label} (Manual)
+           </span>
+         );
+       }
+@@ -613,13 +659,26 @@ function DiretoriaPageContent() {
+       <div className="flex flex-col gap-1 max-h-[85px] overflow-y-auto pr-2 scrollbar-thin">
+         {items.map((item: any, idx: number) => {
+           if (!item.descricao) return null;
++          let itemDesc = item.descricao;
++          if (fatura.especialidade === "Apoio" && !item.descricao.startsWith("Pacote Apoio")) {
++            const p = patientDetailsMap.get(fatura.paciente_id);
++            const freq = p?.apoio_frequencia || 'avulso';
++            const freqLabels: Record<string, string> = {
++              avulso: "Pacote Apoio - Sess├Áes Avulsas",
++              "1x": "Pacote Apoio - 1x por semana",
++              "2x": "Pacote Apoio - 2x por semana",
++              "3x": "Pacote Apoio - 3x por semana",
++              semana_toda: "Pacote Apoio - Semana Inteira",
++            };
++            itemDesc = freqLabels[freq] || "Pacote Apoio";
++          }
+           const valBrl = brl(Number(item.total || 0));
+           return (
+             <div
+               key={item.id || idx}
+               className="text-[10px] font-medium text-foreground bg-muted/65 px-1.5 py-0.5 rounded border border-border/50 whitespace-nowrap flex items-center gap-1.5 w-max hover:bg-muted transition duration-150"
+             >
+-              <span>{item.descricao}: {valBrl}</span>
++              <span>{itemDesc}: {valBrl}</span>
+               {allowDelete && (
+                 <button
+                   type="button"
+@@ -1351,6 +1410,35 @@ function DiretoriaPageContent() {
+     setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
+   };
+ 
++  const getApoioFaturaValor = (fatura: any) => {
++    const p = patientDetailsMap.get(fatura.paciente_id);
++    if (!p) return Number(fatura.valor) || 0;
++    
++    const freq = p.apoio_frequencia || 'avulso';
++    const customVal = p.apoio_valor_personalizado;
++    
++    if (freq === 'avulso') {
++      const sessionsCount = (faturaItens || []).filter(
++        (item: any) => item.fatura_id === fatura.id && item.agendamento_id
++      ).length;
++      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "") 
++        ? Number(customVal) 
++        : 50.00;
++      return sessionsCount > 0 ? (sessionsCount * rate) : rate;
++    } else {
++      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
++        return Number(customVal);
++      }
++      const defaultRates: Record<string, number> = {
++        "1x": 120.00,
++        "2x": 240.00,
++        "3x": 360.00,
++        semana_toda: 450.00
++      };
++      return defaultRates[freq] ?? 120.00;
++    }
++  };
++
+   // Memoized consolidated billing by patient
+   const consolidatedPatients = useMemo(() => {
+     const map = new Map<
+@@ -1404,7 +1492,7 @@ function DiretoriaPageContent() {
+       }
+ 
+       entry.faturas.push(f);
+-      const val = Number(f.valor) || 0;
++      const val = f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0);
+ 
+       if (f.status === "paga") {
+         entry.totalPago += val;
+@@ -1429,7 +1517,7 @@ function DiretoriaPageContent() {
+     }
+ 
+     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
+-  }, [faturas, patientMap, profFilter, faturaProfIdsMap, patientDetailsMap]);
++  }, [faturas, patientMap, profFilter, faturaProfIdsMap, patientDetailsMap, faturaItens]);
+ 
+   const filteredConsolidated = useMemo(() => {
+     return consolidatedPatients.filter((c) => {
+@@ -1468,6 +1556,38 @@ function DiretoriaPageContent() {
+         const rowProfId = f.profissional_id;
+         if (profFilter !== "all" && rowProfId !== profFilter) return;
+ 
++        let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobran├ºa Manual");
++        if (f.especialidade === "Apoio") {
++          const p = patientDetailsMap.get(f.paciente_id);
++          const freq = p?.apoio_frequencia || 'avulso';
++          const freqLabels: Record<string, string> = {
++            avulso: "Pacote Apoio - Sess├Áes Avulsas",
++            "1x": "Pacote Apoio - 1x por semana",
++            "2x": "Pacote Apoio - 2x por semana",
++            "3x": "Pacote Apoio - 3x por semana",
++            semana_toda: "Pacote Apoio - Semana Inteira",
++          };
++          rowDesc = freqLabels[freq] || "Pacote Apoio";
++        }
++
++        let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö";
++        if (f.especialidade === "Apoio" && profNome === "ÔÇö") {
++          const fatProfs = faturaProfIdsMap.get(f.id);
++          if (fatProfs && fatProfs.size > 0) {
++            profNome = Array.from(fatProfs)
++              .map((pId: string) => professionalMap.get(pId))
++              .filter(Boolean)
++              .join(", ") || "ÔÇö";
++          } else {
++            const p = patientDetailsMap.get(f.paciente_id);
++            const pProfs = p?.paciente_profissional || [];
++            profNome = pProfs
++              .map((pp: any) => professionalMap.get(pp.profissional_id))
++              .filter(Boolean)
++              .join(", ") || "ÔÇö";
++          }
++        }
++
+         rows.push({
+           id: `fatura-${f.id}`,
+           faturaId: f.id,
+@@ -1477,9 +1597,9 @@ function DiretoriaPageContent() {
+           pago_em: f.pago_em,
+           status: f.status,
+           metodo: f.metodo,
+-          valor: Number(f.valor) || 0,
+-          descricao: f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobran├ºa Manual"),
+-          profissionalNome: f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö",
++          valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
++          descricao: rowDesc,
++          profissionalNome: profNome,
+           especialidade: f.especialidade || null,
+           fatura: f,
+           isFaturaOnly: true,
+@@ -1496,7 +1616,41 @@ function DiretoriaPageContent() {
+           const profName = isApoioMatch 
+             ? (professionalMap.get(profFilter) || "ÔÇö") 
+             : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
+-          const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö");
++          let finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö");
++          if (f.especialidade === "Apoio" && finalProfName === "ÔÇö") {
++            const fatProfs = faturaProfIdsMap.get(f.id);
++            if (fatProfs && fatProfs.size > 0) {
++              finalProfName = Array.from(fatProfs)
++                .map((pId: string) => professionalMap.get(pId))
++                .filter(Boolean)
++                .join(", ") || "ÔÇö";
++            } else {
++              const p = patientDetailsMap.get(f.paciente_id);
++              const pProfs = p?.paciente_profissional || [];
++              finalProfName = pProfs
++                .map((pp: any) => professionalMap.get(pp.profissional_id))
++                .filter(Boolean)
++                .join(", ") || "ÔÇö";
++            }
++          }
++
++          let rowDesc = item.descricao || "Sess├úo";
++          if (f.especialidade === "Apoio") {
++            if (item.descricao && item.descricao.startsWith("Pacote Apoio")) {
++              rowDesc = item.descricao;
++            } else {
++              const p = patientDetailsMap.get(f.paciente_id);
++              const freq = p?.apoio_frequencia || 'avulso';
++              const freqLabels: Record<string, string> = {
++                avulso: "Pacote Apoio - Sess├Áes Avulsas",
++                "1x": "Pacote Apoio - 1x por semana",
++                "2x": "Pacote Apoio - 2x por semana",
++                "3x": "Pacote Apoio - 3x por semana",
++                semana_toda: "Pacote Apoio - Semana Inteira",
++              };
++              rowDesc = freqLabels[freq] || "Pacote Apoio";
++            }
++          }
+           
+           rows.push({
+             id: `item-${item.id}`,
+@@ -1507,8 +1661,8 @@ function DiretoriaPageContent() {
+             pago_em: f.pago_em,
+             status: f.status,
+             metodo: f.metodo,
+-            valor: Number(item.total || 0),
+-            descricao: item.descricao || "Sess├úo",
++            valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
++            descricao: rowDesc,
+             profissionalNome: finalProfName,
+             especialidade: f.especialidade || null,
+             fatura: f,
+@@ -1529,7 +1683,7 @@ function DiretoriaPageContent() {
+ 
+       return dateA - dateB;
+     });
+-  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, profFilter]);
++  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, profFilter, patientDetailsMap, faturaProfIdsMap]);
+ 
+   const handlePrintAllBilling = () => {
+     if (filteredConsolidated.length === 0) {
+@@ -1577,6 +1731,38 @@ function DiretoriaPageContent() {
+           const rowProfId = f.profissional_id;
+           if (profFilter !== "all" && rowProfId !== profFilter) return;
+ 
++          let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobran├ºa Manual");
++          if (f.especialidade === "Apoio") {
++            const p = patientDetailsMap.get(f.paciente_id);
++            const freq = p?.apoio_frequencia || 'avulso';
++            const freqLabels: Record<string, string> = {
++              avulso: "Pacote Apoio - Sess├Áes Avulsas",
++              "1x": "Pacote Apoio - 1x por semana",
++              "2x": "Pacote Apoio - 2x por semana",
++              "3x": "Pacote Apoio - 3x por semana",
++              semana_toda: "Pacote Apoio - Semana Inteira",
++            };
++            rowDesc = freqLabels[freq] || "Pacote Apoio";
++          }
++
++          let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö";
++          if (f.especialidade === "Apoio" && profNome === "ÔÇö") {
++            const fatProfs = faturaProfIdsMap.get(f.id);
++            if (fatProfs && fatProfs.size > 0) {
++              profNome = Array.from(fatProfs)
++                .map((pId: string) => professionalMap.get(pId))
++                .filter(Boolean)
++                .join(", ") || "ÔÇö";
++            } else {
++              const p = patientDetailsMap.get(f.paciente_id);
++              const pProfs = p?.paciente_profissional || [];
++              profNome = pProfs
++                .map((pp: any) => professionalMap.get(pp.profissional_id))
++                .filter(Boolean)
++                .join(", ") || "ÔÇö";
++            }
++          }
++
+           rows.push({
+             id: `fatura-${f.id}`,
+             faturaId: f.id,
+@@ -1586,9 +1772,9 @@ function DiretoriaPageContent() {
+             pago_em: f.pago_em,
+             status: f.status,
+             metodo: f.metodo,
+-            valor: Number(f.valor) || 0,
+-            descricao: f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobran├ºa Manual"),
+-            profissionalNome: f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö",
++            valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
++            descricao: rowDesc,
++            profissionalNome: profNome,
+             especialidade: f.especialidade || null,
+             fatura: f,
+             isFaturaOnly: true,
+@@ -1604,8 +1790,42 @@ function DiretoriaPageContent() {
+             const profName = isApoioMatch 
+               ? (professionalMap.get(profFilter) || "ÔÇö") 
+               : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
+-            const finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö");
+-            
++            let finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "ÔÇö") : "ÔÇö");
++            if (f.especialidade === "Apoio" && finalProfName === "ÔÇö") {
++              const fatProfs = faturaProfIdsMap.get(f.id);
++              if (fatProfs && fatProfs.size > 0) {
++                finalProfName = Array.from(fatProfs)
++                  .map((pId: string) => professionalMap.get(pId))
++                  .filter(Boolean)
++                  .join(", ") || "ÔÇö";
++              } else {
++                const p = patientDetailsMap.get(f.paciente_id);
++                const pProfs = p?.paciente_profissional || [];
++                finalProfName = pProfs
++                  .map((pp: any) => professionalMap.get(pp.profissional_id))
++                  .filter(Boolean)
++                  .join(", ") || "ÔÇö";
++              }
++            }
++
++            let rowDesc = item.descricao || "Sess├úo";
++            if (f.especialidade === "Apoio") {
++              if (item.descricao && item.descricao.startsWith("Pacote Apoio")) {
++                rowDesc = item.descricao;
++              } else {
++                const p = patientDetailsMap.get(f.paciente_id);
++                const freq = p?.apoio_frequencia || 'avulso';
++                const freqLabels: Record<string, string> = {
++                  avulso: "Pacote Apoio - Sess├Áes Avulsas",
++                  "1x": "Pacote Apoio - 1x por semana",
++                  "2x": "Pacote Apoio - 2x por semana",
++                  "3x": "Pacote Apoio - 3x por semana",
++                  semana_toda: "Pacote Apoio - Semana Inteira",
++                };
++                rowDesc = freqLabels[freq] || "Pacote Apoio";
++              }
++            }
++
+             rows.push({
+               id: `item-${item.id}`,
+               faturaId: f.id,
+@@ -1615,8 +1835,8 @@ function DiretoriaPageContent() {
+               pago_em: f.pago_em,
+               status: f.status,
+               metodo: f.metodo,
+-              valor: Number(item.total || 0),
+-              descricao: item.descricao || "Sess├úo",
++              valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
++              descricao: rowDesc,
+               profissionalNome: finalProfName,
+               especialidade: f.especialidade || null,
+               fatura: f,
+@@ -1845,7 +2065,29 @@ Agradecemos a aten├º├úo!
+ 
+   // Helper to get pricing based on professional configuration and patient-specific discounts
+   const getFaturaPrice = (pacienteId: string, profissionalId: string, especialidade: string, isAnamnese = false) => {
+-    if (!profissionalId || !pacienteId) return 0;
++    if (!pacienteId) return 0;
++
++    if (especialidade === "Apoio") {
++      const p = patientDetailsMap.get(pacienteId);
++      if (p) {
++        const freq = p.apoio_frequencia || 'avulso';
++        const customVal = p.apoio_valor_personalizado;
++        if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
++          return Number(customVal);
++        }
++        const defaultRates: Record<string, number> = {
++          avulso: 50.00,
++          "1x": 120.00,
++          "2x": 240.00,
++          "3x": 360.00,
++          semana_toda: 450.00
++        };
++        return defaultRates[freq] ?? 50.00;
++      }
++      return 0;
++    }
++
++    if (!profissionalId) return 0;
+     const prof = (profissionais || []).find((p: any) => p.id === profissionalId);
+     if (!prof) return 0;
+ 
+@@ -1975,6 +2217,15 @@ Agradecemos a aten├º├úo!
+ 
+   const handleOpenInvoiceDetails = (fatura: any) => {
+     setInvoiceDetailsDialog({ open: true, fatura });
++    
++    let profId = fatura.profissional_id || "";
++    if (fatura.especialidade === "Apoio" && !profId) {
++      const p = patientDetailsMap.get(fatura.paciente_id);
++      if (p?.paciente_profissional?.length > 0) {
++        profId = p.paciente_profissional[0].profissional_id;
++      }
++    }
++
+     setDetailsFaturaForm({
+       competencia: fatura.competencia || "",
+       vencimento: fatura.vencimento || "",
+@@ -1982,12 +2233,12 @@ Agradecemos a aten├º├úo!
+       pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
+       metodo: fatura.metodo || "pix",
+       observacoes: fatura.observacoes || "",
+-      profissional_id: fatura.profissional_id || "",
++      profissional_id: profId,
+       especialidade: fatura.especialidade || "",
+     });
+     setEditingItemId(null);
+     setNewItemDesc("");
+-    const price = getFaturaPrice(fatura.paciente_id, fatura.profissional_id, fatura.especialidade);
++    const price = getFaturaPrice(fatura.paciente_id, profId, fatura.especialidade);
+     setNewItemVal(price > 0 ? String(price) : "");
+   };
+ 
+@@ -3767,8 +4018,24 @@ Agradecemos a aten├º├úo!
+                 value={faturaForm.paciente_id}
+                 onValueChange={(val) => {
+                   setFaturaForm((prev) => {
+-                    const price = getFaturaPrice(val, prev.profissional_id, prev.especialidade);
+-                    return { ...prev, paciente_id: val, valor: price > 0 ? String(price) : "" };
++                    const p = patientDetailsMap.get(val);
++                    const isApoio = prev.especialidade === "Apoio" || p?.cids_secundarios?.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
++                    let profId = prev.profissional_id;
++                    let spec = prev.especialidade;
++                    if (isApoio) {
++                      spec = "Apoio";
++                      if (!profId && p?.paciente_profissional?.length > 0) {
++                        profId = p.paciente_profissional[0].profissional_id;
++                      }
++                    }
++                    const price = getFaturaPrice(val, profId, spec);
++                    return { 
++                      ...prev, 
++                      paciente_id: val, 
++                      profissional_id: profId,
++                      especialidade: spec,
++                      valor: price > 0 ? String(price) : "" 
++                    };
+                   });
+                 }}
+               >
+@@ -3882,17 +4149,25 @@ Agradecemos a aten├º├úo!
+                   </SelectContent>
+                 </Select>
+               </div>
+-              <div className="space-y-1.5">
++               <div className="space-y-1.5">
+                 <Label>Especialidade</Label>
+                 <Select
+                   value={faturaForm.especialidade || "none"}
+                   onValueChange={(val) => {
+                     const spec = val === "none" ? "" : val;
+                     setFaturaForm((prev) => {
+-                      const price = getFaturaPrice(prev.paciente_id, prev.profissional_id, spec);
++                      let profId = prev.profissional_id;
++                      if (spec === "Apoio" && !profId && prev.paciente_id) {
++                        const p = patientDetailsMap.get(prev.paciente_id);
++                        if (p?.paciente_profissional?.length > 0) {
++                          profId = p.paciente_profissional[0].profissional_id;
++                        }
++                      }
++                      const price = getFaturaPrice(prev.paciente_id, profId, spec);
+                       return {
+                         ...prev,
+                         especialidade: spec,
++                        profissional_id: profId,
+                         valor: price > 0 ? String(price) : "",
+                       };
+                     });
