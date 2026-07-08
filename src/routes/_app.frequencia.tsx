@@ -55,9 +55,16 @@ import {
   Trash2,
   Plus,
   Search,
+  Filter,
+  Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+
+const normalizeString = (str: string) =>
+  str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
 
 export const Route = createFileRoute("/_app/frequencia")({
   component: FrequenciaPage,
@@ -189,7 +196,6 @@ const STATUS_LABEL: Record<string, string> = {
 function FrequenciaPage() {
   const qc = useQueryClient();
   const today = new Date();
-  const [selectedProfId, setSelectedProfId] = useState<string>("");
   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
   const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
 
@@ -205,18 +211,39 @@ function FrequenciaPage() {
   const [reportDialog, setReportDialog] = useState({
     open: false,
     pacienteId: "",
+    profissionalId: "",
     mesComp: format(today, "yyyy-MM"),
   });
 
   const [nomeResponsavel, setNomeResponsavel] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedPacienteId, setSelectedPacienteId] = useState<string>("all");
 
-  // Reset search term and selected patient when selectedProfId, inicio or fim changes
+  // Multi-select filters (like in agenda)
+  const [selectedProfs, setSelectedProfs] = useState<string[]>([]);
+  const [profSearch, setProfSearch] = useState("");
+  const [profsPopoverOpen, setProfsPopoverOpen] = useState(false);
+  const [selectedPacs, setSelectedPacs] = useState<string[]>([]);
+  const [pacSearch, setPacSearch] = useState("");
+  const [pacsPopoverOpen, setPacsPopoverOpen] = useState(false);
+
+  useEffect(() => {
+    if (!profsPopoverOpen) {
+      setProfSearch("");
+    }
+  }, [profsPopoverOpen]);
+
+  useEffect(() => {
+    if (!pacsPopoverOpen) {
+      setPacSearch("");
+    }
+  }, [pacsPopoverOpen]);
+
+  // Reset filters when date range changes
   useEffect(() => {
     setSearchTerm("");
-    setSelectedPacienteId("all");
-  }, [selectedProfId, inicio, fim]);
+    setSelectedProfs([]);
+    setSelectedPacs([]);
+  }, [inicio, fim]);
 
   // Fetch Professionals
   const { data: profissionais = [] } = useQuery({
@@ -231,9 +258,22 @@ function FrequenciaPage() {
     },
   });
 
+  // Fetch Patients
+  const { data: pacientes = [] } = useQuery({
+    queryKey: ["freq-pacientes-list"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pacientes")
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const activeProfissionais = useMemo(() => {
     return (profissionais || []).filter((p: any) => {
-      if (p.id === selectedProfId) return true;
+      if (selectedProfs.includes(p.id)) return true;
       if (p.ativo) return true;
       const config = p.valores_config as any;
       if (config?.ativo_ate) {
@@ -242,27 +282,61 @@ function FrequenciaPage() {
       }
       return false;
     });
-  }, [profissionais, inicio, selectedProfId]);
+  }, [profissionais, inicio, selectedProfs]);
+
+  const sortedProfissionais = useMemo(() => {
+    return [...activeProfissionais].sort((a, b) => {
+      const aSelected = selectedProfs.includes(a.id);
+      const bSelected = selectedProfs.includes(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return (a.nome || "").localeCompare(b.nome || "");
+    });
+  }, [activeProfissionais, selectedProfs]);
+
+  const filteredProfissionaisList = useMemo(() => {
+    const searchLower = normalizeString(profSearch);
+    if (!searchLower) return sortedProfissionais;
+    return sortedProfissionais.filter(p => 
+      normalizeString(p.nome || "").includes(searchLower)
+    );
+  }, [sortedProfissionais, profSearch]);
+
+  const sortedPacientesList = useMemo(() => {
+    if (!Array.isArray(pacientes)) return [];
+    return [...pacientes].sort((a, b) => {
+      const aSelected = selectedPacs.includes(a.id);
+      const bSelected = selectedPacs.includes(b.id);
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return (a.nome || "").localeCompare(b.nome || "");
+    });
+  }, [pacientes, selectedPacs]);
+
+  const filteredPacientesList = useMemo(() => {
+    const searchLower = normalizeString(pacSearch);
+    if (!searchLower) return sortedPacientesList;
+    return sortedPacientesList.filter(p => 
+      normalizeString(p.nome || "").includes(searchLower)
+    );
+  }, [sortedPacientesList, pacSearch]);
 
   // Fetch Appointments
   const { data: agendamentos = [], isLoading: loadingAgs } = useQuery({
-    queryKey: ["freq-agendamentos", selectedProfId, inicio, fim],
+    queryKey: ["freq-agendamentos", inicio, fim],
     queryFn: async () => {
-      if (!selectedProfId) return [];
       const { data, error } = await supabase
         .from("agendamentos")
         .select("*, pacientes(nome), profissionais(nome), servicos(nome)")
-        .eq("profissional_id", selectedProfId)
         .gte("data_inicio", `${inicio}T00:00:00`)
         .lte("data_inicio", `${fim}T23:59:59`)
         .order("data_inicio", { ascending: true });
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!selectedProfId,
   });
 
-  // Filter appointments by patient name and signability
+  // Filter appointments by patient and professional selections, search term and signability
   const filteredAgendamentos = useMemo(() => {
     // Only display sessions that are signed OR are unsigned but have the "Assinar digitalmente" button
     // (i.e. status is not cancelado)
@@ -272,18 +346,20 @@ function FrequenciaPage() {
         a.status !== "cancelado"
     );
 
-    if (selectedPacienteId && selectedPacienteId !== "all") {
-      list = list.filter((a: any) => a.paciente_id === selectedPacienteId);
+    if (selectedProfs.length > 0) {
+      list = list.filter((a: any) => selectedProfs.includes(a.profissional_id));
+    }
+
+    if (selectedPacs.length > 0) {
+      list = list.filter((a: any) => selectedPacs.includes(a.paciente_id));
     }
 
     if (!searchTerm.trim()) return list;
-    const normalizeString = (str: string) =>
-      str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
     const term = normalizeString(searchTerm);
     return list.filter((a: any) =>
       normalizeString(a.pacientes?.nome || "").includes(term)
     );
-  }, [agendamentos, searchTerm, selectedPacienteId]);
+  }, [agendamentos, searchTerm, selectedProfs, selectedPacs]);
 
   // Fetch all Patients who have sessions for reporting dropdown
   const reportPatients = useMemo(() => {
@@ -410,41 +486,43 @@ function FrequenciaPage() {
         const d = new Date(a.data_inicio);
         return (
           a.paciente_id === reportDialog.pacienteId &&
+          (!reportDialog.profissionalId || a.profissional_id === reportDialog.profissionalId) &&
           d >= mStart &&
           d <= mEnd &&
           a.status !== "cancelado"
         );
       })
       .sort((a: any, b: any) => new Date(a.data_inicio).getTime() - new Date(b.data_inicio).getTime());
-  }, [agendamentos, reportDialog.pacienteId, reportDialog.mesComp]);
+  }, [agendamentos, reportDialog.pacienteId, reportDialog.profissionalId, reportDialog.mesComp]);
 
-  const selectedProfessional = profissionais.find((p: any) => p.id === selectedProfId);
+  const selectedReportProfessional = profissionais.find((p: any) => p.id === reportDialog.profissionalId);
   const selectedReportPatientName =
     reportPatients.find((p) => p.id === reportDialog.pacienteId)?.nome || "";
+
+  const handleOpenReport = () => {
+    setReportDialog({
+      open: true,
+      pacienteId: selectedPacs.length === 1 ? selectedPacs[0] : "",
+      profissionalId: selectedProfs.length === 1 ? selectedProfs[0] : "",
+      mesComp: reportDialog.mesComp || format(new Date(), "yyyy-MM"),
+    });
+  };
 
   return (
     <div className="space-y-6">
       {/* Selection Header */}
+      {(profsPopoverOpen || pacsPopoverOpen) && (
+        <div
+          className="fixed inset-0 z-40 bg-transparent cursor-default"
+          onClick={() => {
+            setProfsPopoverOpen(false);
+            setPacsPopoverOpen(false);
+          }}
+        />
+      )}
       <Card className="border-border shadow-sm">
-        <CardContent className="flex flex-wrap items-end gap-4 p-4">
-          <div className="space-y-1.5 flex-1 min-w-[240px]">
-            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5" /> Profissional
-            </Label>
-            <Select value={selectedProfId} onValueChange={setSelectedProfId}>
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder="Selecione o profissional..." />
-              </SelectTrigger>
-              <SelectContent>
-                {activeProfissionais.map((p: any) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5 w-full sm:w-auto flex-1 sm:flex-initial min-w-[150px]">
+        <CardContent className="flex flex-wrap items-end gap-3 p-4">
+          <div className="space-y-1.5 w-full sm:w-auto flex-1 sm:flex-initial min-w-[140px]">
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5" /> Início
             </Label>
@@ -455,7 +533,7 @@ function FrequenciaPage() {
               className="h-10"
             />
           </div>
-          <div className="space-y-1.5 w-full sm:w-auto flex-1 sm:flex-initial min-w-[150px]">
+          <div className="space-y-1.5 w-full sm:w-auto flex-1 sm:flex-initial min-w-[140px]">
             <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Calendar className="h-3.5 w-3.5" /> Fim
             </Label>
@@ -466,44 +544,193 @@ function FrequenciaPage() {
               className="h-10"
             />
           </div>
-          {selectedProfId && (
-            <>
-              <div className="space-y-1.5 flex-1 min-w-[200px]">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <User className="h-3.5 w-3.5" /> Filtrar Paciente
-                </Label>
-                <Select value={selectedPacienteId} onValueChange={setSelectedPacienteId}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Todos os pacientes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os pacientes</SelectItem>
-                    {reportPatients.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
-              <div className="space-y-1.5 flex-1 min-w-[200px]">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <Search className="h-3.5 w-3.5" /> Buscar por Nome
-                </Label>
-                <Input
-                  type="text"
-                  placeholder="Digitar nome..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-            </>
-          )}
-          {selectedProfId && agendamentos.length > 0 && (
+          {/* Professionals Filter */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Filter className="h-3.5 w-3.5" /> Profissionais
+            </Label>
+            <Popover open={profsPopoverOpen} onOpenChange={setProfsPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "h-10 gap-1.5 text-xs transition-all hover:bg-accent border-dashed min-w-[160px] justify-between",
+                    selectedProfs.length > 0 && "border-solid border-primary bg-primary/5 text-primary",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span>Profissionais</span>
+                    {selectedProfs.length > 0 && (
+                      <>
+                        <div className="h-3.5 w-[1px] bg-border mx-1" />
+                        <Badge variant="secondary" className="rounded-sm px-1 font-normal h-4 text-[9px] min-w-[16px] justify-center">
+                          {selectedProfs.length}
+                        </Badge>
+                      </>
+                    )}
+                  </div>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[200px] p-2 z-50" align="start">
+                <div className="space-y-2">
+                  <div className="flex items-center border-b pb-2 px-1 gap-2 border-border/80">
+                    <Search className="h-4 w-4 shrink-0 opacity-50" />
+                    <input
+                      placeholder="Buscar profissional..."
+                      className="flex h-7 w-full rounded-md bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                      value={profSearch}
+                      onChange={(e) => setProfSearch(e.target.value)}
+                    />
+                  </div>
+                  
+                  <div className="max-h-[250px] overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
+                    {filteredProfissionaisList.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground">Nenhum profissional encontrado.</div>
+                    ) : (
+                      filteredProfissionaisList.map((p: any) => {
+                        const isSelected = selectedProfs.includes(p.id);
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedProfs(selectedProfs.filter((id) => id !== p.id));
+                              } else {
+                                setSelectedProfs([...selectedProfs, p.id]);
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                              isSelected && "bg-primary/5 font-semibold text-primary"
+                            )}
+                          >
+                            <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                            <div
+                              className="h-2 w-2 rounded-full shrink-0"
+                              style={{ backgroundColor: p.cor || "var(--primary)" }}
+                            />
+                            <span className="truncate">{p.nome}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  
+                  {selectedProfs.length > 0 && (
+                    <div className="border-t border-border pt-1.5 mt-1">
+                      <button
+                        onClick={() => setSelectedProfs([])}
+                        className="w-full text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1 rounded-sm hover:bg-accent transition-colors cursor-pointer"
+                      >
+                        Limpar filtros
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Patients Filter */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5" /> Pacientes
+            </Label>
+            <Popover open={pacsPopoverOpen} onOpenChange={setPacsPopoverOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "h-10 gap-1.5 text-xs transition-all hover:bg-accent border-dashed min-w-[160px] justify-between",
+                    selectedPacs.length > 0 && "border-solid border-primary bg-primary/5 text-primary",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span>Pacientes</span>
+                    {selectedPacs.length > 0 && (
+                      <>
+                        <div className="h-3.5 w-[1px] bg-border mx-1" />
+                        <Badge variant="secondary" className="rounded-sm px-1 font-normal h-4 text-[9px] min-w-[16px] justify-center">
+                          {selectedPacs.length}
+                        </Badge>
+                      </>
+                    )}
+                  </div>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[220px] p-2 z-50" align="start">
+                <div className="space-y-2">
+                  <div className="flex items-center border-b pb-2 px-1 gap-2 border-border/80">
+                    <Search className="h-4 w-4 shrink-0 opacity-50" />
+                    <input
+                      placeholder="Buscar paciente..."
+                      className="flex h-7 w-full rounded-md bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                      value={pacSearch}
+                      onChange={(e) => setPacSearch(e.target.value)}
+                    />
+                  </div>
+                  
+                  <div className="max-h-[250px] overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
+                    {filteredPacientesList.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground">Nenhum paciente encontrado.</div>
+                    ) : (
+                      filteredPacientesList.map((p: any) => {
+                        const isSelected = selectedPacs.includes(p.id);
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedPacs(selectedPacs.filter((id) => id !== p.id));
+                              } else {
+                                setSelectedPacs([...selectedPacs, p.id]);
+                              }
+                            }}
+                            className={cn(
+                              "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                              isSelected && "bg-primary/5 font-semibold text-primary"
+                            )}
+                          >
+                            <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                            <span className="truncate">{p.nome}</span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  
+                  {selectedPacs.length > 0 && (
+                    <div className="border-t border-border pt-1.5 mt-1">
+                      <button
+                        onClick={() => setSelectedPacs([])}
+                        className="w-full text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1 rounded-sm hover:bg-accent transition-colors cursor-pointer"
+                      >
+                        Limpar filtros
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="space-y-1.5 flex-1 min-w-[160px]">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Search className="h-3.5 w-3.5" /> Buscar por Nome
+            </Label>
+            <Input
+              type="text"
+              placeholder="Digitar nome..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="h-10"
+            />
+          </div>
+
+          {agendamentos.length > 0 && (
             <Button
-              onClick={() => setReportDialog({ ...reportDialog, open: true })}
+              onClick={handleOpenReport}
               variant="outline"
               className="gap-2 h-10 sm:ml-auto"
             >
@@ -514,32 +741,22 @@ function FrequenciaPage() {
       </Card>
 
       {/* Main Content Area */}
-      {!selectedProfId ? (
-        <Card className="border-dashed border-border/80 bg-muted/20">
-          <CardContent className="flex flex-col items-center justify-center p-12 text-center">
-            <div className="h-14 w-14 rounded-full bg-primary/10 text-primary grid place-items-center mb-4 shadow-sm">
-              <UserCheck className="h-7 w-7" />
+      <Card className="border-border shadow-sm">
+        <CardHeader className="pb-3 border-b border-border/60">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-lg">Controle de Frequência</CardTitle>
+              <CardDescription>
+                Profissional:{" "}
+                <span className="font-semibold text-foreground">
+                  {selectedProfs.length === 0
+                    ? "Todos"
+                    : selectedProfs.length === 1
+                    ? profissionais.find((p: any) => p.id === selectedProfs[0])?.nome
+                    : `${selectedProfs.length} selecionados`}
+                </span>
+              </CardDescription>
             </div>
-            <CardTitle className="text-lg font-bold">Frequência Digital MULTI</CardTitle>
-            <CardDescription className="max-w-md mt-1.5">
-              Selecione o seu perfil profissional acima para gerenciar as suas sessões e recolher
-              assinaturas digitais dos responsáveis no celular ou tablet.
-            </CardDescription>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="border-border shadow-sm">
-          <CardHeader className="pb-3 border-b border-border/60">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-lg">Controle de Frequência</CardTitle>
-                <CardDescription>
-                  Profissional:{" "}
-                  <span className="font-semibold text-foreground">
-                    {selectedProfessional?.nome}
-                  </span>
-                </CardDescription>
-              </div>
               <div className="flex gap-2">
                 <Badge variant="secondary" className="px-2.5 py-1 text-xs">
                   {filteredAgendamentos.length} Sessões
@@ -814,7 +1031,6 @@ function FrequenciaPage() {
             )}
           </CardContent>
         </Card>
-      )}
 
       {/* Signature Modal */}
       <Dialog
@@ -966,6 +1182,25 @@ function FrequenciaPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5 flex-1 min-w-[200px]">
+              <Label>Profissional</Label>
+              <Select
+                value={reportDialog.profissionalId}
+                onValueChange={(val) => setReportDialog({ ...reportDialog, profissionalId: val })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o profissional..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Todos os profissionais</SelectItem>
+                  {profissionais.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5 min-w-[150px]">
               <Label>Mês de Referência</Label>
               <Input
@@ -1033,13 +1268,13 @@ function FrequenciaPage() {
                       <span className="font-bold">Paciente:</span> {selectedReportPatientName}
                     </p>
                     <p className="mt-1">
-                      <span className="font-bold">Profissional:</span> {selectedProfessional?.nome}
+                      <span className="font-bold">Profissional:</span> {selectedReportProfessional?.nome || "Vários / Todos"}
                     </p>
                   </div>
                   <div className="text-right">
                     <p>
                       <span className="font-bold">Especialidade:</span>{" "}
-                      {selectedProfessional?.especialidade || "Terapia"}
+                      {selectedReportProfessional?.especialidade || "Terapia"}
                     </p>
                     <p className="mt-1">
                       <span className="font-bold">Total de Sessões:</span> {reportData.length}
@@ -1100,9 +1335,9 @@ function FrequenciaPage() {
                 <div className="grid grid-cols-2 gap-12 pt-16 text-center text-[10px]">
                   <div>
                     <div className="border-t border-black w-48 mx-auto mt-4"></div>
-                    <p className="font-bold mt-1.5">{selectedProfessional?.nome}</p>
+                    <p className="font-bold mt-1.5">{selectedReportProfessional?.nome || "Assinatura do Profissional"}</p>
                     <p className="text-gray-500 font-medium">
-                      {selectedProfessional?.especialidade || "Profissional"}
+                      {selectedReportProfessional?.especialidade || "Terapeuta"}
                     </p>
                   </div>
                   <div>
