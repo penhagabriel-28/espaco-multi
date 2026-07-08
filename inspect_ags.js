@@ -8,7 +8,6 @@ const key = env.match(/SUPABASE_PUBLISHABLE_KEY="([^"]+)"/)[1];
 const supabase = createClient(url, key);
 
 async function check() {
-  // Get counts of various columns and values
   const { data: ags, error } = await supabase
     .from('agendamentos')
     .select('status, data_inicio, assinatura_responsavel, nome_assinante, data_assinatura');
@@ -20,29 +19,38 @@ async function check() {
 
   console.log(`Fetched ${ags.length} agendamentos.`);
   
-  // Look for any signed ones
-  const signed = ags.filter(a => a.assinatura_responsavel !== null && a.assinatura_responsavel !== undefined);
-  console.log(`Signed count (not null): ${signed.length}`);
+  const signed = ags.filter(a => a.assinatura_responsavel !== null && a.assinatura_responsavel !== undefined && a.assinatura_responsavel !== "");
+  console.log(`Signed count: ${signed.length}`);
 
-  // Count by status
   const statusCounts = {};
   ags.forEach(a => {
     statusCounts[a.status] = (statusCounts[a.status] || 0) + 1;
   });
-  console.log("Status counts:", statusCounts);
+  console.log("Status counts of all fetched:", statusCounts);
 
-  // Date range
+  const signedStatusCounts = {};
+  signed.forEach(a => {
+    signedStatusCounts[a.status] = (signedStatusCounts[a.status] || 0) + 1;
+  });
+  console.log("Status counts of signed:", signedStatusCounts);
+
   const dates = ags.map(a => new Date(a.data_inicio)).filter(d => !isNaN(d));
   if (dates.length > 0) {
     const minDate = new Date(Math.min(...dates));
     const maxDate = new Date(Math.max(...dates));
     console.log(`Date range: ${minDate.toISOString()} to ${maxDate.toISOString()}`);
-  } else {
-    console.log("No valid dates found.");
   }
 
-  // Print first 5 rows to see structure
-  console.log("Sample rows:", ags.slice(0, 5));
+  // Check if supabase returned max 1000 records
+  if (ags.length === 1000) {
+    console.log("Supabase limit reached (1000). Fetching count directly...");
+    const { count, error: countError } = await supabase
+      .from('agendamentos')
+      .select('*', { count: 'exact', head: true });
+    if (!countError) {
+      console.log(`Total count in database: ${count}`);
+    }
+  }
 }
 
 check();
