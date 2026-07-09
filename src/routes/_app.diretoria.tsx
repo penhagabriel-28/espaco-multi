@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -539,6 +540,71 @@ function DiretoriaPageContent() {
     },
     onError: (err: any) => {
       toast.error("Erro ao excluir sessão: " + err.message);
+    },
+  });
+
+  // Delete multiple faturas or items mutation
+  const deleteMultipleFaturasOrItemsMutation = useMutation({
+    mutationFn: async (rows: any[]) => {
+      const faturaIdsToDelete = rows.filter(r => r.isFaturaOnly).map(r => r.faturaId);
+      const itemsToDelete = rows.filter(r => !r.isFaturaOnly);
+      const itemIdsToDelete = itemsToDelete.map(r => r.item.id);
+
+      const parentFaturaIds = Array.from(new Set(itemsToDelete.map(r => r.faturaId)));
+
+      // 1. Delete items
+      if (itemIdsToDelete.length > 0) {
+        const { error: itemDeleteError } = await supabase
+          .from("fatura_itens")
+          .delete()
+          .in("id", itemIdsToDelete);
+        if (itemDeleteError) throw itemDeleteError;
+      }
+
+      // 2. Delete faturas (manual faturas selected directly)
+      if (faturaIdsToDelete.length > 0) {
+        await supabase.from("fatura_itens").delete().in("fatura_id", faturaIdsToDelete);
+        const { error: faturaDeleteError } = await supabase
+          .from("faturas")
+          .delete()
+          .in("id", faturaIdsToDelete);
+        if (faturaDeleteError) throw faturaDeleteError;
+      }
+
+      // 3. Update or delete parent faturas of deleted items
+      for (const parentId of parentFaturaIds) {
+        if (faturaIdsToDelete.includes(parentId)) continue;
+
+        const { data: remainingItems, error: fetchError } = await supabase
+          .from("fatura_itens")
+          .select("total")
+          .eq("fatura_id", parentId);
+        if (fetchError) throw fetchError;
+
+        if (!remainingItems || remainingItems.length === 0) {
+          const { error: deleteFaturaError } = await supabase
+            .from("faturas")
+            .delete()
+            .eq("id", parentId);
+          if (deleteFaturaError) throw deleteFaturaError;
+        } else {
+          const newTotal = remainingItems.reduce((sum: number, item: any) => sum + (Number(item.total) || 0), 0);
+          const { error: updateFaturaError } = await supabase
+            .from("faturas")
+            .update({ valor: newTotal })
+            .eq("id", parentId);
+          if (updateFaturaError) throw updateFaturaError;
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      toast.success("Itens e cobranças selecionados foram excluídos com sucesso!");
+      setSelectedRowIds([]);
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao excluir itens/cobranças: " + err.message);
     },
   });
 
@@ -1509,6 +1575,8 @@ function DiretoriaPageContent() {
     pacienteId: string;
     pacienteNome: string;
   }>({ open: false, pacienteId: "", pacienteNome: "" });
+
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
 
   const handleOpenPatientFaturas = (pacienteId: string, pacienteNome: string) => {
     setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
@@ -4477,13 +4545,14 @@ Nosso pix: 54.747.611/0001-27
       {/* Faturas do Paciente Dialog */}
       <Dialog
         open={patientFaturasDialog.open}
-        onOpenChange={(open) =>
+        onOpenChange={(open) => {
+          setSelectedRowIds([]);
           setPatientFaturasDialog({
             open,
             pacienteId: open ? patientFaturasDialog.pacienteId : "",
             pacienteNome: open ? patientFaturasDialog.pacienteNome : "",
-          })
-        }
+          });
+        }}
       >
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
           <DialogHeader className="flex flex-row items-center justify-between">
@@ -4495,26 +4564,66 @@ Nosso pix: 54.747.611/0001-27
                 Visualização de todas as cobranças vinculadas a este paciente.
               </div>
             </div>
-            <Button
-              size="sm"
-              className="gap-1.5 mr-6 font-semibold cursor-pointer"
-              onClick={() => {
-                setFaturaForm({
-                  paciente_id: patientFaturasDialog.pacienteId,
-                  competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                  vencimento: "",
-                  valor: "",
-                  status: "aberta",
-                  pago_em: "",
-                  observacoes: "",
-                  profissional_id: "",
-                  especialidade: "",
-                });
-                setCreateDialog(true);
-              }}
-            >
-              <Plus className="h-4 w-4" /> Nova Cobrança
-            </Button>
+            <div className="flex items-center gap-2 mr-6">
+              {selectedRowIds.length > 0 && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-1.5 font-semibold cursor-pointer"
+                    >
+                      <Trash2 className="h-4 w-4" /> Excluir Selecionadas ({selectedRowIds.length})
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Excluir Itens/Cobranças Selecionados</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Tem certeza que deseja excluir as {selectedRowIds.length} cobranças/sessões selecionadas?
+                        Esta ação removerá as cobranças manuais ou sessões selecionadas, recalculando as cobranças pai quando aplicável.
+                        Esta ação não pode ser desfeita.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                        onClick={() => {
+                          const selectedRows = patientDetailedRows.filter((r: any) =>
+                            selectedRowIds.includes(r.id)
+                          );
+                          deleteMultipleFaturasOrItemsMutation.mutate(selectedRows);
+                        }}
+                        disabled={deleteMultipleFaturasOrItemsMutation.isPending}
+                      >
+                        {deleteMultipleFaturasOrItemsMutation.isPending ? "Excluindo..." : "Excluir"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              <Button
+                size="sm"
+                className="gap-1.5 font-semibold cursor-pointer"
+                onClick={() => {
+                  setFaturaForm({
+                    paciente_id: patientFaturasDialog.pacienteId,
+                    competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
+                    vencimento: "",
+                    valor: "",
+                    status: "aberta",
+                    pago_em: "",
+                    observacoes: "",
+                    profissional_id: "",
+                    especialidade: "",
+                  });
+                  setCreateDialog(true);
+                }}
+              >
+                <Plus className="h-4 w-4" /> Nova Cobrança
+              </Button>
+            </div>
           </DialogHeader>
 
           <div className="py-4">
@@ -4527,6 +4636,21 @@ Nosso pix: 54.747.611/0001-27
                 <Table>
                   <TableHeader className="bg-muted/40 font-semibold text-foreground">
                     <TableRow>
+                      <TableHead className="w-12 text-center">
+                        <Checkbox
+                          checked={
+                            patientDetailedRows.length > 0 &&
+                            selectedRowIds.length === patientDetailedRows.length
+                          }
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedRowIds(patientDetailedRows.map((r: any) => r.id));
+                            } else {
+                              setSelectedRowIds([]);
+                            }
+                          }}
+                        />
+                      </TableHead>
                       <TableHead>Competência</TableHead>
                       <TableHead>Sessão / Descrição</TableHead>
                       <TableHead>Profissional</TableHead>
@@ -4541,8 +4665,21 @@ Nosso pix: 54.747.611/0001-27
                   <TableBody>
                     {patientDetailedRows.map((row: any) => {
                       const daysDelayed = getDaysDelayed(row.fatura);
+                      const isSelected = selectedRowIds.includes(row.id);
                       return (
-                        <TableRow key={row.id}>
+                        <TableRow key={row.id} className={isSelected ? "bg-muted/50" : ""}>
+                          <TableCell className="w-12 text-center">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedRowIds([...selectedRowIds, row.id]);
+                                } else {
+                                  setSelectedRowIds(selectedRowIds.filter((id) => id !== row.id));
+                                }
+                              }}
+                            />
+                          </TableCell>
                           <TableCell>
                             {row.competencia
                               ? format(new Date(row.competencia + "T12:00:00"), "MM/yyyy")
