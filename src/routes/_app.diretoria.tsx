@@ -72,6 +72,21 @@ import {
   Printer,
 } from "lucide-react";
 
+function parseDateFromDescription(desc: string): number | null {
+  if (!desc) return null;
+  const dateTimeMatch = desc.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+  if (dateTimeMatch) {
+    const [_, day, month, year, hour, minute] = dateTimeMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute)).getTime();
+  }
+  const dateMatch = desc.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (dateMatch) {
+    const [_, day, month, year] = dateMatch;
+    return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0).getTime();
+  }
+  return null;
+}
+
 export const Route = createFileRoute("/_app/diretoria")({
   component: DiretoriaPage,
 });
@@ -1849,11 +1864,20 @@ function DiretoriaPageContent() {
 
     // Sort by session date/time ascending, falling back to competence/vencimento
     return rows.sort((a, b) => {
-      const timeA = a.item?.agendamento_id ? (agendamentoDateMap.get(a.item.agendamento_id) ? new Date(agendamentoDateMap.get(a.item.agendamento_id)!).getTime() : null) : null;
-      const timeB = b.item?.agendamento_id ? (agendamentoDateMap.get(b.item.agendamento_id) ? new Date(agendamentoDateMap.get(b.item.agendamento_id)!).getTime() : null) : null;
+      let timeA = parseDateFromDescription(a.descricao);
+      let timeB = parseDateFromDescription(b.descricao);
 
-      const dateA = timeA || (a.competencia ? new Date(a.competencia).getTime() : 0);
-      const dateB = timeB || (b.competencia ? new Date(b.competencia).getTime() : 0);
+      if (timeA === null && a.item?.agendamento_id) {
+        const agDate = agendamentoDateMap.get(a.item.agendamento_id);
+        if (agDate) timeA = new Date(agDate).getTime();
+      }
+      if (timeB === null && b.item?.agendamento_id) {
+        const agDate = agendamentoDateMap.get(b.item.agendamento_id);
+        if (agDate) timeB = new Date(agDate).getTime();
+      }
+
+      const dateA = timeA !== null ? timeA : (a.competencia ? new Date(a.competencia).getTime() : 0);
+      const dateB = timeB !== null ? timeB : (b.competencia ? new Date(b.competencia).getTime() : 0);
 
       return dateA - dateB;
     });
@@ -2027,11 +2051,20 @@ function DiretoriaPageContent() {
       });
 
       rows.sort((a, b) => {
-        const timeA = a.item?.agendamento_id ? (agendamentoDateMap.get(a.item.agendamento_id) ? new Date(agendamentoDateMap.get(a.item.agendamento_id)!).getTime() : null) : null;
-        const timeB = b.item?.agendamento_id ? (agendamentoDateMap.get(b.item.agendamento_id) ? new Date(agendamentoDateMap.get(b.item.agendamento_id)!).getTime() : null) : null;
+        let timeA = parseDateFromDescription(a.descricao);
+        let timeB = parseDateFromDescription(b.descricao);
 
-        const dateA = timeA || (a.competencia ? new Date(a.competencia).getTime() : 0);
-        const dateB = timeB || (b.competencia ? new Date(b.competencia).getTime() : 0);
+        if (timeA === null && a.item?.agendamento_id) {
+          const agDate = agendamentoDateMap.get(a.item.agendamento_id);
+          if (agDate) timeA = new Date(agDate).getTime();
+        }
+        if (timeB === null && b.item?.agendamento_id) {
+          const agDate = agendamentoDateMap.get(b.item.agendamento_id);
+          if (agDate) timeB = new Date(agDate).getTime();
+        }
+
+        const dateA = timeA !== null ? timeA : (a.competencia ? new Date(a.competencia).getTime() : 0);
+        const dateB = timeB !== null ? timeB : (b.competencia ? new Date(b.competencia).getTime() : 0);
 
         return dateA - dateB;
       });
