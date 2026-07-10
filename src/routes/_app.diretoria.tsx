@@ -1165,8 +1165,68 @@ function DiretoriaPageContent() {
     return "Geral";
   };
 
+  const getApoioSessionValue = (pacienteId: string, dataInicioStr: string) => {
+    if (!pacienteId || !dataInicioStr) return 0;
+    
+    const date = new Date(dataInicioStr);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const competenciaStr = `${year}-${month}-01`;
+    
+    const fat = faturas.find(
+      (f: any) =>
+        f.paciente_id === pacienteId &&
+        f.especialidade === "Apoio" &&
+        f.competencia === competenciaStr
+    );
+    
+    let fatValue = 0;
+    if (fat) {
+      fatValue = Number(fat.valor) || 0;
+    } else {
+      const p = patientDetailsMap.get(pacienteId);
+      if (p) {
+        const freq = p.apoio_frequencia || 'avulso';
+        const customVal = p.apoio_valor_personalizado;
+        if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+          fatValue = Number(customVal);
+        } else {
+          const defaultRates: Record<string, number> = {
+            avulso: 50.00,
+            "1x": 120.00,
+            "2x": 240.00,
+            "3x": 360.00,
+            semana_toda: 450.00
+          };
+          fatValue = defaultRates[freq] ?? 50.00;
+        }
+      }
+    }
+    
+    const totalSessions = agendamentosRepasses.filter((ag: any) => {
+      if (ag.paciente_id !== pacienteId || ag.status === "cancelado") return false;
+      const agDate = new Date(ag.data_inicio);
+      const agYear = agDate.getFullYear();
+      const agMonth = String(agDate.getMonth() + 1).padStart(2, '0');
+      const agCompetencia = `${agYear}-${agMonth}-01`;
+      
+      const specName = getAppointmentSpecialty(ag);
+      const isApoio = specName === "Apoio" || specName === "AP";
+      return isApoio && agCompetencia === competenciaStr;
+    }).length;
+    
+    if (totalSessions === 0) return 0;
+    return fatValue / totalSessions;
+  };
+
   // Helper to get session value
   const getAppointmentValue = (a: any) => {
+    const spec = getAppointmentSpecialty(a);
+    const isApoio = spec === "Apoio" || spec === "AP";
+    if (isApoio) {
+      return getApoioSessionValue(a.paciente_id, a.data_inicio);
+    }
+
     const fatItem = faturaItensMap.get(a.id);
     if (fatItem) {
       return Number(fatItem.total || 0);
@@ -1176,7 +1236,6 @@ function DiretoriaPageContent() {
     const prof = a.profissionais;
     if (!prof) return 0;
 
-    const spec = getAppointmentSpecialty(a);
     const isAnamnese = a.observacoes?.includes("[Tipo: Anamnese]");
 
     const config = prof.valores_config || { especialidades: [], descontos: [] };
@@ -1352,10 +1411,6 @@ function DiretoriaPageContent() {
     let faturamentoBruto = 0;
     let repasseProfissional = 0;
     let comissaoClinica = 0;
-    let repasseApto = 0;
-    let repasseBloqueado = 0;
-    let comissaoRecebida = 0;
-    let comissaoPendente = 0;
 
     filteredRepasses.forEach((a: any) => {
       const val = getAppointmentValue(a);
@@ -1366,16 +1421,6 @@ function DiretoriaPageContent() {
       faturamentoBruto += val;
       repasseProfissional += val * profPct;
       comissaoClinica += val * clinicPct;
-
-      const isClientePago = getPatientPaymentStatus(a) === "paga";
-
-      if (isClientePago) {
-        repasseApto += val * profPct;
-        comissaoRecebida += val * clinicPct;
-      } else {
-        repasseBloqueado += val * profPct;
-        comissaoPendente += val * clinicPct;
-      }
     });
 
     // Add Coordinator Bonus
@@ -1387,25 +1432,12 @@ function DiretoriaPageContent() {
         }
       });
 
-      activeCoordinators.forEach((profId) => {
+      activeCoordinators.forEach(() => {
         repasseProfissional += 300;
-        const coordinatorSessions = filteredRepasses.filter((a: any) => a.profissional_id === profId);
-        const allPaid = coordinatorSessions.every((a: any) => getPatientPaymentStatus(a) === "paga");
-        if (allPaid) {
-          repasseApto += 300;
-        } else {
-          repasseBloqueado += 300;
-        }
       });
     } else if (isCoordenadora(selectedProfId)) {
       if (filteredRepasses.length > 0) {
         repasseProfissional += 300;
-        const allPaid = filteredRepasses.every((a: any) => getPatientPaymentStatus(a) === "paga");
-        if (allPaid) {
-          repasseApto += 300;
-        } else {
-          repasseBloqueado += 300;
-        }
       }
     }
 
@@ -1414,78 +1446,46 @@ function DiretoriaPageContent() {
       faturamentoBruto,
       repasseProfissional,
       comissaoClinica,
-      repasseApto,
-      repasseBloqueado,
-      comissaoRecebida,
-      comissaoPendente,
+      repasseApto: repasseProfissional,
+      repasseBloqueado: 0,
+      comissaoRecebida: comissaoClinica,
+      comissaoPendente: 0,
     };
   }, [filteredRepasses, selectedProfId, profissionais]);
 
   const repasseCardsStats = useMemo(() => {
     let totalSessões = 0;
-    let repassePago = 0;
-    let repassePendente = 0;
+    let repasseTotal = 0;
+    let comissaoTotal = 0;
 
-    agendamentosRepasses.forEach((a: any) => {
-      if (a.status === "cancelado") return;
-
-      const matchesProf = selectedProfId === "all" || a.profissional_id === selectedProfId;
-      if (!matchesProf) return;
-
+    filteredRepasses.forEach((a: any) => {
       const val = getAppointmentValue(a);
       const spec = getAppointmentSpecialty(a);
-      const { profPct } = getRepasseRates(spec);
+      const { profPct, clinicPct } = getRepasseRates(spec);
 
       totalSessões += 1;
-
-      if (a.status === "pago") {
-        repassePago += val * profPct;
-      } else if (a.status === "realizado" || a.status === "falta") {
-        repassePendente += val * profPct;
-      }
+      repasseTotal += val * profPct;
+      comissaoTotal += val * clinicPct;
     });
 
     // Add Coordinator Bonus
-    if (selectedProfId === "all") {
-      const activeCoordinators = new Set<string>();
-      agendamentosRepasses.forEach((a: any) => {
-        if (a.status !== "cancelado" && a.profissional_id && isCoordenadora(a.profissional_id)) {
-          activeCoordinators.add(a.profissional_id);
-        }
-      });
-
-      activeCoordinators.forEach((profId) => {
-        const coordinatorSessions = agendamentosRepasses.filter(
-          (a: any) => a.status !== "cancelado" && a.profissional_id === profId
-        );
-        const allPaid = coordinatorSessions.every((a: any) => getPatientPaymentStatus(a) === "paga");
-        if (allPaid) {
-          repassePago += 300;
-        } else {
-          repassePendente += 300;
-        }
-      });
-    } else if (isCoordenadora(selectedProfId)) {
-      const hasSessions = agendamentosRepasses.some((a: any) => a.status !== "cancelado" && a.profissional_id === selectedProfId);
-      if (hasSessions) {
-        const coordinatorSessions = agendamentosRepasses.filter(
-          (a: any) => a.status !== "cancelado" && a.profissional_id === selectedProfId
-        );
-        const allPaid = coordinatorSessions.every((a: any) => getPatientPaymentStatus(a) === "paga");
-        if (allPaid) {
-          repassePago += 300;
-        } else {
-          repassePendente += 300;
-        }
+    const activeCoordinators = new Set<string>();
+    filteredRepasses.forEach((a: any) => {
+      if (a.profissional_id && isCoordenadora(a.profissional_id)) {
+        activeCoordinators.add(a.profissional_id);
       }
-    }
+    });
+
+    activeCoordinators.forEach(() => {
+      repasseTotal += 300;
+    });
 
     return {
       totalSessões,
-      repassePago,
-      repassePendente,
+      repasseTotal,
+      comissaoTotal,
     };
-  }, [agendamentosRepasses, selectedProfId, profissionais]);
+  }, [filteredRepasses]);
 
   const caixaLiquidoReal =
     stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
@@ -1548,16 +1548,6 @@ function DiretoriaPageContent() {
       group.repasseProfissional += val * profPct;
       group.comissaoClinica += val * clinicPct;
 
-      const isClientePago = getPatientPaymentStatus(a) === "paga";
-
-      if (isClientePago) {
-        group.repasseApto += val * profPct;
-        group.comissaoRecebida += val * clinicPct;
-      } else {
-        group.repasseBloqueado += val * profPct;
-        group.comissaoPendente += val * clinicPct;
-      }
-
       group.sessoes.push(a);
     });
 
@@ -1565,13 +1555,13 @@ function DiretoriaPageContent() {
     groups.forEach((group, profId) => {
       if (isCoordenadora(profId)) {
         group.repasseProfissional += 300;
-        const allPaid = group.sessoes.every((a: any) => getPatientPaymentStatus(a) === "paga");
-        if (allPaid) {
-          group.repasseApto += 300;
-        } else {
-          group.repasseBloqueado += 300;
-        }
       }
+    });
+
+    // Populate apto/recebida equal to total repasse/commission
+    groups.forEach((group) => {
+      group.repasseApto = group.repasseProfissional;
+      group.comissaoRecebida = group.comissaoClinica;
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
@@ -3403,12 +3393,12 @@ Nosso pix: 54.747.611/0001-27
                 </div>
                 <div className="space-y-1">
                   <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Repasse Pago
+                    Repasse Profissional
                   </div>
                   <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                    {brl(repasseCardsStats.repassePago)}
+                    {brl(repasseCardsStats.repasseTotal)}
                   </div>
-                  <div className="text-[11px] text-muted-foreground">Sessões com status Pago</div>
+                  <div className="text-[11px] text-muted-foreground">Valor total de repasses</div>
                 </div>
               </CardContent>
             </Card>
@@ -3421,540 +3411,25 @@ Nosso pix: 54.747.611/0001-27
                 </div>
                 <div className="space-y-1">
                   <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Pendente de Pagamento
+                    Comissão Clínica
                   </div>
                   <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                    {brl(repasseCardsStats.repassePendente)}
+                    {brl(repasseCardsStats.comissaoTotal)}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
-                    Sessões com status Realizado ou Falta
+                    Valor total da comissão
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Filters Card */}
-          <Card className="border-border shadow-sm">
-            <CardContent className="flex flex-wrap items-end gap-4 p-4">
-              <div className="space-y-1.5 flex-1 min-w-[200px] max-w-xs">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Profissional
-                </Label>
-                <Select value={selectedProfId} onValueChange={handleSelectProf}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Todos os Profissionais" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos os Profissionais</SelectItem>
-                    {(profissionais || [])
-                      .filter((p: any) => {
-                        if (p.id === selectedProfId) return true;
-                        if (p.ativo) return true;
-                        const config = p.valores_config as any;
-                        if (config?.ativo_ate) {
-                          const targetMonth = inicio.substring(0, 7);
-                          return targetMonth <= config.ativo_ate;
-                        }
-                        return false;
-                      })
-                      .map((p: any) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.nome}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
-              <div className="space-y-1.5 flex-1 min-w-[200px] max-w-xs">
-                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Status da Sessão
-                </Label>
-                <Select value={sessionStatusFilter} onValueChange={setSessionStatusFilter}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="realizado_pago_falta">Realizados, Pagos & Faltas</SelectItem>
-                    <SelectItem value="confirmado">Confirmados</SelectItem>
-                    <SelectItem value="pago">Pagos</SelectItem>
-                    <SelectItem value="realizado">Realizados</SelectItem>
-                    <SelectItem value="todos">Todos os Status (exceto cancelados)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex-1 flex justify-end self-center md:self-end">
-                <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/20 border border-amber-500/10 rounded-lg px-3 py-2 flex items-center gap-1.5 max-w-md">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  <span>
-                    Somente sessões nos status <strong>Realizado</strong>, <strong>Pago</strong> ou <strong>Falta</strong>{" "}
-                    geram faturamento no sistema financeiro por padrão.
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           {/* Main Calculation Content */}
           {loadingAgendamentos || loadingFaturaItens ? (
             <Card className="border-border shadow-sm p-8 text-center text-sm text-muted-foreground">
               Carregando dados de agendamentos e faturamento...
-            </Card>
-          ) : viewingProfDetail ? (
-            /* DETAILED VIEW FOR A SPECIFIC PROFESSIONAL */
-            <Card className="border-border shadow-sm">
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleSelectProf("all")}
-                      className="h-8 gap-1 font-semibold text-xs"
-                    >
-                      <ChevronLeft className="h-4 w-4" /> Voltar
-                    </Button>
-                    <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
-                      <span>
-                        Detalhes do Profissional:{" "}
-                        {profissionais.find((p: any) => p.id === viewingProfDetail)?.nome || "—"}
-                      </span>
-                      {isCoordenadora(viewingProfDetail) && (
-                        <Badge className="bg-yellow-500 hover:bg-yellow-600 text-white text-[11px] font-bold border-transparent">
-                          Bônus Coordenadora AP (+ R$ 300)
-                        </Badge>
-                      )}
-                    </CardTitle>
-                  </div>
-                  <CardDescription className="mt-1 pl-12 sm:pl-16">
-                    Lista detalhada de sessões e cálculo de repasse individualizado no período.
-                  </CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 sm:p-6 space-y-6">
-                {filteredRepasses.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
-                    Nenhuma sessão encontrada para este profissional nos critérios selecionados.
-                  </div>
-                ) : (
-                  <>
-                    {/* Professional Detailed Summary Stats */}
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                      <Card className="border-border bg-muted/20 shadow-sm">
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                            <Calendar className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Sessões no Período
-                            </div>
-                            <div className="text-xl font-bold">{repasseStats.totalSessões}</div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-border bg-muted/20 shadow-sm">
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-950/20 dark:text-sky-400">
-                            <DollarSign className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Faturamento Total
-                            </div>
-                            <div className="text-xl font-bold">
-                              {brl(repasseStats.faturamentoBruto)}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-border bg-muted/20 shadow-sm">
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400">
-                            <TrendingUp className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Repasse Profissional
-                            </div>
-                            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                              {brl(repasseStats.repasseProfissional)}
-                            </div>
-                            <div className="text-[9px] text-muted-foreground mt-0.5">
-                              Apto:{" "}
-                              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                {brl(repasseStats.repasseApto)}
-                              </span>{" "}
-                              | Bloq:{" "}
-                              <span className="font-semibold text-rose-500">
-                                {brl(repasseStats.repasseBloqueado)}
-                              </span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-border bg-muted/20 shadow-sm">
-                        <CardContent className="p-4 flex items-center gap-3">
-                          <div className="p-2 rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-950/20 dark:text-purple-400">
-                            <TrendingDown className="h-5 w-5" />
-                          </div>
-                          <div>
-                            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                              Comissão Clínica
-                            </div>
-                            <div className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                              {brl(repasseStats.comissaoClinica)}
-                            </div>
-                            <div className="text-[9px] text-muted-foreground mt-0.5">
-                              Recebida:{" "}
-                              <span className="font-semibold text-purple-600 dark:text-purple-400">
-                                {brl(repasseStats.comissaoRecebida)}
-                              </span>{" "}
-                              | Pend:{" "}
-                              <span className="font-semibold text-rose-500">
-                                {brl(repasseStats.comissaoPendente)}
-                              </span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {/* Patient Billing Status Table */}
-                    <div className="space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                        <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                          Situação de Cobrança dos Pacientes do Profissional
-                        </h3>
-                        <span className="text-[11px] text-muted-foreground">
-                          Consolidado de valores atendidos e cobranças por paciente deste
-                          profissional no período
-                        </span>
-                      </div>
-                      <div className="overflow-x-auto rounded-lg border border-border">
-                        <Table>
-                          <TableHeader className="bg-muted/40 font-semibold text-foreground">
-                            <TableRow>
-                              <TableHead>Paciente</TableHead>
-                              <TableHead className="text-center">Qtd Sessões</TableHead>
-                              <TableHead>Faturamento Total</TableHead>
-                              <TableHead>Repasse Profissional</TableHead>
-                              <TableHead>Status Geral</TableHead>
-                              <TableHead>Responsável Financeiro</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {professionalPatients.map((p) => {
-                              const resps = responsaveisMap.get(p.pacienteId) || [];
-                              const primaryResp =
-                                resps.find((r) => r.whatsapp) ||
-                                resps.find((r) => r.telefone) ||
-                                resps[0];
-                              const patientBilling = consolidatedPatients.find(
-                                (cp) => cp.pacienteId === p.pacienteId,
-                              );
-                              const totalPendente = patientBilling?.totalPendente || 0;
-
-                              return (
-                                <TableRow key={p.pacienteId} className="hover:bg-muted/30">
-                                  <TableCell className="font-semibold text-foreground">
-                                    {p.nome}
-                                  </TableCell>
-                                  <TableCell className="text-center font-medium">
-                                    {p.totalSessões}
-                                  </TableCell>
-                                  <TableCell className="font-medium">
-                                    {brl(p.faturamentoBruto)}
-                                  </TableCell>
-                                  <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                    <div className="space-y-0.5">
-                                      <div>{brl(p.repasseProfissional)}</div>
-                                      <div className="text-[10px] text-muted-foreground font-normal">
-                                        Apto:{" "}
-                                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                          {brl(p.repasseApto)}
-                                        </span>{" "}
-                                        | Bloq:{" "}
-                                        <span className="text-rose-500 font-semibold">
-                                          {brl(p.repasseBloqueado)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge
-                                      variant={p.repasseBloqueado > 0 ? "destructive" : "default"}
-                                      className={
-                                        p.repasseBloqueado > 0
-                                          ? "bg-rose-500 hover:bg-rose-600 text-white border-transparent"
-                                          : "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent"
-                                      }
-                                    >
-                                      {p.repasseBloqueado > 0 ? "Com Pendências" : "Em Dia"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    {primaryResp ? (
-                                      <div className="flex items-center gap-2">
-                                        <div className="text-xs">
-                                          <span className="font-semibold text-foreground block leading-tight">
-                                            {primaryResp.nome}
-                                          </span>
-                                          {primaryResp.parentesco && (
-                                            <span className="text-muted-foreground text-[10px]">
-                                              {primaryResp.parentesco}
-                                            </span>
-                                          )}
-                                        </div>
-                                        {totalPendente > 0 &&
-                                          (primaryResp.whatsapp || primaryResp.telefone) && (
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              className="h-7 px-2 text-[10px] text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 flex items-center gap-1 shrink-0"
-                                              onClick={() =>
-                                                handleWhatsAppClick(
-                                                  p.pacienteId,
-                                                  totalPendente,
-                                                  p.nome,
-                                                )
-                                              }
-                                            >
-                                              <MessageCircle className="h-3 w-3 fill-emerald-600/10 shrink-0" />
-                                              Cobrar {brl(totalPendente)}
-                                            </Button>
-                                          )}
-                                      </div>
-                                    ) : (
-                                      <span className="text-xs text-muted-foreground italic">
-                                        Sem responsável
-                                      </span>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-
-                    {/* Detailed Sessions List */}
-                    <div className="space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                        <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-                          Sessões Detalhadas
-                        </h3>
-                        <span className="text-[11px] text-muted-foreground">
-                          Lista de todos os atendimentos do profissional com elegibilidade para
-                          repasse
-                        </span>
-                      </div>
-                      <div className="overflow-x-auto rounded-lg border border-border">
-                        <Table>
-                          <TableHeader className="bg-muted/40 font-semibold text-foreground">
-                            <TableRow>
-                              <TableHead>Data / Hora</TableHead>
-                              <TableHead>Paciente</TableHead>
-                              <TableHead>Especialidade</TableHead>
-                              <TableHead>Status da Sessão</TableHead>
-                              <TableHead>Pagamento (Cliente)</TableHead>
-                              <TableHead>Elegibilidade para Repasse</TableHead>
-                              <TableHead>Valor Sessão</TableHead>
-                              <TableHead>Regra (Prof / Clínica)</TableHead>
-                              <TableHead>Repasse Profissional</TableHead>
-                              <TableHead>Comissão Clínica</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filteredRepasses
-                              .sort(
-                                (a, b) =>
-                                  new Date(a.data_inicio).getTime() -
-                                  new Date(b.data_inicio).getTime(),
-                              )
-                              .map((a: any) => {
-                                const val = getAppointmentValue(a);
-                                const spec = getAppointmentSpecialty(a);
-                                const {
-                                  profPct,
-                                  clinicPct,
-                                  label: splitLabel,
-                                } = getRepasseRates(spec);
-
-                                const repasseVal = val * profPct;
-                                const clinicVal = val * clinicPct;
-
-                                return (
-                                  <TableRow key={a.id} className="hover:bg-muted/30">
-                                    <TableCell className="font-medium">
-                                      {format(new Date(a.data_inicio), "dd/MM/yyyy HH:mm")}
-                                    </TableCell>
-                                    <TableCell className="font-semibold text-foreground">
-                                      {a.pacientes?.nome || "Paciente Desconhecido"}
-                                    </TableCell>
-                                    <TableCell>
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-                                        {spec}
-                                      </span>
-                                    </TableCell>
-                                    <TableCell>
-                                      <Badge
-                                        variant="secondary"
-                                        className={
-                                          a.status === "pago"
-                                            ? "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent"
-                                            : a.status === "confirmado"
-                                              ? "bg-sky-500 hover:bg-sky-600 text-white border-transparent"
-                                              : ""
-                                        }
-                                      >
-                                        {a.status === "pago"
-                                          ? "Pago"
-                                          : a.status === "confirmado"
-                                            ? "Confirmado"
-                                            : a.status === "realizado"
-                                              ? "Realizado"
-                                              : a.status === "falta"
-                                                ? "Falta"
-                                                : a.status}
-                                      </Badge>
-                                    </TableCell>
-                                    <TableCell>
-                                      {(() => {
-                                        const clientPayStatus = getPatientPaymentStatus(a);
-                                        if (clientPayStatus === "paga") {
-                                          return (
-                                            <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white border-transparent">
-                                              Pago
-                                            </Badge>
-                                          );
-                                        } else if (clientPayStatus === "vencida") {
-                                          return (
-                                            <Badge className="bg-rose-500 hover:bg-rose-600 text-white border-transparent">
-                                              Vencido
-                                            </Badge>
-                                          );
-                                        } else if (clientPayStatus === "aberta") {
-                                          return (
-                                            <Badge className="bg-sky-500 hover:bg-sky-600 text-white border-transparent">
-                                              Em Aberto
-                                            </Badge>
-                                          );
-                                        } else {
-                                          return (
-                                            <Badge
-                                              variant="outline"
-                                              className="text-muted-foreground border-border"
-                                            >
-                                              Não Faturado
-                                            </Badge>
-                                          );
-                                        }
-                                      })()}
-                                    </TableCell>
-                                    <TableCell>
-                                      {(() => {
-                                        const clientPayStatus = getPatientPaymentStatus(a);
-                                        if (clientPayStatus === "paga") {
-                                          return (
-                                            <Badge
-                                              variant="outline"
-                                              className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400 border-emerald-500/20"
-                                            >
-                                              Apto para Repasse
-                                            </Badge>
-                                          );
-                                        } else if (clientPayStatus === "nao_faturado") {
-                                          return (
-                                            <Badge
-                                              variant="outline"
-                                              className="text-muted-foreground border-border"
-                                            >
-                                              Não Faturado
-                                            </Badge>
-                                          );
-                                        } else {
-                                          return (
-                                            <Badge
-                                              variant="outline"
-                                              className="bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400 border-amber-500/20"
-                                            >
-                                              Aguardando Cliente
-                                            </Badge>
-                                          );
-                                        }
-                                      })()}
-                                    </TableCell>
-                                    <TableCell className="font-semibold text-foreground">
-                                      {brl(val)}
-                                    </TableCell>
-                                    <TableCell className="text-xs text-muted-foreground">
-                                      {splitLabel}
-                                    </TableCell>
-                                    <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                      {brl(repasseVal)}
-                                    </TableCell>
-                                    <TableCell className="font-medium text-purple-600 dark:text-purple-400">
-                                      {brl(clinicVal)}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            {isCoordenadora(viewingProfDetail) && (
-                              <TableRow className="bg-yellow-500/5 hover:bg-yellow-500/10 border-t font-semibold">
-                                <TableCell className="italic text-muted-foreground">—</TableCell>
-                                <TableCell className="text-foreground font-bold">
-                                  Bônus Especialidade Coordenadora AP
-                                </TableCell>
-                                <TableCell>
-                                  <Badge className="bg-yellow-500 text-white font-bold border-transparent text-[10px] px-1.5 py-0.5">
-                                    Bônus
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  <Badge className="bg-emerald-500 text-white font-bold border-transparent text-[10px] px-1.5 py-0.5">
-                                    Pago
-                                  </Badge>
-                                </TableCell>
-                                <TableCell>
-                                  {(() => {
-                                    const allPaid = filteredRepasses.every((a: any) => getPatientPaymentStatus(a) === "paga");
-                                    return (
-                                      <Badge className={allPaid ? "bg-emerald-500 text-white font-bold" : "bg-sky-500 text-white font-bold"}>
-                                        {allPaid ? "Pago" : "Em Aberto"}
-                                      </Badge>
-                                    );
-                                  })()}
-                                </TableCell>
-                                <TableCell>
-                                  {(() => {
-                                    const allPaid = filteredRepasses.every((a: any) => getPatientPaymentStatus(a) === "paga");
-                                    return (
-                                      <Badge variant="outline" className={allPaid ? "bg-emerald-50 text-emerald-700 border-emerald-500/20" : "bg-amber-50 text-amber-700 border-amber-500/20"}>
-                                        {allPaid ? "Apto para Repasse" : "Aguardando Cliente"}
-                                      </Badge>
-                                    );
-                                  })()}
-                                </TableCell>
-                                <TableCell className="text-foreground">R$ 300,00</TableCell>
-                                <TableCell className="text-xs text-muted-foreground">100% Repasse</TableCell>
-                                <TableCell className="text-emerald-600 dark:text-emerald-400">R$ 300,00</TableCell>
-                                <TableCell className="text-purple-600 dark:text-purple-400">R$ 0,00</TableCell>
-                              </TableRow>
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </CardContent>
             </Card>
           ) : (
             /* CONSOLIDATED VIEW OF ALL PROFESSIONALS */
@@ -3982,7 +3457,6 @@ Nosso pix: 54.747.611/0001-27
                           <TableHead>Faturamento Bruto</TableHead>
                           <TableHead>Repasse Profissional</TableHead>
                           <TableHead>Comissão Clínica</TableHead>
-                          <TableHead className="w-[120px] text-right">Ações</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -4024,44 +3498,10 @@ Nosso pix: 54.747.611/0001-27
                                 {brl(group.faturamentoBruto)}
                               </TableCell>
                               <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                <div className="space-y-0.5">
-                                  <div>{brl(group.repasseProfissional)}</div>
-                                  <div className="text-[10px] text-muted-foreground font-normal">
-                                    Apto:{" "}
-                                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                      {brl(group.repasseApto)}
-                                    </span>{" "}
-                                    | Bloq:{" "}
-                                    <span className="text-rose-500 font-semibold">
-                                      {brl(group.repasseBloqueado)}
-                                    </span>
-                                  </div>
-                                </div>
+                                {brl(group.repasseProfissional)}
                               </TableCell>
                               <TableCell className="font-semibold text-purple-600 dark:text-purple-400">
-                                <div className="space-y-0.5">
-                                  <div>{brl(group.comissaoClinica)}</div>
-                                  <div className="text-[10px] text-muted-foreground font-normal">
-                                    Rec:{" "}
-                                    <span className="text-purple-600 dark:text-purple-400 font-semibold">
-                                      {brl(group.comissaoRecebida)}
-                                    </span>{" "}
-                                    | Pend:{" "}
-                                    <span className="text-rose-500 font-semibold">
-                                      {brl(group.comissaoPendente)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 gap-1 font-semibold text-xs"
-                                  onClick={() => handleSelectProf(group.profissionalId)}
-                                >
-                                  <Eye className="h-3.5 w-3.5" /> Detalhar
-                                </Button>
+                                {brl(group.comissaoClinica)}
                               </TableCell>
                             </TableRow>
                           );
