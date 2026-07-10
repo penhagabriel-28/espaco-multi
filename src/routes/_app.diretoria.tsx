@@ -1173,35 +1173,11 @@ function DiretoriaPageContent() {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const competenciaStr = `${year}-${month}-01`;
     
-    const fat = faturas.find(
-      (f: any) =>
-        f.paciente_id === pacienteId &&
-        f.especialidade === "Apoio" &&
-        f.competencia === competenciaStr
-    );
+    const p = patientDetailsMap.get(pacienteId);
+    if (!p) return 0;
     
-    let fatValue = 0;
-    if (fat) {
-      fatValue = Number(fat.valor) || 0;
-    } else {
-      const p = patientDetailsMap.get(pacienteId);
-      if (p) {
-        const freq = p.apoio_frequencia || 'avulso';
-        const customVal = p.apoio_valor_personalizado;
-        if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
-          fatValue = Number(customVal);
-        } else {
-          const defaultRates: Record<string, number> = {
-            avulso: 50.00,
-            "1x": 120.00,
-            "2x": 240.00,
-            "3x": 360.00,
-            semana_toda: 450.00
-          };
-          fatValue = defaultRates[freq] ?? 50.00;
-        }
-      }
-    }
+    const freq = p.apoio_frequencia || 'avulso';
+    const customVal = p.apoio_valor_personalizado;
     
     const totalSessions = agendamentosRepasses.filter((ag: any) => {
       if (ag.paciente_id !== pacienteId || ag.status === "cancelado") return false;
@@ -1216,6 +1192,27 @@ function DiretoriaPageContent() {
     }).length;
     
     if (totalSessions === 0) return 0;
+
+    let fatValue = 0;
+    if (freq === 'avulso') {
+      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "")
+        ? Number(customVal)
+        : 50.00;
+      fatValue = totalSessions * rate;
+    } else {
+      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+        fatValue = Number(customVal);
+      } else {
+        const defaultRates: Record<string, number> = {
+          "1x": 120.00,
+          "2x": 240.00,
+          "3x": 360.00,
+          semana_toda: 450.00
+        };
+        fatValue = defaultRates[freq] ?? 120.00;
+      }
+    }
+    
     return fatValue / totalSessions;
   };
 
