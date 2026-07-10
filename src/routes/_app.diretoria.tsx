@@ -1365,6 +1365,7 @@ function DiretoriaPageContent() {
   const [sessionStatusFilter, setSessionStatusFilter] = useState<string>("realizado_pago_falta");
   const [viewingProfDetail, setViewingProfDetail] = useState<string | null>(null);
   const [expandedProfs, setExpandedProfs] = useState<Set<string>>(new Set());
+  const [customRepasses, setCustomRepasses] = useState<Record<string, Record<string, { sessions: number, value: number, rate: number }>>>({});
 
   const toggleExpandProf = (profId: string) => {
     setExpandedProfs((prev) => {
@@ -1374,6 +1375,107 @@ function DiretoriaPageContent() {
       } else {
         next.add(profId);
       }
+      return next;
+    });
+  };
+
+  const getSpecialtyBreakdown = (profId: string, sessoes: any[]) => {
+    const groups: Record<string, { sessions: number, totalVal: number, defaultRate: number }> = {};
+    
+    sessoes.forEach((a: any) => {
+      const spec = getAppointmentSpecialty(a);
+      const val = getAppointmentValue(a);
+      const { profPct } = getRepasseRates(spec);
+      
+      if (!groups[spec]) {
+        groups[spec] = { sessions: 0, totalVal: 0, defaultRate: profPct * 100 };
+      }
+      groups[spec].sessions += 1;
+      groups[spec].totalVal += val;
+    });
+
+    const list = Object.entries(groups).map(([spec, data]) => {
+      const override = customRepasses[profId]?.[spec];
+      const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
+      const value = override?.value !== undefined ? override.value : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
+      const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
+
+      const totalVal = sessions * value;
+      const repVal = totalVal * (rate / 100);
+
+      return {
+        specialty: spec,
+        defaultSessions: data.sessions,
+        defaultAvgValue: data.sessions > 0 ? data.totalVal / data.sessions : 0,
+        defaultRate: data.defaultRate,
+        sessions,
+        value,
+        rate,
+        totalVal,
+        repVal
+      };
+    });
+
+    return list;
+  };
+
+  const handleOverrideChange = (
+    profId: string,
+    specialty: string,
+    field: "sessions" | "value" | "rate",
+    valStr: string
+  ) => {
+    setCustomRepasses((prev) => {
+      const next = { ...prev };
+      if (!next[profId]) {
+        next[profId] = {};
+      }
+      if (!next[profId][specialty]) {
+        next[profId][specialty] = { sessions: 0, value: 0, rate: 0 };
+      }
+
+      // Calculate default values to fallback on if editing for the first time
+      const group = consolidatedRepasses.find((g) => g.profissionalId === profId);
+      let defaultSess = 0;
+      let defaultValue = 0;
+      let defaultRate = 70;
+
+      if (group) {
+        const specGroups: Record<string, { sessions: number, totalVal: number, defaultRate: number }> = {};
+        group.sessoes.forEach((a: any) => {
+          const spec = getAppointmentSpecialty(a);
+          const val = getAppointmentValue(a);
+          const { profPct } = getRepasseRates(spec);
+          if (!specGroups[spec]) {
+            specGroups[spec] = { sessions: 0, totalVal: 0, defaultRate: profPct * 100 };
+          }
+          specGroups[spec].sessions += 1;
+          specGroups[spec].totalVal += val;
+        });
+
+        const data = specGroups[specialty];
+        if (data) {
+          defaultSess = data.sessions;
+          defaultValue = data.sessions > 0 ? data.totalVal / data.sessions : 0;
+          defaultRate = data.defaultRate;
+        }
+      }
+
+      const current = {
+        sessions: prev[profId]?.[specialty]?.sessions !== undefined ? prev[profId][specialty].sessions : defaultSess,
+        value: prev[profId]?.[specialty]?.value !== undefined ? prev[profId][specialty].value : defaultValue,
+        rate: prev[profId]?.[specialty]?.rate !== undefined ? prev[profId][specialty].rate : defaultRate,
+      };
+
+      if (field === "sessions") {
+        current.sessions = valStr === "" ? 0 : Number(valStr);
+      } else if (field === "value") {
+        current.value = valStr === "" ? 0 : Number(valStr);
+      } else if (field === "rate") {
+        current.rate = valStr === "" ? 0 : Number(valStr);
+      }
+
+      next[profId][specialty] = current;
       return next;
     });
   };
@@ -1482,92 +1584,6 @@ function DiretoriaPageContent() {
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
   }, [filteredRepasses, viewingProfDetail]);
 
-  const repasseStats = useMemo(() => {
-    let totalSessões = 0;
-    let faturamentoBruto = 0;
-    let repasseProfissional = 0;
-    let comissaoClinica = 0;
-
-    filteredRepasses.forEach((a: any) => {
-      const val = getAppointmentValue(a);
-      const spec = getAppointmentSpecialty(a);
-      const { profPct, clinicPct } = getRepasseRates(spec);
-
-      totalSessões += 1;
-      faturamentoBruto += val;
-      repasseProfissional += val * profPct;
-      comissaoClinica += val * clinicPct;
-    });
-
-    // Add Coordinator Bonus
-    if (selectedProfId === "all") {
-      const activeCoordinators = new Set<string>();
-      filteredRepasses.forEach((a: any) => {
-        if (a.profissional_id && isCoordenadora(a.profissional_id)) {
-          activeCoordinators.add(a.profissional_id);
-        }
-      });
-
-      activeCoordinators.forEach(() => {
-        repasseProfissional += 300;
-      });
-    } else if (isCoordenadora(selectedProfId)) {
-      if (filteredRepasses.length > 0) {
-        repasseProfissional += 300;
-      }
-    }
-
-    return {
-      totalSessões,
-      faturamentoBruto,
-      repasseProfissional,
-      comissaoClinica,
-      repasseApto: repasseProfissional,
-      repasseBloqueado: 0,
-      comissaoRecebida: comissaoClinica,
-      comissaoPendente: 0,
-    };
-  }, [filteredRepasses, selectedProfId, profissionais]);
-
-  const repasseCardsStats = useMemo(() => {
-    let totalSessões = 0;
-    let repasseTotal = 0;
-    let comissaoTotal = 0;
-
-    filteredRepasses.forEach((a: any) => {
-      const val = getAppointmentValue(a);
-      const spec = getAppointmentSpecialty(a);
-      const { profPct, clinicPct } = getRepasseRates(spec);
-
-      totalSessões += 1;
-      repasseTotal += val * profPct;
-      comissaoTotal += val * clinicPct;
-    });
-
-    // Add Coordinator Bonus
-    const activeCoordinators = new Set<string>();
-    filteredRepasses.forEach((a: any) => {
-      if (a.profissional_id && isCoordenadora(a.profissional_id)) {
-        activeCoordinators.add(a.profissional_id);
-      }
-    });
-
-    activeCoordinators.forEach(() => {
-      repasseTotal += 300;
-    });
-
-    return {
-      totalSessões,
-      repasseTotal,
-      comissaoTotal,
-    };
-  }, [filteredRepasses]);
-
-  const caixaLiquidoReal =
-    stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
-  const caixaLiquidoPrevisto =
-    stats.faturamentoTotal - repasseStats.repasseProfissional - stats.totalDespesas;
-
   const consolidatedRepasses = useMemo(() => {
     const groups = new Map<
       string,
@@ -1619,29 +1635,104 @@ function DiretoriaPageContent() {
       }
 
       group.especialidades.add(spec);
-      group.totalSessões += 1;
-      group.faturamentoBruto += val;
-      group.repasseProfissional += val * profPct;
-      group.comissaoClinica += val * clinicPct;
-
       group.sessoes.push(a);
     });
 
-    // Add Coordinator Bonus
+    // Apply custom overrides
     groups.forEach((group, profId) => {
+      const specGroups: Record<string, { sessions: number, totalVal: number, defaultRate: number }> = {};
+      group.sessoes.forEach((a: any) => {
+        const spec = getAppointmentSpecialty(a);
+        const val = getAppointmentValue(a);
+        const { profPct } = getRepasseRates(spec);
+        if (!specGroups[spec]) {
+          specGroups[spec] = { sessions: 0, totalVal: 0, defaultRate: profPct * 100 };
+        }
+        specGroups[spec].sessions += 1;
+        specGroups[spec].totalVal += val;
+      });
+
+      let totalSess = 0;
+      let totalFat = 0;
+      let totalRep = 0;
+
+      Object.entries(specGroups).forEach(([spec, data]) => {
+        const override = customRepasses[profId]?.[spec];
+        const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
+        const value = override?.value !== undefined ? override.value : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
+        const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
+
+        const specFat = sessions * value;
+        const specRep = specFat * (rate / 100);
+
+        totalSess += sessions;
+        totalFat += specFat;
+        totalRep += specRep;
+      });
+
+      group.totalSessões = totalSess;
+      group.faturamentoBruto = totalFat;
+      group.repasseProfissional = totalRep;
+
       if (isCoordenadora(profId)) {
         group.repasseProfissional += 300;
       }
-    });
 
-    // Populate apto/recebida equal to total repasse/commission
-    groups.forEach((group) => {
+      group.comissaoClinica = group.faturamentoBruto - group.repasseProfissional + (isCoordenadora(profId) ? 300 : 0);
       group.repasseApto = group.repasseProfissional;
       group.comissaoRecebida = group.comissaoClinica;
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, profissionais]);
+  }, [filteredRepasses, profissionais, customRepasses]);
+
+  const repasseStats = useMemo(() => {
+    let totalSessões = 0;
+    let faturamentoBruto = 0;
+    let repasseProfissional = 0;
+    let comissaoClinica = 0;
+
+    consolidatedRepasses.forEach((group) => {
+      totalSessões += group.totalSessões;
+      faturamentoBruto += group.faturamentoBruto;
+      repasseProfissional += group.repasseProfissional;
+      comissaoClinica += group.comissaoClinica;
+    });
+
+    return {
+      totalSessões,
+      faturamentoBruto,
+      repasseProfissional,
+      comissaoClinica,
+      repasseApto: repasseProfissional,
+      repasseBloqueado: 0,
+      comissaoRecebida: comissaoClinica,
+      comissaoPendente: 0,
+    };
+  }, [consolidatedRepasses]);
+
+  const repasseCardsStats = useMemo(() => {
+    let totalSessões = 0;
+    let repasseTotal = 0;
+    let comissaoTotal = 0;
+
+    consolidatedRepasses.forEach((group) => {
+      totalSessões += group.totalSessões;
+      repasseTotal += group.repasseProfissional;
+      comissaoTotal += group.comissaoClinica;
+    });
+
+    return {
+      totalSessões,
+      repasseTotal,
+      comissaoTotal,
+    };
+  }, [consolidatedRepasses]);
+
+  const caixaLiquidoReal =
+    stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
+  const caixaLiquidoPrevisto =
+    stats.faturamentoTotal - repasseStats.repasseProfissional - stats.totalDespesas;
 
   // Billing Filters
   const [searchPatient, setSearchPatient] = useState("");
@@ -3306,7 +3397,7 @@ Nosso pix: 54.747.611/0001-27
                             (name) => group.nome.toLowerCase().includes(name.toLowerCase())
                           );
 
-                          const bd = hasDetailsButton ? getProfessionalBreakdown(group.sessoes) : null;
+                          const bd = hasDetailsButton ? getSpecialtyBreakdown(group.profissionalId, group.sessoes) : null;
 
                           return (
                             <Fragment key={group.profissionalId}>
@@ -3367,45 +3458,66 @@ Nosso pix: 54.747.611/0001-27
                               {expandedProfs.has(group.profissionalId) && bd && (
                                 <TableRow className="bg-muted/10 border-t-0">
                                   <TableCell colSpan={6} className="p-4">
-                                    <div className="grid gap-4 sm:grid-cols-2 text-xs">
-                                      <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
-                                        <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
-                                          Tipo de Atendimento
-                                        </div>
-                                        <div className="divide-y divide-border/40">
-                                          <div className="flex justify-between py-1.5">
-                                            <span className="text-muted-foreground">Sessão Padrão:</span>
-                                            <span className="font-medium text-foreground">
-                                              {bd.standardCount} sessões | Faturamento: {brl(bd.standardFat)} | Repasse: {brl(bd.standardRep)}
-                                            </span>
-                                          </div>
-                                          <div className="flex justify-between py-1.5">
-                                            <span className="text-muted-foreground">Anamnese:</span>
-                                            <span className="font-medium text-foreground">
-                                              {bd.anamneseCount} sessões | Faturamento: {brl(bd.anamneseFat)} | Repasse: {brl(bd.anamneseRep)}
-                                            </span>
-                                          </div>
-                                        </div>
+                                    <div className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
+                                      <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1">
+                                        Detalhamento e Calculadora por Especialidade
                                       </div>
-
-                                      <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
-                                        <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
-                                          Tabela de Preços
-                                        </div>
-                                        <div className="divide-y divide-border/40">
-                                          <div className="flex justify-between py-1.5">
-                                            <span className="text-muted-foreground">Valor Normal:</span>
-                                            <span className="font-medium text-foreground">
-                                              {bd.normalCount} sessões | Faturamento: {brl(bd.normalFat)} | Repasse: {brl(bd.normalRep)}
-                                            </span>
-                                          </div>
-                                          <div className="flex justify-between py-1.5">
-                                            <span className="text-muted-foreground">Com Desconto:</span>
-                                            <span className="font-medium text-foreground">
-                                              {bd.discountCount} sessões | Faturamento: {brl(bd.discountFat)} | Repasse: {brl(bd.discountRep)}
-                                            </span>
-                                          </div>
-                                        </div>
+                                      <div className="overflow-x-auto">
+                                        <Table className="text-xs">
+                                          <TableHeader className="bg-muted/30">
+                                            <TableRow>
+                                              <TableHead className="font-semibold text-foreground">Especialidade</TableHead>
+                                              <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
+                                              <TableHead className="font-semibold text-foreground w-[130px] text-center">Valor Unitário</TableHead>
+                                              <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
+                                              <TableHead className="font-semibold text-foreground text-right">Faturamento</TableHead>
+                                              <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {bd.map((item) => (
+                                              <TableRow key={item.specialty} className="hover:bg-transparent">
+                                                <TableCell className="font-medium text-foreground py-2">{item.specialty}</TableCell>
+                                                <TableCell className="text-center py-2">
+                                                  <Input
+                                                    type="number"
+                                                    className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30"
+                                                    value={item.sessions}
+                                                    onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "sessions", e.target.value)}
+                                                  />
+                                                </TableCell>
+                                                <TableCell className="text-center py-2">
+                                                  <div className="relative max-w-[110px] mx-auto">
+                                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
+                                                    <Input
+                                                      type="number"
+                                                      className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
+                                                      value={item.value}
+                                                      onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "value", e.target.value)}
+                                                    />
+                                                  </div>
+                                                </TableCell>
+                                                <TableCell className="text-center py-2">
+                                                  <div className="relative max-w-[80px] mx-auto">
+                                                    <Input
+                                                      type="number"
+                                                      className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
+                                                      value={item.rate}
+                                                      onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "rate", e.target.value)}
+                                                    />
+                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
+                                                  </div>
+                                                </TableCell>
+                                                <TableCell className="text-right font-semibold text-foreground py-2">
+                                                  {brl(item.totalVal)}
+                                                </TableCell>
+                                                <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
+                                                  {brl(item.repVal)}
+                                                </TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
                                       </div>
                                     </div>
                                   </TableCell>
