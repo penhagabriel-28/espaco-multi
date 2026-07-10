@@ -3089,30 +3089,6 @@ Nosso pix: 54.747.611/0001-27
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Sub-tabs Switcher */}
-              <div className="flex border-b border-border pb-px mb-2">
-                <button
-                  onClick={() => setSubTab("consolidado")}
-                  className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors cursor-pointer ${
-                    subTab === "consolidado"
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Resumo por Paciente
-                </button>
-                <button
-                  onClick={() => setSubTab("historico")}
-                  className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors cursor-pointer ${
-                    subTab === "historico"
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Histórico de Faturas
-                </button>
-              </div>
-
               <div className="flex flex-wrap items-center gap-3">
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -3163,277 +3139,56 @@ Nosso pix: 54.747.611/0001-27
                     </SelectContent>
                   </Select>
                 </div>
-                {subTab === "consolidado" && (
-                  <div className="w-[190px]">
-                    <Select
-                      value={paymentTypeFilter}
-                      onValueChange={(val: any) => setPaymentTypeFilter(val)}
-                    >
-                      <SelectTrigger className="h-10">
-                        <SelectValue placeholder="Tipo de Faturamento" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os Faturamentos</SelectItem>
-                        <SelectItem value="mensal">Mensal</SelectItem>
-                        <SelectItem value="sessao">Por Sessão</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <div className="w-[190px]">
+                  <Select
+                    value={paymentTypeFilter}
+                    onValueChange={(val: any) => setPaymentTypeFilter(val)}
+                  >
+                    <SelectTrigger className="h-10">
+                      <SelectValue placeholder="Tipo de Faturamento" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Faturamentos</SelectItem>
+                      <SelectItem value="mensal">Mensal</SelectItem>
+                      <SelectItem value="sessao">Por Sessão</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              {subTab === "consolidado" ? (
-                loadingFaturas ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground">
-                    Carregando cobranças consolidadas...
-                  </div>
-                ) : filteredConsolidated.length === 0 ? (
-                  <div className="p-8 text-center text-sm text-muted-foreground border border-dashed rounded-lg">
-                    Nenhuma cobrança consolidada encontrada para os filtros selecionados.
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {(paymentTypeFilter === "all" || paymentTypeFilter === "mensal") && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 font-semibold text-sm text-foreground bg-muted/40 px-3 py-2 rounded-lg border border-border/50">
-                          <span className="text-primary font-bold">💳 Pagamento Mensal</span>
-                          <span className="text-xs text-muted-foreground">
-                            ({mensalPatients.length} {mensalPatients.length === 1 ? "paciente" : "pacientes"})
-                          </span>
-                        </div>
-                        {renderPatientTable(mensalPatients, "Nenhum paciente com faturamento mensal.")}
-                      </div>
-                    )}
-
-                    {(paymentTypeFilter === "all" || paymentTypeFilter === "sessao") && (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 font-semibold text-sm text-foreground bg-muted/40 px-3 py-2 rounded-lg border border-border/50">
-                          <span className="text-primary font-bold">📅 Pagamento por Sessão</span>
-                          <span className="text-xs text-muted-foreground">
-                            ({sessaoPatients.length} {sessaoPatients.length === 1 ? "paciente" : "pacientes"})
-                          </span>
-                        </div>
-                        {renderPatientTable(sessaoPatients, "Nenhum paciente com faturamento por sessão.")}
-                      </div>
-                    )}
-                  </div>
-                )
-              ) : /* Histórico de Faturas */
-              loadingFaturas ? (
+              {loadingFaturas ? (
                 <div className="p-8 text-center text-sm text-muted-foreground">
-                  Carregando cobranças...
+                  Carregando cobranças consolidadas...
                 </div>
-              ) : filteredFaturas.length === 0 ? (
+              ) : filteredConsolidated.length === 0 ? (
                 <div className="p-8 text-center text-sm text-muted-foreground border border-dashed rounded-lg">
-                  Nenhuma cobrança encontrada para os filtros selecionados.
+                  Nenhuma cobrança consolidada encontrada para os filtros selecionados.
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <Table>
-                    <TableHeader className="bg-muted/40 font-semibold text-foreground">
-                      <TableRow>
-                        <TableHead>Paciente</TableHead>
-                        <TableHead>Competência</TableHead>
-                        <TableHead>Sessão</TableHead>
-                        <TableHead>Profissional</TableHead>
-                        <TableHead>Vencimento</TableHead>
-                        <TableHead>Valor</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Pagamento</TableHead>
-                        <TableHead>Dias de Atraso</TableHead>
-                        <TableHead className="w-[140px] text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredFaturas.map((f: any) => {
-                        const daysDelayed = getDaysDelayed(f);
-                        const patientName = patientMap.get(f.paciente_id) || "—";
+                <div className="space-y-6">
+                  {(paymentTypeFilter === "all" || paymentTypeFilter === "mensal") && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 font-semibold text-sm text-foreground bg-muted/40 px-3 py-2 rounded-lg border border-border/50">
+                        <span className="text-primary font-bold">💳 Pagamento Mensal</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({mensalPatients.length} {mensalPatients.length === 1 ? "paciente" : "pacientes"})
+                        </span>
+                      </div>
+                      {renderPatientTable(mensalPatients, "Nenhum paciente com faturamento mensal.")}
+                    </div>
+                  )}
 
-                        return (
-                          <TableRow key={f.id}>
-                            <TableCell className="font-semibold text-foreground">
-                              {patientName}
-                            </TableCell>
-                            <TableCell>
-                              {f.competencia
-                                ? format(new Date(f.competencia + "T12:00:00"), "MM/yyyy")
-                                : "—"}
-                            </TableCell>
-                            <TableCell>
-                              {renderSessionDates(f)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1 max-w-[150px]">
-                                {getProfessionalsForFatura(f).length > 0 ? (
-                                  getProfessionalsForFatura(f).map((name) => (
-                                    <Badge
-                                      key={name}
-                                      variant="secondary"
-                                      className="text-[10px] px-1.5 py-0.5 font-medium whitespace-nowrap"
-                                    >
-                                      {name}
-                                    </Badge>
-                                  ))
-                                ) : (
-                                  <span className="text-xs text-muted-foreground italic">—</span>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {f.vencimento
-                                ? format(new Date(f.vencimento + "T12:00:00"), "dd/MM/yyyy")
-                                : "—"}
-                            </TableCell>
-                            <TableCell className="font-semibold">{brl(Number(f.valor))}</TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  f.status === "paga"
-                                    ? "default"
-                                    : f.status === "vencida" ||
-                                        (f.status === "aberta" && daysDelayed > 0)
-                                      ? "destructive"
-                                      : f.status === "cancelada"
-                                        ? "secondary"
-                                        : "outline"
-                                }
-                                className={
-                                  f.status === "paga"
-                                    ? "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent"
-                                    : f.status === "aberta" && daysDelayed > 0
-                                      ? "bg-rose-500 hover:bg-rose-600 text-white border-transparent"
-                                      : f.status === "aberta"
-                                        ? "bg-sky-500 hover:bg-sky-600 text-white border-transparent"
-                                        : ""
-                                }
-                              >
-                                {f.status === "aberta" && daysDelayed > 0
-                                  ? "Vencida (Atrasada)"
-                                  : f.status === "aberta"
-                                    ? "Em Aberto"
-                                    : f.status === "paga"
-                                      ? "Pago"
-                                      : f.status === "vencida"
-                                        ? "Vencida"
-                                        : "Cancelada"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">
-                              {f.status === "paga" ? (
-                                <div className="space-y-0.5">
-                                  <div>
-                                    {f.pago_em ? format(new Date(f.pago_em), "dd/MM/yyyy") : "—"}
-                                  </div>
-                                  <div className="font-semibold uppercase tracking-wider text-[10px] text-emerald-600 dark:text-emerald-400">
-                                    {f.metodo || ""}
-                                  </div>
-                                </div>
-                              ) : (
-                                "—"
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {f.status === "paga" ? (
-                                daysDelayed > 0 ? (
-                                  <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                                    Pago com {daysDelayed}d de atraso
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                                    <Check className="h-3 w-3" /> Pago em dia
-                                  </span>
-                                )
-                              ) : f.status === "cancelada" ? (
-                                "—"
-                              ) : f.vencimento ? (
-                                daysDelayed > 0 ? (
-                                  <span className="text-xs text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
-                                    <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {daysDelayed}{" "}
-                                    dias de atraso
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                                    <Clock className="h-3 w-3" /> No prazo
-                                  </span>
-                                )
-                              ) : (
-                                <span className="text-xs text-muted-foreground italic">
-                                  Sem vencimento
-                                </span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div
-                                className="flex justify-end gap-1.5"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {f.status !== "paga" && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Confirmar Pagamento"
-                                    className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                                    onClick={() => handleOpenConfirmPayment(f)}
-                                  >
-                                    <Check className="h-4 w-4" />
-                                  </Button>
-                                )}
-                                 <Button
-                                   variant="ghost"
-                                   size="icon"
-                                   title="Ver Detalhes / Sessões"
-                                   className="h-8 w-8 text-primary hover:text-primary-foreground hover:bg-primary/5"
-                                   onClick={() => handleOpenInvoiceDetails(f)}
-                                 >
-                                   <Eye className="h-4 w-4" />
-                                 </Button>
-                                 <Button
-                                   variant="ghost"
-                                   size="icon"
-                                   title="Editar Cobrança"
-                                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                   onClick={() => handleOpenEdit(f)}
-                                 >
-                                   <Pencil className="h-4 w-4" />
-                                 </Button>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="Excluir Cobrança"
-                                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Excluir Cobrança</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Tem certeza que deseja excluir esta cobrança? Todos os itens
-                                        de faturamento associados a agendamentos serão mantidos, mas
-                                        a cobrança em si será excluída.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                        onClick={() => deleteFaturaMutation.mutate(f.id)}
-                                      >
-                                        Excluir
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  {(paymentTypeFilter === "all" || paymentTypeFilter === "sessao") && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 font-semibold text-sm text-foreground bg-muted/40 px-3 py-2 rounded-lg border border-border/50">
+                        <span className="text-primary font-bold">📅 Pagamento por Sessão</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({sessaoPatients.length} {sessaoPatients.length === 1 ? "paciente" : "pacientes"})
+                        </span>
+                      </div>
+                      {renderPatientTable(sessaoPatients, "Nenhum paciente com faturamento por sessão.")}
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
