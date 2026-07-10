@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -68,6 +68,8 @@ import {
   ExternalLink,
   ArrowLeft,
   ChevronLeft,
+  ChevronRight,
+  ChevronDown,
   X,
   Printer,
 } from "lucide-react";
@@ -1287,6 +1289,67 @@ function DiretoriaPageContent() {
     return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%" };
   };
 
+  const getProfessionalBreakdown = (sessoes: any[]) => {
+    let standardCount = 0;
+    let standardFat = 0;
+    let standardRep = 0;
+
+    let anamneseCount = 0;
+    let anamneseFat = 0;
+    let anamneseRep = 0;
+
+    let normalCount = 0;
+    let normalFat = 0;
+    let normalRep = 0;
+
+    let discountCount = 0;
+    let discountFat = 0;
+    let discountRep = 0;
+
+    sessoes.forEach((a: any) => {
+      const val = getAppointmentValue(a);
+      const spec = getAppointmentSpecialty(a);
+      const { profPct } = getRepasseRates(spec);
+      const repVal = val * profPct;
+
+      const isAnamnese = a.observacoes?.includes("[Tipo: Anamnese]");
+      
+      const config = a.profissionais?.valores_config || { especialidades: [], descontos: [] };
+      const hasDiscount = Array.isArray(config.descontos) && config.descontos.some(
+        (item: any) =>
+          item.paciente_id === a.paciente_id &&
+          String(item.especialidade || "").toLowerCase() === String(spec || "").toLowerCase()
+      );
+
+      if (isAnamnese) {
+        anamneseCount++;
+        anamneseFat += val;
+        anamneseRep += repVal;
+      } else {
+        standardCount++;
+        standardFat += val;
+        standardRep += repVal;
+      }
+
+      if (hasDiscount) {
+        discountCount++;
+        discountFat += val;
+        discountRep += repVal;
+      } else {
+        normalCount++;
+        normalFat += val;
+        normalRep += repVal;
+      }
+    });
+
+    return {
+      standardCount, standardFat, standardRep,
+      anamneseCount, anamneseFat, anamneseRep,
+      normalCount, normalFat, normalRep,
+      discountCount, discountFat, discountRep
+    };
+  };
+
   const isCoordenadora = (profId: string | null) => {
     if (!profId) return false;
     const prof = (profissionais || []).find((p: any) => p.id === profId);
@@ -1301,6 +1364,19 @@ function DiretoriaPageContent() {
   const [selectedProfId, setSelectedProfId] = useState<string>("all");
   const [sessionStatusFilter, setSessionStatusFilter] = useState<string>("realizado_pago_falta");
   const [viewingProfDetail, setViewingProfDetail] = useState<string | null>(null);
+  const [expandedProfs, setExpandedProfs] = useState<Set<string>>(new Set());
+
+  const toggleExpandProf = (profId: string) => {
+    setExpandedProfs((prev) => {
+      const next = new Set(prev);
+      if (next.has(profId)) {
+        next.delete(profId);
+      } else {
+        next.add(profId);
+      }
+      return next;
+    });
+  };
 
   const handleSelectProf = (val: string) => {
     setSelectedProfId(val);
@@ -3463,47 +3539,124 @@ Nosso pix: 54.747.611/0001-27
                         {consolidatedRepasses.map((group) => {
                           const specsArr = Array.from(group.especialidades);
 
+                          const targetProfsForDetails = [
+                            "Gabriela Martins",
+                            "Kátia Tereza",
+                            "Leandro Moraes",
+                            "Naianny Maramaldo",
+                            "Sonileny Pinheiro"
+                          ];
+
+                          const hasDetailsButton = targetProfsForDetails.some(
+                            (name) => group.nome.toLowerCase().includes(name.toLowerCase())
+                          );
+
+                          const bd = hasDetailsButton ? getProfessionalBreakdown(group.sessoes) : null;
+
                           return (
-                            <TableRow key={group.profissionalId} className="hover:bg-muted/30">
-                              <TableCell className="font-semibold text-foreground">
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                                    style={{ backgroundColor: group.cor }}
-                                  />
-                                  <span>{group.nome}</span>
-                                  {isCoordenadora(group.profissionalId) && (
-                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-700 border-yellow-500/20 font-bold shrink-0">
-                                      Coord. (+R$300)
-                                    </Badge>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex flex-wrap gap-1">
-                                  {specsArr.map((spec) => (
-                                    <span
-                                      key={spec}
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground"
-                                    >
-                                      {spec}
-                                    </span>
-                                  ))}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-center font-medium">
-                                {group.totalSessões}
-                              </TableCell>
-                              <TableCell className="font-semibold text-foreground">
-                                {brl(group.faturamentoBruto)}
-                              </TableCell>
-                              <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                {brl(group.repasseProfissional)}
-                              </TableCell>
-                              <TableCell className="font-semibold text-purple-600 dark:text-purple-400">
-                                {brl(group.comissaoClinica)}
-                              </TableCell>
-                            </TableRow>
+                            <Fragment key={group.profissionalId}>
+                              <TableRow className="hover:bg-muted/30">
+                                <TableCell className="font-semibold text-foreground">
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                                      style={{ backgroundColor: group.cor }}
+                                    />
+                                    <span>{group.nome}</span>
+                                    {isCoordenadora(group.profissionalId) && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-700 border-yellow-500/20 font-bold shrink-0">
+                                        Coord. (+R$300)
+                                      </Badge>
+                                    )}
+                                    {hasDetailsButton && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 p-0 hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 rounded"
+                                        onClick={() => toggleExpandProf(group.profissionalId)}
+                                      >
+                                        {expandedProfs.has(group.profissionalId) ? (
+                                          <ChevronDown className="h-3.5 w-3.5" />
+                                        ) : (
+                                          <ChevronRight className="h-3.5 w-3.5" />
+                                        )}
+                                      </Button>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex flex-wrap gap-1">
+                                    {specsArr.map((spec) => (
+                                      <span
+                                        key={spec}
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted text-muted-foreground"
+                                      >
+                                        {spec}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-center font-medium">
+                                  {group.totalSessões}
+                                </TableCell>
+                                <TableCell className="font-semibold text-foreground">
+                                  {brl(group.faturamentoBruto)}
+                                </TableCell>
+                                <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                  {brl(group.repasseProfissional)}
+                                </TableCell>
+                                <TableCell className="font-semibold text-purple-600 dark:text-purple-400">
+                                  {brl(group.comissaoClinica)}
+                                </TableCell>
+                              </TableRow>
+                              {expandedProfs.has(group.profissionalId) && bd && (
+                                <TableRow className="bg-muted/10 border-t-0">
+                                  <TableCell colSpan={6} className="p-4">
+                                    <div className="grid gap-4 sm:grid-cols-2 text-xs">
+                                      <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
+                                        <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
+                                          Tipo de Atendimento
+                                        </div>
+                                        <div className="divide-y divide-border/40">
+                                          <div className="flex justify-between py-1.5">
+                                            <span className="text-muted-foreground">Sessão Padrão:</span>
+                                            <span className="font-medium text-foreground">
+                                              {bd.standardCount} sessões | Faturamento: {brl(bd.standardFat)} | Repasse: {brl(bd.standardRep)}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between py-1.5">
+                                            <span className="text-muted-foreground">Anamnese:</span>
+                                            <span className="font-medium text-foreground">
+                                              {bd.anamneseCount} sessões | Faturamento: {brl(bd.anamneseFat)} | Repasse: {brl(bd.anamneseRep)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
+                                        <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
+                                          Tabela de Preços
+                                        </div>
+                                        <div className="divide-y divide-border/40">
+                                          <div className="flex justify-between py-1.5">
+                                            <span className="text-muted-foreground">Valor Normal:</span>
+                                            <span className="font-medium text-foreground">
+                                              {bd.normalCount} sessões | Faturamento: {brl(bd.normalFat)} | Repasse: {brl(bd.normalRep)}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between py-1.5">
+                                            <span className="text-muted-foreground">Com Desconto:</span>
+                                            <span className="font-medium text-foreground">
+                                              {bd.discountCount} sessões | Faturamento: {brl(bd.discountFat)} | Repasse: {brl(bd.discountRep)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </Fragment>
                           );
                         })}
                       </TableBody>
