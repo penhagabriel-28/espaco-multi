@@ -3385,19 +3385,8 @@ Nosso pix: 54.747.611/0001-27
                         {consolidatedRepasses.map((group) => {
                           const specsArr = Array.from(group.especialidades);
 
-                          const targetProfsForDetails = [
-                            "Gabriela Martins",
-                            "Kátia Tereza",
-                            "Leandro Moraes",
-                            "Naianny Maramaldo",
-                            "Sonileny Pinheiro"
-                          ];
-
-                          const hasDetailsButton = targetProfsForDetails.some(
-                            (name) => group.nome.toLowerCase().includes(name.toLowerCase())
-                          );
-
-                          const bd = hasDetailsButton ? getSpecialtyBreakdown(group.profissionalId, group.sessoes) : null;
+                          const hasDetailsButton = true;
+                          const bd = getSpecialtyBreakdown(group.profissionalId, group.sessoes);
 
                           return (
                             <Fragment key={group.profissionalId}>
@@ -3458,67 +3447,116 @@ Nosso pix: 54.747.611/0001-27
                               {expandedProfs.has(group.profissionalId) && bd && (
                                 <TableRow className="bg-muted/10 border-t-0">
                                   <TableCell colSpan={6} className="p-4">
-                                    <div className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
-                                      <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1">
-                                        Detalhamento e Calculadora por Especialidade
-                                      </div>
-                                      <div className="overflow-x-auto">
-                                        <Table className="text-xs">
-                                          <TableHeader className="bg-muted/30">
-                                            <TableRow>
-                                              <TableHead className="font-semibold text-foreground">Especialidade</TableHead>
-                                              <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
-                                              <TableHead className="font-semibold text-foreground w-[130px] text-center">Valor Unitário</TableHead>
-                                              <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
-                                              <TableHead className="font-semibold text-foreground text-right">Faturamento</TableHead>
-                                              <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {bd.map((item) => (
-                                              <TableRow key={item.specialty} className="hover:bg-transparent">
-                                                <TableCell className="font-medium text-foreground py-2">{item.specialty}</TableCell>
-                                                <TableCell className="text-center py-2">
-                                                  <Input
-                                                    type="number"
-                                                    className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30"
-                                                    value={item.sessions}
-                                                    onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "sessions", e.target.value)}
-                                                  />
-                                                </TableCell>
-                                                <TableCell className="text-center py-2">
-                                                  <div className="relative max-w-[110px] mx-auto">
-                                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
-                                                    <Input
-                                                      type="number"
-                                                      className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
-                                                      value={item.value}
-                                                      onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "value", e.target.value)}
-                                                    />
-                                                  </div>
-                                                </TableCell>
-                                                <TableCell className="text-center py-2">
-                                                  <div className="relative max-w-[80px] mx-auto">
-                                                    <Input
-                                                      type="number"
-                                                      className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
-                                                      value={item.rate}
-                                                      onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "rate", e.target.value)}
-                                                    />
-                                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
-                                                  </div>
-                                                </TableCell>
-                                                <TableCell className="text-right font-semibold text-foreground py-2">
-                                                  {brl(item.totalVal)}
-                                                </TableCell>
-                                                <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
-                                                  {brl(item.repVal)}
-                                                </TableCell>
+                                    <div className="space-y-4 w-full">
+                                      <div className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
+                                        <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1">
+                                          Detalhamento e Calculadora por Especialidade
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                          <Table className="text-xs">
+                                            <TableHeader className="bg-muted/30">
+                                              <TableRow>
+                                                <TableHead className="font-semibold text-foreground">Especialidade</TableHead>
+                                                <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
+                                                <TableHead className="font-semibold text-foreground w-[130px] text-center">Valor Unitário</TableHead>
+                                                <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
+                                                <TableHead className="font-semibold text-foreground text-right">Faturamento</TableHead>
+                                                <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
                                               </TableRow>
-                                            ))}
-                                          </TableBody>
-                                        </Table>
+                                            </TableHeader>
+                                            <TableBody>
+                                              {bd.map((item) => (
+                                                <TableRow key={item.specialty} className="hover:bg-transparent">
+                                                  <TableCell className="font-medium text-foreground py-2">{item.specialty}</TableCell>
+                                                  <TableCell className="text-center py-2">
+                                                    <Input
+                                                      type="number"
+                                                      className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30"
+                                                      value={item.sessions}
+                                                      onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "sessions", e.target.value)}
+                                                    />
+                                                  </TableCell>
+                                                  <TableCell className="text-center py-2">
+                                                    <div className="relative max-w-[110px] mx-auto">
+                                                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
+                                                      <Input
+                                                        type="number"
+                                                        className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
+                                                        value={item.value}
+                                                        onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "value", e.target.value)}
+                                                      />
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="text-center py-2">
+                                                    <div className="relative max-w-[80px] mx-auto">
+                                                      <Input
+                                                        type="number"
+                                                        className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
+                                                        value={item.rate}
+                                                        onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "rate", e.target.value)}
+                                                      />
+                                                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
+                                                    </div>
+                                                  </TableCell>
+                                                  <TableCell className="text-right font-semibold text-foreground py-2">
+                                                    {brl(item.totalVal)}
+                                                  </TableCell>
+                                                  <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
+                                                    {brl(item.repVal)}
+                                                  </TableCell>
+                                                </TableRow>
+                                              ))}
+                                            </TableBody>
+                                          </Table>
+                                        </div>
                                       </div>
+
+                                      {(() => {
+                                        const pbd = getProfessionalBreakdown(group.sessoes);
+                                        return (
+                                          <div className="grid gap-4 sm:grid-cols-2 text-xs">
+                                            <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
+                                              <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
+                                                Tipo de Atendimento
+                                              </div>
+                                              <div className="divide-y divide-border/40">
+                                                <div className="flex justify-between py-1.5">
+                                                  <span className="text-muted-foreground">Sessão Padrão:</span>
+                                                  <span className="font-medium text-foreground text-right">
+                                                    {pbd.standardCount} sessões | Faturamento: {brl(pbd.standardFat)} | Repasse: {brl(pbd.standardRep)}
+                                                  </span>
+                                                </div>
+                                                <div className="flex justify-between py-1.5">
+                                                  <span className="text-muted-foreground">Anamnese:</span>
+                                                  <span className="font-medium text-foreground text-right">
+                                                    {pbd.anamneseCount} sessões | Faturamento: {brl(pbd.anamneseFat)} | Repasse: {brl(pbd.anamneseRep)}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
+                                              <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
+                                                Tabela de Preços
+                                              </div>
+                                              <div className="divide-y divide-border/40">
+                                                <div className="flex justify-between py-1.5">
+                                                  <span className="text-muted-foreground">Valor Normal:</span>
+                                                  <span className="font-medium text-foreground text-right">
+                                                    {pbd.normalCount} sessões | Faturamento: {brl(pbd.normalFat)} | Repasse: {brl(pbd.normalRep)}
+                                                  </span>
+                                                </div>
+                                                <div className="flex justify-between py-1.5">
+                                                  <span className="text-muted-foreground">Com Desconto:</span>
+                                                  <span className="font-medium text-foreground text-right">
+                                                    {pbd.discountCount} sessões | Faturamento: {brl(pbd.discountFat)} | Repasse: {brl(pbd.discountRep)}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   </TableCell>
                                 </TableRow>
