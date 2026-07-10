@@ -1165,7 +1165,7 @@ function DiretoriaPageContent() {
     return "Geral";
   };
 
-  const getApoioSessionValue = (pacienteId: string, dataInicioStr: string) => {
+  const getApoioSessionValue = (pacienteId: string, profissionalId: string, dataInicioStr: string) => {
     if (!pacienteId || !dataInicioStr) return 0;
     
     const date = new Date(dataInicioStr);
@@ -1180,7 +1180,10 @@ function DiretoriaPageContent() {
     const customVal = p.apoio_valor_personalizado;
     
     const totalSessions = agendamentosRepasses.filter((ag: any) => {
-      if (ag.paciente_id !== pacienteId || ag.status === "cancelado") return false;
+      if (ag.paciente_id !== pacienteId || ag.profissional_id !== profissionalId) return false;
+      const statusOk = ag.status === "realizado" || ag.status === "pago" || ag.status === "falta";
+      if (!statusOk) return false;
+      
       const agDate = new Date(ag.data_inicio);
       const agYear = agDate.getFullYear();
       const agMonth = String(agDate.getMonth() + 1).padStart(2, '0');
@@ -1221,7 +1224,7 @@ function DiretoriaPageContent() {
     const spec = getAppointmentSpecialty(a);
     const isApoio = spec === "Apoio" || spec === "AP";
     if (isApoio) {
-      return getApoioSessionValue(a.paciente_id, a.data_inicio);
+      return getApoioSessionValue(a.paciente_id, a.profissional_id, a.data_inicio);
     }
 
     const fatItem = faturaItensMap.get(a.id);
