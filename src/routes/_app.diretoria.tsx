@@ -1278,13 +1278,18 @@ function DiretoriaPageContent() {
     }
   };
 
+  const isApoioSpec = (specialty: string) => {
+    const s = String(specialty || "").trim().toUpperCase();
+    return s === "APOIO" || s === "AP";
+  };
+
   const getRepasseRates = (specialty: string) => {
-    const isAtAba =
-      String(specialty || "")
-        .trim()
-        .toUpperCase() === "AT ABA";
-    if (isAtAba) {
+    const specNorm = String(specialty || "").trim().toUpperCase();
+    if (specNorm === "AT ABA") {
       return { profPct: 0.5, clinicPct: 0.5, label: "50% / 50%" };
+    }
+    if (specNorm === "APOIO" || specNorm === "AP") {
+      return { profPct: 0.6, clinicPct: 0.4, label: "60% / 40%" };
     }
     return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%" };
   };
@@ -1379,68 +1384,45 @@ function DiretoriaPageContent() {
     });
   };
 
-  const getSpecialtyBreakdown = (profId: string, sessoes: any[]) => {
-    const groups: Record<string, { sessions: number, totalVal: number, defaultRate: number }> = {};
+  const getPatientBreakdownForSpecialty = (profId: string, spec: string, sessoes: any[]) => {
+    const isApoio = isApoioSpec(spec);
     
-    sessoes.forEach((a: any) => {
-      const spec = getAppointmentSpecialty(a);
-      if (spec === "Apoio" || spec === "AP") return; // Skip Apoio
-
-      const val = getAppointmentValue(a);
-      const { profPct } = getRepasseRates(spec);
-      
-      if (!groups[spec]) {
-        groups[spec] = { sessions: 0, totalVal: 0, defaultRate: profPct * 100 };
+    // Group sessions by patient
+    const groups: Record<
+      string,
+      {
+        sessions: number;
+        totalVal: number;
+        defaultRate: number;
+        pacienteNome: string;
+        freqLabel: string;
       }
-      groups[spec].sessions += 1;
-      groups[spec].totalVal += val;
-    });
-
-    const list = Object.entries(groups).map(([spec, data]) => {
-      const override = customRepasses[profId]?.[spec];
-      const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
-      const value = override?.value !== undefined ? override.value : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
-      const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
-
-      const totalVal = sessions * value;
-      const repVal = totalVal * (rate / 100);
-
-      return {
-        specialty: spec,
-        defaultSessions: data.sessions,
-        defaultAvgValue: data.sessions > 0 ? data.totalVal / data.sessions : 0,
-        defaultRate: data.defaultRate,
-        sessions,
-        value,
-        rate,
-        totalVal,
-        repVal
-      };
-    });
-
-    return list;
-  };
-
-  const getApoioBreakdown = (profId: string, sessoes: any[]) => {
-    const groups: Record<string, { sessions: number, totalVal: number, defaultRate: number, pacienteNome: string, freqLabel: string }> = {};
+    > = {};
 
     sessoes.forEach((a: any) => {
-      const spec = getAppointmentSpecialty(a);
-      if (spec !== "Apoio" && spec !== "AP") return;
+      const s = getAppointmentSpecialty(a);
+      if (s !== spec) return; // Only process sessions for this specialty
 
       const val = getAppointmentValue(a);
       const { profPct } = getRepasseRates(spec);
       const pacId = a.paciente_id;
+      if (!pacId) return;
       const pacName = a.pacientes?.nome || "Paciente Sem Nome";
 
       if (!groups[pacId]) {
-        const p = patientDetailsMap.get(pacId);
-        const freq = p?.apoio_frequencia || 'avulso';
-        const customVal = p?.apoio_valor_personalizado;
-        
-        let freqLabel = freq === 'avulso' ? `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : '50.00'}/sessão)` : `${freq}/semana (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : '120.00'}/mês)`;
-        if (freq === 'semana_toda') {
-          freqLabel = `Semana Toda (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : '450.00'}/mês)`;
+        let freqLabel = "";
+        if (isApoio) {
+          const p = patientDetailsMap.get(pacId);
+          const freq = p?.apoio_frequencia || "avulso";
+          const customVal = p?.apoio_valor_personalizado;
+          
+          freqLabel =
+            freq === "avulso"
+              ? `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "50.00"}/sessão)`
+              : `${freq}/semana (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "120.00"}/mês)`;
+          if (freq === "semana_toda") {
+            freqLabel = `Semana Toda (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "450.00"}/mês)`;
+          }
         }
 
         groups[pacId] = {
@@ -1448,7 +1430,7 @@ function DiretoriaPageContent() {
           totalVal: 0,
           defaultRate: profPct * 100,
           pacienteNome: pacName,
-          freqLabel
+          freqLabel,
         };
       }
       groups[pacId].sessions += 1;
@@ -1456,13 +1438,26 @@ function DiretoriaPageContent() {
     });
 
     const list = Object.entries(groups).map(([pacId, data]) => {
-      const key = `apoio_paciente_${pacId}`;
+      const key = isApoio ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
       const override = customRepasses[profId]?.[key];
+      
       const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
-      const totalVal = override?.value !== undefined ? override.value : data.totalVal;
       const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
+      
+      let faturamento = 0;
+      let repVal = 0;
+      let value = 0;
 
-      const repVal = totalVal * (rate / 100);
+      if (isApoio) {
+        faturamento = override?.value !== undefined ? override.value : data.totalVal;
+        repVal = faturamento * (rate / 100);
+        value = faturamento;
+      } else {
+        const defaultAvg = data.sessions > 0 ? data.totalVal / data.sessions : 0;
+        value = override?.value !== undefined ? override.value : defaultAvg;
+        faturamento = sessions * value;
+        repVal = faturamento * (rate / 100);
+      }
 
       return {
         pacienteId: pacId,
@@ -1470,9 +1465,10 @@ function DiretoriaPageContent() {
         pacienteNome: data.pacienteNome,
         freqLabel: data.freqLabel,
         sessions,
-        faturamento: totalVal,
+        value,
         rate,
-        repVal
+        faturamento,
+        repVal,
       };
     });
 
@@ -1676,67 +1672,70 @@ function DiretoriaPageContent() {
 
     // Apply custom overrides
     groups.forEach((group, profId) => {
-      const specGroups: Record<string, { sessions: number, totalVal: number, defaultRate: number }> = {};
-      const apoioPatients: Record<string, { sessions: number, totalVal: number, defaultRate: number, key: string }> = {};
+      // Group sessions by specialty and patient
+      const patientSpecGroups: Record<
+        string,
+        {
+          spec: string;
+          pacId: string;
+          sessions: number;
+          totalVal: number;
+          defaultRate: number;
+          key: string;
+        }
+      > = {};
 
       group.sessoes.forEach((a: any) => {
         const spec = getAppointmentSpecialty(a);
+        const pacId = a.paciente_id;
+        if (!pacId) return;
+
         const val = getAppointmentValue(a);
         const { profPct } = getRepasseRates(spec);
+        const defaultRate = profPct * 100;
+        const key = isApoioSpec(spec) ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
+        const groupKey = `${spec}_${pacId}`;
 
-        if (spec === "Apoio" || spec === "AP") {
-          const pacId = a.paciente_id;
-          const key = `apoio_paciente_${pacId}`;
-          if (!apoioPatients[pacId]) {
-            apoioPatients[pacId] = {
-              sessions: 0,
-              totalVal: 0,
-              defaultRate: profPct * 100,
-              key
-            };
-          }
-          apoioPatients[pacId].sessions += 1;
-          apoioPatients[pacId].totalVal += val;
-        } else {
-          if (!specGroups[spec]) {
-            specGroups[spec] = { sessions: 0, totalVal: 0, defaultRate: profPct * 100 };
-          }
-          specGroups[spec].sessions += 1;
-          specGroups[spec].totalVal += val;
+        if (!patientSpecGroups[groupKey]) {
+          patientSpecGroups[groupKey] = {
+            spec,
+            pacId,
+            sessions: 0,
+            totalVal: 0,
+            defaultRate,
+            key,
+          };
         }
+        patientSpecGroups[groupKey].sessions += 1;
+        patientSpecGroups[groupKey].totalVal += val;
       });
 
       let totalSess = 0;
       let totalFat = 0;
       let totalRep = 0;
 
-      // Regular specialties
-      Object.entries(specGroups).forEach(([spec, data]) => {
-        const override = customRepasses[profId]?.[spec];
-        const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
-        const value = override?.value !== undefined ? override.value : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
-        const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
-
-        const specFat = sessions * value;
-        const specRep = specFat * (rate / 100);
-
-        totalSess += sessions;
-        totalFat += specFat;
-        totalRep += specRep;
-      });
-
-      // Apoio patients
-      Object.entries(apoioPatients).forEach(([pacId, data]) => {
+      Object.values(patientSpecGroups).forEach((data) => {
         const override = customRepasses[profId]?.[data.key];
-        const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
-        const totalVal = override?.value !== undefined ? override.value : data.totalVal;
         const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
+        const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
 
-        const specRep = totalVal * (rate / 100);
+        if (isApoioSpec(data.spec)) {
+          const totalVal = override?.value !== undefined ? override.value : data.totalVal;
+          const repVal = totalVal * (rate / 100);
 
-        totalSess += sessions;
-        totalFat += totalVal;
-        totalRep += specRep;
+          totalSess += sessions;
+          totalFat += totalVal;
+          totalRep += repVal;
+        } else {
+          const avgValue = data.sessions > 0 ? data.totalVal / data.sessions : 0;
+          const value = override?.value !== undefined ? override.value : avgValue;
+          const totalVal = sessions * value;
+          const repVal = totalVal * (rate / 100);
+
+          totalSess += sessions;
+          totalFat += totalVal;
+          totalRep += repVal;
+        }
       });
 
       group.totalSessões = totalSess;
@@ -3517,225 +3516,141 @@ Nosso pix: 54.747.611/0001-27
                                 <TableRow className="bg-muted/10 border-t-0">
                                   <TableCell colSpan={6} className="p-4">
                                     <div className="space-y-4 w-full">
-                                      {/* Non-Apoio Calculator Table */}
-                                      {(() => {
-                                        const bdSpecialties = getSpecialtyBreakdown(group.profissionalId, group.sessoes);
-                                        if (bdSpecialties.length === 0) return null;
-                                        return (
-                                          <div className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
-                                            <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1">
-                                              Detalhamento e Calculadora por Especialidade
-                                            </div>
-                                            <div className="overflow-x-auto">
-                                              <Table className="text-xs">
-                                                <TableHeader className="bg-muted/30">
-                                                  <TableRow>
-                                                    <TableHead className="font-semibold text-foreground">Especialidade</TableHead>
-                                                    <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
-                                                    <TableHead className="font-semibold text-foreground w-[130px] text-center">Valor Unitário</TableHead>
-                                                    <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
-                                                    <TableHead className="font-semibold text-foreground text-right">Faturamento</TableHead>
-                                                    <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
-                                                  </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                  {bdSpecialties.map((item) => {
-                                                    // Find raw default values
-                                                    const groupsTemp: any = {};
-                                                    group.sessoes.forEach((a: any) => {
-                                                      const spec = getAppointmentSpecialty(a);
-                                                      if (spec === item.specialty) {
-                                                        const val = getAppointmentValue(a);
-                                                        const { profPct } = getRepasseRates(spec);
-                                                        if (!groupsTemp[spec]) {
-                                                          groupsTemp[spec] = { sessions: 0, totalVal: 0, defaultRate: profPct * 100 };
-                                                        }
-                                                        groupsTemp[spec].sessions += 1;
-                                                        groupsTemp[spec].totalVal += val;
-                                                      }
-                                                    });
-                                                    const rawData = groupsTemp[item.specialty] || { sessions: 0, totalVal: 0, defaultRate: 70 };
-                                                    const rawAvgValue = rawData.sessions > 0 ? rawData.totalVal / rawData.sessions : 0;
+                                       {/* Patient Calculator Tables grouped by Specialty */}
+                                       {(() => {
+                                         const specs = Array.from(group.especialidades).sort();
+                                         return specs.map((spec) => {
+                                           const isApoio = isApoioSpec(spec);
+                                           const bd = getPatientBreakdownForSpecialty(group.profissionalId, spec, group.sessoes);
+                                           if (bd.length === 0) return null;
 
-                                                    return (
-                                                      <TableRow key={item.specialty} className="hover:bg-transparent">
-                                                        <TableCell className="font-medium text-foreground py-2">{item.specialty}</TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          <Input
-                                                            type="number"
-                                                            className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30"
-                                                            value={item.sessions}
-                                                            onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "sessions", e.target.value, rawData.sessions, rawAvgValue, rawData.defaultRate)}
-                                                          />
-                                                        </TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          <div className="relative max-w-[110px] mx-auto">
-                                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
-                                                            <Input
-                                                              type="number"
-                                                              className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
-                                                              value={item.value}
-                                                              onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "value", e.target.value, rawData.sessions, rawAvgValue, rawData.defaultRate)}
-                                                            />
-                                                          </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          <div className="relative max-w-[80px] mx-auto">
-                                                            <Input
-                                                              type="number"
-                                                              className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
-                                                              value={item.rate}
-                                                              onChange={(e) => handleOverrideChange(group.profissionalId, item.specialty, "rate", e.target.value, rawData.sessions, rawAvgValue, rawData.defaultRate)}
-                                                            />
-                                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
-                                                          </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-semibold text-foreground py-2">
-                                                          {brl(item.totalVal)}
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
-                                                          {brl(item.repVal)}
-                                                        </TableCell>
-                                                      </TableRow>
-                                                    );
-                                                  })}
-                                                </TableBody>
-                                              </Table>
-                                            </div>
-                                          </div>
-                                        );
-                                      })()}
+                                           const totalSess = bd.reduce((sum, item) => sum + item.sessions, 0);
+                                           const totalFat = bd.reduce((sum, item) => sum + item.faturamento, 0);
+                                           const totalRep = bd.reduce((sum, item) => sum + item.repVal, 0);
 
-                                      {/* Apoio Calculator / Patients Breakdown Table */}
-                                      {(() => {
-                                        const bdApoio = getApoioBreakdown(group.profissionalId, group.sessoes);
-                                        if (bdApoio.length === 0) return null;
-                                        return (
-                                          <div className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
-                                            <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1">
-                                              Resumo de Pacientes e Pacotes (Apoio)
-                                            </div>
-                                            <div className="overflow-x-auto">
-                                              <Table className="text-xs">
-                                                <TableHeader className="bg-muted/30">
-                                                  <TableRow>
-                                                    <TableHead className="font-semibold text-foreground">Paciente</TableHead>
-                                                    <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
-                                                    <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
-                                                    <TableHead className="font-semibold text-foreground w-[140px] text-center">Faturamento Proporcional</TableHead>
-                                                    <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
-                                                    <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
-                                                  </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                  {bdApoio.map((item) => {
-                                                    // Find raw default values
-                                                    let defaultSessions = 0;
-                                                    let defaultFaturamento = 0;
-                                                    group.sessoes.forEach((a: any) => {
-                                                      const spec = getAppointmentSpecialty(a);
-                                                      if (spec === "Apoio" || spec === "AP") {
-                                                        if (a.paciente_id === item.pacienteId) {
-                                                          defaultSessions += 1;
-                                                          defaultFaturamento += getAppointmentValue(a);
-                                                        }
-                                                      }
-                                                    });
+                                           return (
+                                             <div key={spec} className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
+                                               <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1 flex justify-between items-center">
+                                                 <span>Resumo de Pacientes - {spec}</span>
+                                                 <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
+                                                   Taxa Padrão: {getRepasseRates(spec).label}
+                                                 </span>
+                                               </div>
+                                               <div className="overflow-x-auto">
+                                                 <Table className="text-xs">
+                                                   <TableHeader className="bg-muted/30">
+                                                     <TableRow>
+                                                       <TableHead className="font-semibold text-foreground">Paciente</TableHead>
+                                                       {isApoio && (
+                                                         <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
+                                                       )}
+                                                       <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[140px] text-center">
+                                                         {isApoio ? "Valor do Plano" : "Valor da Sessão"}
+                                                       </TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
+                                                       <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
+                                                     </TableRow>
+                                                   </TableHeader>
+                                                   <TableBody>
+                                                     {bd.map((item) => {
+                                                       let defaultSessions = 0;
+                                                       let defaultFaturamento = 0;
+                                                       group.sessoes.forEach((a: any) => {
+                                                         const s = getAppointmentSpecialty(a);
+                                                         if (s === spec && a.paciente_id === item.pacienteId) {
+                                                           defaultSessions += 1;
+                                                           defaultFaturamento += getAppointmentValue(a);
+                                                         }
+                                                       });
+                                                       const defaultAvgValue = defaultSessions > 0 ? defaultFaturamento / defaultSessions : 0;
+                                                       const defaultRate = getRepasseRates(spec).profPct * 100;
 
-                                                    return (
-                                                      <TableRow key={item.pacienteId} className="hover:bg-transparent">
-                                                        <TableCell className="font-medium text-foreground py-2">{item.pacienteNome}</TableCell>
-                                                        <TableCell className="text-muted-foreground py-2">{item.freqLabel}</TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          <Input
-                                                            type="number"
-                                                            className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30"
-                                                            value={item.sessions}
-                                                            onChange={(e) => handleOverrideChange(group.profissionalId, item.key, "sessions", e.target.value, defaultSessions, defaultFaturamento, 70)}
-                                                          />
-                                                        </TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          <div className="relative max-w-[120px] mx-auto">
-                                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
-                                                            <Input
-                                                              type="number"
-                                                              className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
-                                                              value={Number(item.faturamento.toFixed(2))}
-                                                              onChange={(e) => handleOverrideChange(group.profissionalId, item.key, "value", e.target.value, defaultSessions, defaultFaturamento, 70)}
-                                                            />
-                                                          </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          <div className="relative max-w-[80px] mx-auto">
-                                                            <Input
-                                                              type="number"
-                                                              className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
-                                                              value={item.rate}
-                                                              onChange={(e) => handleOverrideChange(group.profissionalId, item.key, "rate", e.target.value, defaultSessions, defaultFaturamento, 70)}
-                                                            />
-                                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
-                                                          </div>
-                                                        </TableCell>
-                                                        <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
-                                                          {brl(item.repVal)}
-                                                        </TableCell>
-                                                      </TableRow>
-                                                    );
-                                                  })}
-                                                </TableBody>
-                                              </Table>
-                                            </div>
-                                          </div>
-                                        );
-                                      })()}
-
-                                      {/* Analytical distribution cards */}
-                                      {(() => {
-                                        const pbd = getProfessionalBreakdown(group.sessoes);
-                                        return (
-                                          <div className="grid gap-4 sm:grid-cols-2 text-xs">
-                                            <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
-                                              <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
-                                                Tipo de Atendimento
-                                              </div>
-                                              <div className="divide-y divide-border/40">
-                                                <div className="flex justify-between py-1.5">
-                                                  <span className="text-muted-foreground">Sessão Padrão:</span>
-                                                  <span className="font-medium text-foreground text-right">
-                                                    {pbd.standardCount} sessões | Faturamento: {brl(pbd.standardFat)} | Repasse: {brl(pbd.standardRep)}
-                                                  </span>
-                                                </div>
-                                                <div className="flex justify-between py-1.5">
-                                                  <span className="text-muted-foreground">Anamnese:</span>
-                                                  <span className="font-medium text-foreground text-right">
-                                                    {pbd.anamneseCount} sessões | Faturamento: {brl(pbd.anamneseFat)} | Repasse: {brl(pbd.anamneseRep)}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            </div>
-
-                                            <div className="space-y-2 p-3 bg-background border border-border/60 rounded-lg shadow-sm">
-                                              <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[9px] border-b pb-1">
-                                                Tabela de Preços
-                                              </div>
-                                              <div className="divide-y divide-border/40">
-                                                <div className="flex justify-between py-1.5">
-                                                  <span className="text-muted-foreground">Valor Normal:</span>
-                                                  <span className="font-medium text-foreground text-right">
-                                                    {pbd.normalCount} sessões | Faturamento: {brl(pbd.normalFat)} | Repasse: {brl(pbd.normalRep)}
-                                                  </span>
-                                                </div>
-                                                <div className="flex justify-between py-1.5">
-                                                  <span className="text-muted-foreground">Com Desconto:</span>
-                                                  <span className="font-medium text-foreground text-right">
-                                                    {pbd.discountCount} sessões | Faturamento: {brl(pbd.discountFat)} | Repasse: {brl(pbd.discountRep)}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })()}
+                                                       return (
+                                                         <TableRow key={item.pacienteId} className="hover:bg-transparent">
+                                                           <TableCell className="font-medium text-foreground py-2">{item.pacienteNome}</TableCell>
+                                                           {isApoio && (
+                                                             <TableCell className="text-muted-foreground py-2">{item.freqLabel}</TableCell>
+                                                           )}
+                                                           <TableCell className="text-center py-2">
+                                                             <Input
+                                                               type="number"
+                                                               className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30 bg-muted cursor-not-allowed"
+                                                               value={item.sessions}
+                                                               disabled
+                                                             />
+                                                           </TableCell>
+                                                           <TableCell className="text-center py-2">
+                                                             <div className="relative max-w-[120px] mx-auto">
+                                                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
+                                                               <Input
+                                                                 type="number"
+                                                                 className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
+                                                                 value={Number(item.value.toFixed(2))}
+                                                                 onChange={(e) =>
+                                                                   handleOverrideChange(
+                                                                     group.profissionalId,
+                                                                     item.key,
+                                                                     "value",
+                                                                     e.target.value,
+                                                                     defaultSessions,
+                                                                     isApoio ? defaultFaturamento : defaultAvgValue,
+                                                                     defaultRate
+                                                                   )
+                                                                 }
+                                                               />
+                                                             </div>
+                                                           </TableCell>
+                                                           <TableCell className="text-center py-2">
+                                                             <div className="relative max-w-[80px] mx-auto">
+                                                               <Input
+                                                                 type="number"
+                                                                 className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
+                                                                 value={item.rate}
+                                                                 onChange={(e) =>
+                                                                   handleOverrideChange(
+                                                                     group.profissionalId,
+                                                                     item.key,
+                                                                     "rate",
+                                                                     e.target.value,
+                                                                     defaultSessions,
+                                                                     isApoio ? defaultFaturamento : defaultAvgValue,
+                                                                     defaultRate
+                                                                   )
+                                                                 }
+                                                               />
+                                                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
+                                                             </div>
+                                                           </TableCell>
+                                                           <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
+                                                             {brl(item.repVal)}
+                                                           </TableCell>
+                                                         </TableRow>
+                                                       );
+                                                     })}
+                                                     {/* Partial Sum Row */}
+                                                     <TableRow className="bg-muted/20 border-t border-muted font-semibold">
+                                                       <TableCell colSpan={isApoio ? 2 : 1} className="font-bold text-foreground py-2">
+                                                         Total Parcial ({spec})
+                                                       </TableCell>
+                                                       <TableCell className="text-center py-2">
+                                                         {totalSess}
+                                                       </TableCell>
+                                                       <TableCell className="text-center py-2">
+                                                         {brl(totalFat)}
+                                                       </TableCell>
+                                                       <TableCell className="py-2" />
+                                                       <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
+                                                         {brl(totalRep)}
+                                                       </TableCell>
+                                                     </TableRow>
+                                                   </TableBody>
+                                                 </Table>
+                                               </div>
+                                             </div>
+                                           );
+                                         });
+                                       })()}
                                     </div>
                                   </TableCell>
                                 </TableRow>
