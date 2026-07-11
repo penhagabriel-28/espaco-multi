@@ -3454,7 +3454,6 @@ Nosso pix: 54.747.611/0001-27
                           const specsArr = Array.from(group.especialidades);
 
                           const hasDetailsButton = true;
-                          const bd = getSpecialtyBreakdown(group.profissionalId, group.sessoes);
 
                           return (
                             <Fragment key={group.profissionalId}>
