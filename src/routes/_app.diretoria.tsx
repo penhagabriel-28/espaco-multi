@@ -3550,22 +3550,6 @@ Nosso pix: 54.747.611/0001-27
                     className="pl-9 h-10"
                   />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-[11px] font-semibold text-muted-foreground uppercase whitespace-nowrap">Origem Débitos:</Label>
-                  <Input
-                    type="month"
-                    value={oldestDebitMonth}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setOldestDebitMonth(val);
-                      if (val) {
-                        setInicio(`${val}-01`);
-                      }
-                    }}
-                    className="h-10 text-sm w-[150px]"
-                    title="Origem dos Débitos Antigos"
-                  />
-                </div>
                 <div className="w-[180px]">
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger className="h-10">
