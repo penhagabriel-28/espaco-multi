@@ -167,6 +167,25 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
 
 function DiretoriaPageContent() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+
+  // Fetch logged-in user profile to identify messages author
+  const { data: currentProfile } = useQuery<any>({
+    queryKey: ["current-profile", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("nome")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user?.id,
+  });
+
+  const loggedInName = currentProfile?.nome || user?.user_metadata?.nome || "Diretoria";
 
   useEffect(() => {
     const channel = supabase
@@ -206,10 +225,8 @@ function DiretoriaPageContent() {
   const [oldestDebitMonth, setOldestDebitMonth] = useState("");
 
   // Mural de Recados States
-  const [muralAuthor, setMuralAuthor] = useState("");
-  const [muralRecipient, setMuralRecipient] = useState("Todos");
   const [muralContent, setMuralContent] = useState("");
-  const [muralDateFilter, setMuralDateFilter] = useState("");
+  const [muralDateFilter, setMuralDateFilter] = useState(() => format(new Date(), "yyyy-MM-dd"));
 
   useEffect(() => {
     async function fetchOldestPendingCompetence() {
@@ -922,12 +939,11 @@ function DiretoriaPageContent() {
 
   // Mutation to insert message
   const createMuralMessageMutation = useMutation({
-    mutationFn: async (newMessage: { autor: string; destinatario?: string; conteudo: string }) => {
+    mutationFn: async (newMessage: { autor: string; conteudo: string }) => {
       const { error } = await supabase
         .from("mural_recados")
         .insert({
           autor: newMessage.autor,
-          destinatario: newMessage.destinatario === "Todos" ? null : newMessage.destinatario,
           conteudo: newMessage.conteudo,
         });
       if (error) throw error;
@@ -3233,61 +3249,23 @@ Nosso pix: 54.747.611/0001-27
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Escrever Mensagem
             </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">De:</Label>
-                <Select value={muralAuthor} onValueChange={setMuralAuthor}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(profissionais || []).map((p: any) => (
-                      <SelectItem key={p.id} value={p.nome} className="text-xs">
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Para:</Label>
-                <Select value={muralRecipient} onValueChange={setMuralRecipient}>
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Todos" className="text-xs font-semibold">Todos</SelectItem>
-                    {(profissionais || []).map((p: any) => (
-                      <SelectItem key={p.id} value={p.nome} className="text-xs">
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
             <div className="space-y-1.5">
               <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Mensagem:</Label>
               <Textarea
                 placeholder="Digite seu recado aqui..."
                 value={muralContent}
                 onChange={(e) => setMuralContent(e.target.value)}
-                className="min-h-[80px] text-xs resize-none"
+                className="min-h-[120px] text-xs resize-none"
               />
             </div>
             <Button
               onClick={() => {
-                if (!muralAuthor) {
-                  toast.error("Por favor, identifique-se selecionando o seu nome em 'De:'.");
-                  return;
-                }
                 if (!muralContent.trim()) {
                   toast.error("O conteúdo da mensagem não pode ser vazio.");
                   return;
                 }
                 createMuralMessageMutation.mutate({
-                  autor: muralAuthor,
-                  destinatario: muralRecipient,
+                  autor: loggedInName,
                   conteudo: muralContent,
                 });
               }}
