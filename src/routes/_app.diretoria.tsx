@@ -227,6 +227,7 @@ function DiretoriaPageContent() {
   // Mural de Recados States
   const [muralContent, setMuralContent] = useState("");
   const [muralDateFilter, setMuralDateFilter] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchOldestPendingCompetence() {
@@ -949,12 +950,34 @@ function DiretoriaPageContent() {
       if (error) throw error;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
       void refetchMural();
       setMuralContent("");
       toast.success("Mensagem publicada no mural!");
     },
     onError: (err: any) => {
       toast.error("Erro ao publicar mensagem: " + err.message);
+    },
+  });
+
+  // Mutation to update message
+  const updateMuralMessageMutation = useMutation({
+    mutationFn: async ({ id, conteudo }: { id: string; conteudo: string }) => {
+      const { error } = await supabase
+        .from("mural_recados")
+        .update({ conteudo })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
+      void refetchMural();
+      setMuralContent("");
+      setEditingMessageId(null);
+      toast.success("Mensagem atualizada!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao atualizar mensagem: " + err.message);
     },
   });
 
@@ -968,6 +991,7 @@ function DiretoriaPageContent() {
       if (error) throw error;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
       void refetchMural();
       toast.success("Mensagem removida do mural.");
     },
@@ -3210,12 +3234,12 @@ Nosso pix: 54.747.611/0001-27
   };
   return (
     <div className="space-y-6">
-      {/* Mural de Recados */}
+      {/* Mural de Tarefas */}
       <Card className="border-primary/20 shadow-md bg-gradient-to-br from-background to-muted/20">
         <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-xl font-bold flex items-center gap-2 text-primary">
-              <MessageCircle className="h-5 w-5 text-primary" /> Mural de Recados
+              <MessageCircle className="h-5 w-5 text-primary" /> Mural de Tarefas
             </CardTitle>
             <CardDescription className="text-xs">
               Deixe recados e observações importantes para outros profissionais da clínica.
@@ -3247,7 +3271,7 @@ Nosso pix: 54.747.611/0001-27
           {/* Form to leave a message */}
           <div className="md:col-span-5 space-y-4 border-r border-border/40 pr-0 md:pr-6">
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Escrever Mensagem
+              {editingMessageId ? "Editar Mensagem" : "Escrever Mensagem"}
             </h3>
             <div className="space-y-1.5">
               <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Mensagem:</Label>
@@ -3258,28 +3282,49 @@ Nosso pix: 54.747.611/0001-27
                 className="min-h-[120px] text-xs resize-none"
               />
             </div>
-            <Button
-              onClick={() => {
-                if (!muralContent.trim()) {
-                  toast.error("O conteúdo da mensagem não pode ser vazio.");
-                  return;
-                }
-                createMuralMessageMutation.mutate({
-                  autor: loggedInName,
-                  conteudo: muralContent,
-                });
-              }}
-              disabled={createMuralMessageMutation.isPending}
-              className="w-full h-9 text-xs font-semibold gap-1.5"
-            >
-              <MessageCircle className="h-3.5 w-3.5" /> Publicar Recado
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  if (!muralContent.trim()) {
+                    toast.error("O conteúdo da mensagem não pode ser vazio.");
+                    return;
+                  }
+                  if (editingMessageId) {
+                    updateMuralMessageMutation.mutate({
+                      id: editingMessageId,
+                      conteudo: muralContent,
+                    });
+                  } else {
+                    createMuralMessageMutation.mutate({
+                      autor: loggedInName,
+                      conteudo: muralContent,
+                    });
+                  }
+                }}
+                disabled={createMuralMessageMutation.isPending || updateMuralMessageMutation.isPending}
+                className="flex-1 h-9 text-xs font-semibold gap-1.5"
+              >
+                <MessageCircle className="h-3.5 w-3.5" /> {editingMessageId ? "Salvar Alterações" : "Publicar Recado"}
+              </Button>
+              {editingMessageId && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingMessageId(null);
+                    setMuralContent("");
+                  }}
+                  className="h-9 text-xs font-semibold"
+                >
+                  Cancelar
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* List of messages */}
           <div className="md:col-span-7 space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Histórico de Recados {muralDateFilter ? `(${format(new Date(muralDateFilter + "T12:00:00"), "dd/MM/yyyy")})` : ""}
+              Histórico de Tarefas {muralDateFilter ? `(${format(new Date(muralDateFilter + "T12:00:00"), "dd/MM/yyyy")})` : ""}
             </h3>
             <div className="max-h-[260px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
               {filteredMuralRecados.length === 0 ? (
@@ -3294,15 +3339,19 @@ Nosso pix: 54.747.611/0001-27
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="font-bold text-foreground">{msg.autor}</span>
-                        {msg.destinatario ? (
+                        {!(msg.autor === "Diretoria" && !msg.destinatario) ? (
                           <>
-                            <span className="text-muted-foreground">para</span>
-                            <span className="font-bold text-primary">{msg.destinatario}</span>
+                            <span className="font-bold text-foreground">{msg.autor}</span>
+                            {msg.destinatario ? (
+                              <>
+                                <span className="text-muted-foreground">para</span>
+                                <span className="font-bold text-primary">{msg.destinatario}</span>
+                              </>
+                            ) : (
+                              <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/5 text-primary">Para todos</Badge>
+                            )}
                           </>
-                        ) : (
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/5 text-primary">Para todos</Badge>
-                        )}
+                        ) : null}
                       </div>
                       <span className="text-[10px] text-muted-foreground">
                         {format(new Date(msg.created_at), "dd/MM/yyyy HH:mm")}
@@ -3311,20 +3360,34 @@ Nosso pix: 54.747.611/0001-27
                     <p className="text-xs text-muted-foreground whitespace-pre-line leading-relaxed">
                       {msg.conteudo}
                     </p>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-2 bottom-2 h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                      onClick={() => {
-                        if (confirm("Tem certeza que deseja excluir esta mensagem do mural?")) {
-                          deleteMuralMessageMutation.mutate(msg.id);
-                        }
-                      }}
-                      disabled={deleteMuralMessageMutation.isPending}
-                      title="Excluir recado"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="absolute right-2 bottom-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer rounded"
+                        onClick={() => {
+                          setEditingMessageId(msg.id);
+                          setMuralContent(msg.conteudo);
+                        }}
+                        title="Editar tarefa"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive cursor-pointer rounded"
+                        onClick={() => {
+                          if (confirm("Tem certeza que deseja excluir esta tarefa do mural?")) {
+                            deleteMuralMessageMutation.mutate(msg.id);
+                          }
+                        }}
+                        disabled={deleteMuralMessageMutation.isPending}
+                        title="Excluir tarefa"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
                 ))
               )}
