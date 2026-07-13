@@ -203,6 +203,13 @@ function DiretoriaPageContent() {
   const lastDayOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
   const [fim, setFim] = useState(format(lastDayOfPrevMonth, "yyyy-MM-dd"));
+  const [oldestDebitMonth, setOldestDebitMonth] = useState("");
+
+  // Mural de Recados States
+  const [muralAuthor, setMuralAuthor] = useState("");
+  const [muralRecipient, setMuralRecipient] = useState("Todos");
+  const [muralContent, setMuralContent] = useState("");
+  const [muralDateFilter, setMuralDateFilter] = useState("");
 
   useEffect(() => {
     async function fetchOldestPendingCompetence() {
@@ -220,6 +227,7 @@ function DiretoriaPageContent() {
           const rawDate = data[0].competencia;
           const formattedDate = typeof rawDate === "string" ? rawDate.substring(0, 10) : format(new Date(rawDate), "yyyy-MM-dd");
           setInicio(formattedDate);
+          setOldestDebitMonth(formattedDate.substring(0, 7));
         }
       } catch (err) {
         console.error("Erro ao buscar competência mais antiga pendente:", err);
@@ -368,6 +376,7 @@ function DiretoriaPageContent() {
       if (patientFats.length === 0) return;
 
       const fatIds = patientFats.map(f => f.id);
+      const competencies = Array.from(new Set(patientFats.map(f => f.competencia)));
       
       const { data: items } = await supabase
         .from("fatura_itens")
@@ -399,6 +408,20 @@ function DiretoriaPageContent() {
           })
           .in("id", manualFatIds);
         if (fatErr) throw fatErr;
+      }
+
+      // Force all faturas (including trigger sync'd ones) to show pago_em = now
+      if (competencies.length > 0) {
+        const { error: finalFatErr } = await supabase
+          .from("faturas")
+          .update({
+            pago_em: new Date().toISOString(),
+            metodo: "pix"
+          })
+          .eq("paciente_id", pacienteId)
+          .eq("status", "paga")
+          .in("competencia", competencies);
+        if (finalFatErr) throw finalFatErr;
       }
     },
     onSuccess: () => {
@@ -865,6 +888,86 @@ function DiretoriaPageContent() {
       return data || [];
     },
   });
+
+  // Fetch messages from mural_recados
+  const { data: muralRecados = [], refetch: refetchMural } = useQuery<any[]>({
+    queryKey: ["mural-recados"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("mural_recados")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Realtime subscription for mural_recados
+  useEffect(() => {
+    const channel = supabase
+      .channel("mural-realtime-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mural_recados" },
+        () => {
+          void refetchMural();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [refetchMural]);
+
+  // Mutation to insert message
+  const createMuralMessageMutation = useMutation({
+    mutationFn: async (newMessage: { autor: string; destinatario?: string; conteudo: string }) => {
+      const { error } = await supabase
+        .from("mural_recados")
+        .insert({
+          autor: newMessage.autor,
+          destinatario: newMessage.destinatario === "Todos" ? null : newMessage.destinatario,
+          conteudo: newMessage.conteudo,
+        });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void refetchMural();
+      setMuralContent("");
+      toast.success("Mensagem publicada no mural!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao publicar mensagem: " + err.message);
+    },
+  });
+
+  // Mutation to delete message
+  const deleteMuralMessageMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("mural_recados")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void refetchMural();
+      toast.success("Mensagem removida do mural.");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao remover mensagem: " + err.message);
+    },
+  });
+
+  const filteredMuralRecados = useMemo(() => {
+    if (!muralDateFilter) return muralRecados;
+    return muralRecados.filter((msg) => {
+      if (!msg.created_at) return false;
+      const msgDate = format(new Date(msg.created_at), "yyyy-MM-dd");
+      return msgDate === muralDateFilter;
+    });
+  }, [muralRecados, muralDateFilter]);
 
   const professionalMap = useMemo(() => {
     return new Map<string, string>((profissionais || []).map((p) => [p.id, p.nome]));
@@ -1822,6 +1925,26 @@ function DiretoriaPageContent() {
     setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
   };
 
+  const getResolvedVencimento = (fatura: any) => {
+    if (fatura.vencimento) return fatura.vencimento;
+    const pDetails = patientDetailsMap.get(fatura.paciente_id);
+    const billingType = fatura.especialidade === "Apoio"
+      ? "mensal"
+      : (pDetails && pDetails.valor_mensal && pDetails.valor_mensal > 0 ? "mensal" : "sessao");
+    
+    if (billingType === "sessao") {
+      const items = (faturaItens || []).filter((it: any) => it.fatura_id === fatura.id);
+      const sessionItem = items.find((it: any) => it.agendamento_id);
+      if (sessionItem) {
+        const agDate = agendamentoDateMap.get(sessionItem.agendamento_id);
+        if (agDate) {
+          return format(new Date(agDate), "yyyy-MM-dd");
+        }
+      }
+    }
+    return null;
+  };
+
   const getApoioFaturaValor = (fatura: any) => {
     const p = patientDetailsMap.get(fatura.paciente_id);
     if (!p) return Number(fatura.valor) || 0;
@@ -1913,9 +2036,10 @@ function DiretoriaPageContent() {
         entry.faturasPendentesCount += 1;
 
         // Calculate delay days
-        if (f.vencimento) {
+        const resolvedVenc = getResolvedVencimento(f);
+        if (resolvedVenc) {
           const today = startOfDay(new Date());
-          const dueDate = startOfDay(new Date(f.vencimento + "T12:00:00"));
+          const dueDate = startOfDay(new Date(resolvedVenc + "T12:00:00"));
           const diff = differenceInDays(today, dueDate);
           if (diff > 0 || f.status === "vencida") {
             entry.temAtraso = true;
@@ -1933,13 +2057,19 @@ function DiretoriaPageContent() {
 
   const filteredConsolidated = useMemo(() => {
     return consolidatedPatients.filter((c) => {
-      const matchesSearch = normalizeString(c.nome).includes(normalizeString(searchPatient));
+      const matchesPatient = normalizeString(c.nome).includes(normalizeString(searchPatient));
+      const resps = responsaveisMap.get(c.pacienteId) || [];
+      const matchesResp = resps.some((r) =>
+        normalizeString(r.nome).includes(normalizeString(searchPatient))
+      );
+      const matchesSearch = matchesPatient || matchesResp;
+      
       if (statusFilter === "aberta" && c.totalPendente === 0) return false;
       if (statusFilter === "paga" && c.totalPago === 0) return false;
       if (statusFilter === "vencida" && !c.temAtraso) return false;
       return matchesSearch;
     });
-  }, [consolidatedPatients, searchPatient, statusFilter]);
+  }, [consolidatedPatients, searchPatient, statusFilter, responsaveisMap]);
 
   const patientFaturas = useMemo(() => {
     if (!patientFaturasDialog.pacienteId) return [];
@@ -2006,7 +2136,7 @@ function DiretoriaPageContent() {
           faturaId: f.id,
           paciente_id: f.paciente_id,
           competencia: f.competencia,
-          vencimento: f.vencimento,
+          vencimento: getResolvedVencimento(f),
           pago_em: f.pago_em,
           status: f.status,
           metodo: f.metodo,
@@ -2071,7 +2201,7 @@ function DiretoriaPageContent() {
             faturaId: f.id,
             paciente_id: f.paciente_id,
             competencia: f.competencia,
-            vencimento: f.vencimento,
+            vencimento: getResolvedVencimento(f),
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
@@ -2754,7 +2884,7 @@ Nosso pix: 54.747.611/0001-27
 
     setDetailsFaturaForm({
       competencia: fatura.competencia || "",
-      vencimento: fatura.vencimento || "",
+      vencimento: fatura.vencimento || getResolvedVencimento(fatura) || "",
       status: fatura.status || "aberta",
       pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
       metodo: fatura.metodo || "pix",
@@ -2781,7 +2911,7 @@ Nosso pix: 54.747.611/0001-27
     setFaturaForm({
       paciente_id: fatura.paciente_id,
       competencia: fatura.competencia,
-      vencimento: fatura.vencimento || "",
+      vencimento: fatura.vencimento || getResolvedVencimento(fatura) || "",
       valor: String(fatura.valor),
       status: fatura.status,
       pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
@@ -2793,19 +2923,20 @@ Nosso pix: 54.747.611/0001-27
   };
 
   const getDaysDelayed = (fatura: any) => {
+    const resolvedVenc = getResolvedVencimento(fatura);
     if (fatura.status === "paga") {
-      if (fatura.pago_em && fatura.vencimento) {
+      if (fatura.pago_em && resolvedVenc) {
         const payDate = startOfDay(new Date(fatura.pago_em));
-        const dueDate = startOfDay(new Date(fatura.vencimento + "T12:00:00"));
+        const dueDate = startOfDay(new Date(resolvedVenc + "T12:00:00"));
         const diff = differenceInDays(payDate, dueDate);
         return diff > 0 ? diff : 0;
       }
       return 0;
     }
     if (fatura.status === "cancelada") return 0;
-    if (fatura.vencimento) {
+    if (resolvedVenc) {
       const today = startOfDay(new Date());
-      const dueDate = startOfDay(new Date(fatura.vencimento + "T12:00:00"));
+      const dueDate = startOfDay(new Date(resolvedVenc + "T12:00:00"));
       const diff = differenceInDays(today, dueDate);
       return diff > 0 ? diff : 0;
     }
@@ -3063,6 +3194,167 @@ Nosso pix: 54.747.611/0001-27
   };
   return (
     <div className="space-y-6">
+      {/* Mural de Recados */}
+      <Card className="border-primary/20 shadow-md bg-gradient-to-br from-background to-muted/20">
+        <CardHeader className="pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <CardTitle className="text-xl font-bold flex items-center gap-2 text-primary">
+              <MessageCircle className="h-5 w-5 text-primary" /> Mural de Recados
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Deixe recados e observações importantes para outros profissionais da clínica.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Input
+              type="date"
+              value={muralDateFilter}
+              onChange={(e) => setMuralDateFilter(e.target.value)}
+              className="h-8 text-xs w-[140px]"
+              title="Filtrar histórico por data"
+            />
+            {muralDateFilter && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setMuralDateFilter("")}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="Limpar filtro"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-0">
+          {/* Form to leave a message */}
+          <div className="md:col-span-5 space-y-4 border-r border-border/40 pr-0 md:pr-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Escrever Mensagem
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">De:</Label>
+                <Select value={muralAuthor} onValueChange={setMuralAuthor}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(profissionais || []).map((p: any) => (
+                      <SelectItem key={p.id} value={p.nome} className="text-xs">
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Para:</Label>
+                <Select value={muralRecipient} onValueChange={setMuralRecipient}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Todos" className="text-xs font-semibold">Todos</SelectItem>
+                    {(profissionais || []).map((p: any) => (
+                      <SelectItem key={p.id} value={p.nome} className="text-xs">
+                        {p.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Mensagem:</Label>
+              <Textarea
+                placeholder="Digite seu recado aqui..."
+                value={muralContent}
+                onChange={(e) => setMuralContent(e.target.value)}
+                className="min-h-[80px] text-xs resize-none"
+              />
+            </div>
+            <Button
+              onClick={() => {
+                if (!muralAuthor) {
+                  toast.error("Por favor, identifique-se selecionando o seu nome em 'De:'.");
+                  return;
+                }
+                if (!muralContent.trim()) {
+                  toast.error("O conteúdo da mensagem não pode ser vazio.");
+                  return;
+                }
+                createMuralMessageMutation.mutate({
+                  autor: muralAuthor,
+                  destinatario: muralRecipient,
+                  conteudo: muralContent,
+                });
+              }}
+              disabled={createMuralMessageMutation.isPending}
+              className="w-full h-9 text-xs font-semibold gap-1.5"
+            >
+              <MessageCircle className="h-3.5 w-3.5" /> Publicar Recado
+            </Button>
+          </div>
+
+          {/* List of messages */}
+          <div className="md:col-span-7 space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Histórico de Recados {muralDateFilter ? `(${format(new Date(muralDateFilter + "T12:00:00"), "dd/MM/yyyy")})` : ""}
+            </h3>
+            <div className="max-h-[260px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
+              {filteredMuralRecados.length === 0 ? (
+                <div className="p-8 text-center text-xs text-muted-foreground border border-dashed rounded-lg bg-card/10">
+                  Nenhum recado encontrado no período ou data selecionada.
+                </div>
+              ) : (
+                filteredMuralRecados.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className="p-3.5 rounded-xl border border-primary/10 bg-primary/5 hover:bg-primary/10 transition duration-200 relative group shadow-sm flex flex-col gap-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-bold text-foreground">{msg.autor}</span>
+                        {msg.destinatario ? (
+                          <>
+                            <span className="text-muted-foreground">para</span>
+                            <span className="font-bold text-primary">{msg.destinatario}</span>
+                          </>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/5 text-primary">Para todos</Badge>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        {format(new Date(msg.created_at), "dd/MM/yyyy HH:mm")}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground whitespace-pre-line leading-relaxed">
+                      {msg.conteudo}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-2 bottom-2 h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                      onClick={() => {
+                        if (confirm("Tem certeza que deseja excluir esta mensagem do mural?")) {
+                          deleteMuralMessageMutation.mutate(msg.id);
+                        }
+                      }}
+                      disabled={deleteMuralMessageMutation.isPending}
+                      title="Excluir recado"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Date Filter */}
       <Card className="border-border shadow-sm">
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
@@ -3252,10 +3544,26 @@ Nosso pix: 54.747.611/0001-27
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   <Input
-                    placeholder="Buscar paciente..."
+                    placeholder="Buscar paciente ou responsável..."
                     value={searchPatient}
                     onChange={(e) => setSearchPatient(e.target.value)}
                     className="pl-9 h-10"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Label className="text-[11px] font-semibold text-muted-foreground uppercase whitespace-nowrap">Origem Débitos:</Label>
+                  <Input
+                    type="month"
+                    value={oldestDebitMonth}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setOldestDebitMonth(val);
+                      if (val) {
+                        setInicio(`${val}-01`);
+                      }
+                    }}
+                    className="h-10 text-sm w-[150px]"
+                    title="Origem dos Débitos Antigos"
                   />
                 </div>
                 <div className="w-[180px]">
