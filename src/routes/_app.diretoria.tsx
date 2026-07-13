@@ -6,6 +6,7 @@ import { useState, useMemo, useEffect, Fragment } from "react";
 import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { createMuralMessage, updateMuralMessage, deleteMuralMessage } from "@/lib/api/mural.functions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -941,13 +942,7 @@ function DiretoriaPageContent() {
   // Mutation to insert message
   const createMuralMessageMutation = useMutation({
     mutationFn: async (newMessage: { autor: string; conteudo: string }) => {
-      const { error } = await supabase
-        .from("mural_recados")
-        .insert({
-          autor: newMessage.autor,
-          conteudo: newMessage.conteudo,
-        });
-      if (error) throw error;
+      await createMuralMessage({ data: newMessage });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
@@ -963,11 +958,7 @@ function DiretoriaPageContent() {
   // Mutation to update message
   const updateMuralMessageMutation = useMutation({
     mutationFn: async ({ id, conteudo }: { id: string; conteudo: string }) => {
-      const { error } = await supabase
-        .from("mural_recados")
-        .update({ conteudo })
-        .eq("id", id);
-      if (error) throw error;
+      await updateMuralMessage({ data: { id, conteudo } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
@@ -984,11 +975,7 @@ function DiretoriaPageContent() {
   // Mutation to delete message
   const deleteMuralMessageMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("mural_recados")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
+      await deleteMuralMessage({ data: { id } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
