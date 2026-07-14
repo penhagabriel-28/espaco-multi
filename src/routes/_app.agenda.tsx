@@ -71,6 +71,7 @@ const STATUS_LABEL: Record<string, string> = {
   realizado: "Realizado",
   falta: "Falta",
   pago: "Pago",
+  ferias: "FÉRIAS",
 };
 
 function Agenda() {
@@ -792,6 +793,8 @@ const FragmentRow = memo(
                         "border-orange-500/30 text-orange-600 bg-orange-50/50",
                       a.status === "pendente" &&
                         "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                      a.status === "ferias" &&
+                        "border-sky-500/30 text-sky-600 bg-sky-50/50",
                     )}
                   >
                     {STATUS_LABEL[a.status] || a.status}
@@ -879,6 +882,45 @@ function AgendamentoDialog({
   const [planoAbaOpen, setPlanoAbaOpen] = useState(false);
   const [apoioFrequencia, setApoioFrequencia] = useState<'avulso' | '1x' | '2x' | '3x' | 'semana_toda'>('avulso');
   const [apoioValorPersonalizado, setApoioValorPersonalizado] = useState<string>('');
+
+  const [feriasFieldsOpen, setFeriasFieldsOpen] = useState(false);
+  const [feriasStart, setFeriasStart] = useState("");
+  const [feriasEnd, setFeriasEnd] = useState("");
+
+  const applyPatientFeriasMutation = useMutation({
+    mutationFn: async () => {
+      if (!form.paciente_id || !feriasStart || !feriasEnd) {
+        throw new Error("Selecione o período de férias");
+      }
+      const startIso = new Date(feriasStart + "T00:00:00").toISOString();
+      const endIso = new Date(feriasEnd + "T23:59:59").toISOString();
+
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ status: "ferias" })
+        .eq("paciente_id", form.paciente_id)
+        .gte("data_inicio", startIso)
+        .lte("data_inicio", endIso);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Férias do paciente aplicadas com sucesso!");
+      setFeriasFieldsOpen(false);
+      onSaved();
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao aplicar férias: " + err.message);
+    }
+  });
+
+  const handleApplyPatientFerias = () => {
+    if (!feriasStart || !feriasEnd) {
+      toast.error("Por favor, informe a data de início e fim.");
+      return;
+    }
+    applyPatientFeriasMutation.mutate();
+  };
 
   const [selectedSpecialty, setSelectedSpecialty] = useState(() => {
     if (editing) {
@@ -1849,6 +1891,49 @@ Fico à disposição para qualquer dúvida!`;
                     )}
                   </div>
                 </div>
+
+                {feriasFieldsOpen ? (
+                  <div className="rounded-lg border border-sky-200 dark:border-sky-800/30 bg-sky-50/40 dark:bg-sky-950/10 p-3 text-xs space-y-3 mt-3 animate-in slide-in-from-top-2 duration-200">
+                    <div className="font-semibold text-sky-700 dark:text-sky-400 uppercase tracking-wider text-[10px] flex justify-between items-center">
+                      <span>Lançar Período de Férias (Paciente)</span>
+                      <Button type="button" variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer" onClick={() => setFeriasFieldsOpen(false)}>
+                        Fechar
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-normal">
+                      Todos os agendamentos do paciente <strong>{selectedPaciente?.nome}</strong> no período abaixo serão marcados como **FÉRIAS**.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Início das Férias</Label>
+                        <Input
+                          type="date"
+                          value={feriasStart}
+                          onChange={(e) => setFeriasStart(e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-[10px] uppercase font-bold text-muted-foreground">Fim das Férias</Label>
+                        <Input
+                          type="date"
+                          value={feriasEnd}
+                          onChange={(e) => setFeriasEnd(e.target.value)}
+                          className="h-8 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full h-8 bg-sky-600 hover:bg-sky-700 text-white font-semibold cursor-pointer animate-pulse"
+                      onClick={() => handleApplyPatientFerias()}
+                      disabled={applyPatientFeriasMutation.isPending}
+                    >
+                      {applyPatientFeriasMutation.isPending ? "Marcando Férias..." : "Confirmar Férias do Paciente"}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
@@ -2316,6 +2401,20 @@ Fico à disposição para qualquer dúvida!`;
                         onClick={() => onCancel(editing)}
                       >
                         <X className="h-4 w-4" /> Cancelar agendamento
+                      </Button>
+                    )}
+                    {editing && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1.5 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/20 border-sky-500/20"
+                        onClick={() => {
+                          setFeriasFieldsOpen(true);
+                          setFeriasStart(form.data_inicio.split("T")[0] || "");
+                          setFeriasEnd(form.data_inicio.split("T")[0] || "");
+                        }}
+                      >
+                        <Calendar className="h-4 w-4" /> Férias
                       </Button>
                     )}
                   </div>

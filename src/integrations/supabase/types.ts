@@ -728,6 +728,7 @@ export type Database = {
         | "realizado"
         | "falta"
         | "pago"
+        | "ferias"
       app_role: "admin" | "recepcionista" | "profissional"
       fatura_status: "aberta" | "paga" | "vencida" | "cancelada"
       metodo_pagamento:
@@ -876,6 +877,7 @@ export const Constants = {
         "realizado",
         "falta",
         "pago",
+        "ferias",
       ],
       app_role: ["admin", "recepcionista", "profissional"],
       fatura_status: ["aberta", "paga", "vencida", "cancelada"],

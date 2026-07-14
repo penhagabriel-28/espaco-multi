@@ -67,6 +67,46 @@ function ProfissionaisPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
 
+  const [feriasOpen, setFeriasOpen] = useState(false);
+  const [feriasStart, setFeriasStart] = useState("");
+  const [feriasEnd, setFeriasEnd] = useState("");
+  const [selectedProfForFerias, setSelectedProfForFerias] = useState<any>(null);
+
+  const applyProfFeriasMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedProfForFerias || !feriasStart || !feriasEnd) {
+        throw new Error("Selecione o período de férias");
+      }
+      const startIso = new Date(feriasStart + "T00:00:00").toISOString();
+      const endIso = new Date(feriasEnd + "T23:59:59").toISOString();
+
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ status: "ferias" })
+        .eq("profissional_id", selectedProfForFerias.id)
+        .gte("data_inicio", startIso)
+        .lte("data_inicio", endIso);
+      
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Férias do profissional aplicadas com sucesso!");
+      setFeriasOpen(false);
+      qc.invalidateQueries({ queryKey: ["profissionais-agendamentos"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao aplicar férias: " + err.message);
+    }
+  });
+
+  const handleApplyProfFerias = () => {
+    if (!feriasStart || !feriasEnd) {
+      toast.error("Por favor, informe a data de início e fim.");
+      return;
+    }
+    applyProfFeriasMutation.mutate();
+  };
+
   const [selectedMonth, setSelectedMonth] = useState(() => format(new Date(), "yyyy-MM"));
 
   const monthOptions = useMemo(() => {
@@ -493,6 +533,20 @@ function ProfissionaisPage() {
                     <Button
                       size="icon"
                       variant="ghost"
+                      className="h-8 w-8 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/20"
+                      onClick={() => {
+                        setSelectedProfForFerias(p);
+                        setFeriasStart(format(new Date(), "yyyy-MM-dd"));
+                        setFeriasEnd(format(new Date(), "yyyy-MM-dd"));
+                        setFeriasOpen(true);
+                      }}
+                      title="Lançar Férias para o Profissional"
+                    >
+                      <Calendar className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
                       className="h-8 w-8 text-muted-foreground hover:text-foreground"
                       onClick={() => {
                         setEditing(p);
@@ -517,6 +571,50 @@ function ProfissionaisPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {feriasOpen && (
+        <Dialog open={feriasOpen} onOpenChange={setFeriasOpen}>
+          <DialogContent className="max-w-md animate-in fade-in duration-200">
+            <DialogHeader>
+              <DialogTitle>Lançar Férias - {selectedProfForFerias?.nome}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <p className="text-xs text-muted-foreground">
+                Todos os agendamentos do profissional <strong>{selectedProfForFerias?.nome}</strong> no período selecionado serão atualizados para o status **"FÉRIAS"**.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Data Início</Label>
+                  <Input
+                    type="date"
+                    value={feriasStart}
+                    onChange={(e) => setFeriasStart(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Data Fim</Label>
+                  <Input
+                    type="date"
+                    value={feriasEnd}
+                    onChange={(e) => setFeriasEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setFeriasOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={() => handleApplyProfFerias()}
+                  disabled={applyProfFeriasMutation.isPending}
+                >
+                  {applyProfFeriasMutation.isPending ? "Aplicando..." : "Confirmar Férias"}
+                </Button>
+              </DialogFooter>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
