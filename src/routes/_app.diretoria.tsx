@@ -318,23 +318,51 @@ function DiretoriaPageContent() {
   const { data: pacientes = [] } = useQuery<any[]>({
     queryKey: ["dir-pacientes-min"],
     queryFn: async () => {
-      const { data, error } = await supabaseClient
-        .from("pacientes")
-        .select(`
-          id, 
-          nome, 
-          valor_mensal, 
-          cids_secundarios, 
-          apoio_frequencia, 
-          apoio_valor_personalizado,
-          cobrar_dia,
-          paciente_profissional (
-            profissional_id
-          )
-        `)
-        .order("nome");
-      if (error) throw error;
-      return data;
+      try {
+        const { data, error } = await supabaseClient
+          .from("pacientes")
+          .select(`
+            id, 
+            nome, 
+            valor_mensal, 
+            cids_secundarios, 
+            apoio_frequencia, 
+            apoio_valor_personalizado,
+            cobrar_dia,
+            paciente_profissional (
+              profissional_id
+            )
+          `)
+          .order("nome");
+        if (error) throw error;
+        return data;
+      } catch (err: any) {
+        // Fallback if cobrar_dia does not exist in the schema yet
+        if (
+          err.message?.includes("cobrar_dia") || 
+          err.details?.includes("cobrar_dia") ||
+          (typeof err === "object" && JSON.stringify(err).includes("cobrar_dia"))
+        ) {
+          console.warn("Retrying patients query without cobrar_dia column...");
+          const { data, error } = await supabaseClient
+            .from("pacientes")
+            .select(`
+              id, 
+              nome, 
+              valor_mensal, 
+              cids_secundarios, 
+              apoio_frequencia, 
+              apoio_valor_personalizado,
+              paciente_profissional (
+                profissional_id
+              )
+            `)
+            .order("nome");
+          if (error) throw error;
+          return data;
+        }
+        throw err;
+      }
     },
   });
 
