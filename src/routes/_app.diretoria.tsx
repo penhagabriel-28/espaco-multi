@@ -230,6 +230,38 @@ function DiretoriaPageContent() {
   const [muralDateFilter, setMuralDateFilter] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
+  // Cobrar Dia States
+  const [editingCobrarDiaPatientId, setEditingCobrarDiaPatientId] = useState<string | null>(null);
+  const [cobrarDiaValue, setCobrarDiaValue] = useState("");
+
+  const updatePatientCobrarDiaMutation = useMutation({
+    mutationFn: async ({ pacienteId, cobrarDia }: { pacienteId: string; cobrarDia: number | null }) => {
+      const { error } = await supabaseClient
+        .from("pacientes")
+        .update({ cobrar_dia: cobrarDia })
+        .eq("id", pacienteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+      setEditingCobrarDiaPatientId(null);
+      setCobrarDiaValue("");
+      toast.success("Dia de cobrança atualizado com sucesso!");
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao salvar dia de cobrança: " + err.message);
+    },
+  });
+
+  const handleSaveCobrarDia = (pacienteId: string) => {
+    const day = cobrarDiaValue.trim() ? parseInt(cobrarDiaValue, 10) : null;
+    if (day !== null && (isNaN(day) || day < 1 || day > 31)) {
+      toast.error("Por favor, digite um dia válido de 1 a 31.");
+      return;
+    }
+    updatePatientCobrarDiaMutation.mutate({ pacienteId, cobrarDia: day });
+  };
+
   useEffect(() => {
     async function fetchOldestPendingCompetence() {
       try {
@@ -285,7 +317,7 @@ function DiretoriaPageContent() {
   const { data: pacientes = [] } = useQuery<any[]>({
     queryKey: ["dir-pacientes-min"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from("pacientes")
         .select(`
           id, 
@@ -294,6 +326,7 @@ function DiretoriaPageContent() {
           cids_secundarios, 
           apoio_frequencia, 
           apoio_valor_personalizado,
+          cobrar_dia,
           paciente_profissional (
             profissional_id
           )
@@ -3007,16 +3040,16 @@ Nosso pix: 54.747.611/0001-27
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         <Table>
           <TableHeader className="bg-muted/40 font-semibold text-foreground">
-            <TableRow>
-              <TableHead>Paciente</TableHead>
-              <TableHead>Profissionais</TableHead>
-              <TableHead>Responsável</TableHead>
-              <TableHead className="text-center">Fats. Pend.</TableHead>
-              <TableHead>Soma Pend.</TableHead>
-              <TableHead>Soma Paga</TableHead>
-              <TableHead>Soma Geral</TableHead>
-              <TableHead>Situação</TableHead>
-              <TableHead className="w-[130px] text-right">Ações</TableHead>
+            <TableRow className="text-xs">
+              <TableHead className="py-2 px-2.5">Paciente</TableHead>
+              <TableHead className="py-2 px-2.5">Profissionais</TableHead>
+              <TableHead className="py-2 px-2.5">Responsável</TableHead>
+              <TableHead className="py-2 px-2.5 text-center">Fats. Pend.</TableHead>
+              <TableHead className="py-2 px-2.5">Soma Pend.</TableHead>
+              <TableHead className="py-2 px-2.5">Soma Paga</TableHead>
+              <TableHead className="py-2 px-2.5">Soma Geral</TableHead>
+              <TableHead className="py-2 px-2.5">Situação</TableHead>
+              <TableHead className="py-2 px-2.5 w-[150px] text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -3028,58 +3061,102 @@ Nosso pix: 54.747.611/0001-27
                 resps[0];
 
               return (
-                <TableRow key={c.key} className="hover:bg-muted/30">
-                  <TableCell className="font-semibold text-foreground">
-                    <div>{c.nome}</div>
-                    {(() => {
-                      const p = patientDetailsMap.get(c.pacienteId);
-                      const hasApoio = p?.cids_secundarios?.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
-                      if (hasApoio) {
-                        const freq = p?.apoio_frequencia || 'avulso';
-                        const customVal = p?.apoio_valor_personalizado;
-                        let label = "";
-                        if (freq === 'avulso') label = `Apoio: Avulso (${customVal ? brl(customVal) : "R$ 50,00"}/sessão)`;
-                        else if (freq === '1x') label = `Apoio: 1x/semana (${customVal ? brl(customVal) : "R$ 120,00"}/mês)`;
-                        else if (freq === '2x') label = `Apoio: 2x/semana (${customVal ? brl(customVal) : "R$ 240,00"}/mês)`;
-                        else if (freq === '3x') label = `Apoio: 3x/semana (${customVal ? brl(customVal) : "R$ 360,00"}/mês)`;
-                        else if (freq === 'semana_toda') label = `Apoio: Semana Toda (${customVal ? brl(customVal) : "R$ 450,00"}/mês)`;
-                        return (
-                          <div className="space-y-1 mt-0.5">
-                            <span className="text-[10px] text-muted-foreground font-normal block bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5 w-max">
-                              {label}
-                            </span>
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
+                <TableRow key={c.key} className="hover:bg-muted/30 text-xs">
+                  <TableCell className="font-semibold text-foreground py-2 px-2.5 max-w-[180px] break-words">
+                    <div className="flex flex-col gap-1">
+                      <div className="truncate" title={c.nome}>{c.nome}</div>
+                      {editingCobrarDiaPatientId === c.pacienteId ? (
+                        <div className="flex items-center gap-1 mt-1 bg-muted/50 p-1 rounded border border-border/60 w-max" onClick={(e) => e.stopPropagation()}>
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold">Dia:</span>
+                          <Input
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={cobrarDiaValue}
+                            onChange={(e) => setCobrarDiaValue(e.target.value)}
+                            className="h-6 w-[45px] text-[11px] px-1 py-0 text-center"
+                            placeholder="Dia"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-5 px-1 text-[9px] font-semibold cursor-pointer"
+                            onClick={() => handleSaveCobrarDia(c.pacienteId)}
+                            disabled={updatePatientCobrarDiaMutation.isPending}
+                          >
+                            OK
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-5 px-1 text-[9px] text-muted-foreground cursor-pointer"
+                            onClick={() => setEditingCobrarDiaPatientId(null)}
+                          >
+                            X
+                          </Button>
+                        </div>
+                      ) : (
+                        (() => {
+                          const p = patientDetailsMap.get(c.pacienteId);
+                          if (p?.cobrar_dia) {
+                            return (
+                              <div className="text-[10px] text-sky-700 dark:text-sky-400 font-semibold bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-800/30 rounded px-1.5 py-0.2 w-max">
+                                Cobrar Dia: {p.cobrar_dia}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()
+                      )}
+                      {(() => {
+                        const p = patientDetailsMap.get(c.pacienteId);
+                        const hasApoio = p?.cids_secundarios?.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
+                        if (hasApoio) {
+                          const freq = p?.apoio_frequencia || 'avulso';
+                          const customVal = p?.apoio_valor_personalizado;
+                          let label = "";
+                          if (freq === 'avulso') label = `Apoio: Avulso (${customVal ? brl(customVal) : "R$ 50,00"}/sessão)`;
+                          else if (freq === '1x') label = `Apoio: 1x/semana (${customVal ? brl(customVal) : "R$ 120,00"}/mês)`;
+                          else if (freq === '2x') label = `Apoio: 2x/semana (${customVal ? brl(customVal) : "R$ 240,00"}/mês)`;
+                          else if (freq === '3x') label = `Apoio: 3x/semana (${customVal ? brl(customVal) : "R$ 360,00"}/mês)`;
+                          else if (freq === 'semana_toda') label = `Apoio: Semana Toda (${customVal ? brl(customVal) : "R$ 450,00"}/mês)`;
+                          return (
+                            <div className="space-y-1 mt-0.5">
+                              <span className="text-[10px] text-muted-foreground font-normal block bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5 w-max">
+                                {label}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1 max-w-[155px]">
+                  <TableCell className="py-2 px-2.5">
+                    <div className="flex flex-wrap gap-1 max-w-[130px]">
                       {getPatientProfessionals(c.pacienteId).length > 0 ? (
                         getPatientProfessionals(c.pacienteId).map((name) => (
                           <Badge
                             key={name}
                             variant="secondary"
-                            className="text-[10px] px-1.5 py-0.5 font-medium whitespace-nowrap"
+                            className="text-[9px] px-1 py-0.2 font-medium whitespace-nowrap"
                           >
                             {name}
                           </Badge>
                         ))
                       ) : (
-                        <span className="text-xs text-muted-foreground italic">—</span>
+                        <span className="text-[11px] text-muted-foreground italic">—</span>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 px-2.5 max-w-[160px]">
                     {primaryResp ? (
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm">
-                          <span className="font-semibold text-foreground block leading-tight">
+                      <div className="flex items-center gap-1.5 justify-between">
+                        <div className="text-xs truncate flex-1">
+                          <span className="font-semibold text-foreground block leading-tight truncate" title={primaryResp.nome}>
                             {primaryResp.nome}
                           </span>
                           {primaryResp.parentesco && (
-                            <span className="text-muted-foreground text-[11px]">
+                            <span className="text-muted-foreground text-[10px] block truncate" title={primaryResp.parentesco}>
                               {primaryResp.parentesco}
                             </span>
                           )}
@@ -3088,13 +3165,13 @@ Nosso pix: 54.747.611/0001-27
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0"
+                            className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0"
                             onClick={() =>
                               handleWhatsAppClick(c.pacienteId, c.totalPendente, c.nome)
                             }
                             title={`Chamar no WhatsApp: ${primaryResp.whatsapp || primaryResp.telefone}`}
                           >
-                            <MessageCircle className="h-4 w-4 fill-emerald-600/10" />
+                            <MessageCircle className="h-3.5 w-3.5 fill-emerald-600/10" />
                           </Button>
                         )}
                       </div>
@@ -3104,23 +3181,23 @@ Nosso pix: 54.747.611/0001-27
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-center font-medium">
+                  <TableCell className="text-center font-medium py-2 px-2.5">
                     {c.faturasPendentesCount}
                   </TableCell>
                   <TableCell
-                    className={`font-semibold ${c.totalPendente > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}
+                    className={`font-semibold py-2 px-2.5 ${c.totalPendente > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}
                   >
                     {brl(c.totalPendente)}
                   </TableCell>
                   <TableCell
-                    className={`font-medium ${c.totalPago > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}
+                    className={`font-medium py-2 px-2.5 ${c.totalPago > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}
                   >
                     {brl(c.totalPago)}
                   </TableCell>
-                  <TableCell className="font-medium text-foreground">
+                  <TableCell className="font-medium text-foreground py-2 px-2.5">
                     {brl(c.totalGeral)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="py-2 px-2.5">
                     <Badge
                       variant={
                         c.temAtraso
@@ -3133,12 +3210,12 @@ Nosso pix: 54.747.611/0001-27
                       }
                       className={
                         c.temAtraso
-                          ? "bg-rose-500 hover:bg-rose-600 text-white border-transparent"
+                          ? "bg-rose-500 hover:bg-rose-600 text-white border-transparent text-[9px] px-1.5 py-0.2"
                           : c.totalPendente > 0
-                            ? "bg-sky-500 hover:bg-sky-600 text-white border-transparent"
+                            ? "bg-sky-500 hover:bg-sky-600 text-white border-transparent text-[9px] px-1.5 py-0.2"
                             : c.totalPago > 0
-                              ? "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent"
-                              : ""
+                              ? "bg-emerald-500 hover:bg-emerald-600 text-white border-transparent text-[9px] px-1.5 py-0.2"
+                              : "text-[9px] px-1.5 py-0.2"
                       }
                     >
                       {c.temAtraso
@@ -3150,17 +3227,30 @@ Nosso pix: 54.747.611/0001-27
                             : "Sem Faturas"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="py-2 px-2.5 text-right">
                     <div
-                      className="flex justify-end gap-1.5"
+                      className="flex justify-end gap-1"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Definir Dia de Cobrança"
+                        className="h-7 w-7 text-muted-foreground hover:text-primary rounded cursor-pointer shrink-0"
+                        onClick={() => {
+                          const currentVal = patientDetailsMap.get(c.pacienteId)?.cobrar_dia;
+                          setEditingCobrarDiaPatientId(c.pacienteId);
+                          setCobrarDiaValue(currentVal?.toString() || "");
+                        }}
+                      >
+                        <Calendar className="h-3.5 w-3.5" />
+                      </Button>
                       {c.totalPendente > 0 && (
                         <Button
                           variant="outline"
                           size="icon"
                           title="Confirmar pagamento de todas as faturas do período"
-                          className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40"
+                          className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0"
                           onClick={() => {
                             if (
                               confirm(
@@ -3175,23 +3265,23 @@ Nosso pix: 54.747.611/0001-27
                           }}
                           disabled={confirmAllPatientPaymentsMutation.isPending}
                         >
-                          <Check className="h-4 w-4" />
+                          <Check className="h-4.5 w-4.5" />
                         </Button>
                       )}
                       <Button
                         variant="outline"
                         size="icon"
-                        className="h-8 w-8"
+                        className="h-7 w-7 shrink-0"
                         title="Ver Faturas"
                         onClick={() => handleOpenPatientFaturas(c.pacienteId, c.nome)}
                       >
-                        <Eye className="h-4 w-4" />
+                        <Eye className="h-3.5 w-3.5" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         title="Nova Cobrança para este Paciente"
-                        className="h-8 w-8 text-primary hover:bg-primary/5"
+                        className="h-7 w-7 text-primary hover:bg-primary/5 shrink-0"
                         onClick={() => {
                           setFaturaForm({
                             paciente_id: c.pacienteId,
@@ -3207,7 +3297,7 @@ Nosso pix: 54.747.611/0001-27
                           setCreateDialog(true);
                         }}
                       >
-                        <Plus className="h-4 w-4" />
+                        <Plus className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </TableCell>
