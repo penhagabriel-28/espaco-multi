@@ -37,6 +37,7 @@ import {
   FileText,
   Activity,
   Search,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
