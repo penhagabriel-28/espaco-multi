@@ -227,7 +227,7 @@ function DiretoriaPageContent() {
 
   // Mural de Recados States
   const [muralContent, setMuralContent] = useState("");
-  const [muralDateFilter, setMuralDateFilter] = useState("");
+  const [muralDateFilter, setMuralDateFilter] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   // Cobrar Dia States
@@ -3434,7 +3434,7 @@ Nosso pix: 54.747.611/0001-27
                           </>
                         ) : null}
                         {msg.feito ? (
-                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-[9px] px-1.5 py-0.2 select-none border-transparent">
+                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] px-2 py-0.5 select-none border-transparent uppercase tracking-wider">
                             Feito
                           </Badge>
                         ) : null}
@@ -3443,7 +3443,7 @@ Nosso pix: 54.747.611/0001-27
                         {format(new Date(msg.created_at), "dd/MM/yyyy HH:mm")}
                       </span>
                     </div>
-                    <p className={`text-xs whitespace-pre-line leading-relaxed ${msg.feito ? "text-emerald-700 dark:text-emerald-300/80 line-through" : "text-muted-foreground"}`}>
+                    <p className={`text-[13.5px] whitespace-pre-line leading-relaxed ${msg.feito ? "text-emerald-800 dark:text-emerald-300 font-medium" : "text-muted-foreground"}`}>
                       {msg.conteudo}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
