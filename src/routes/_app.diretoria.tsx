@@ -227,7 +227,7 @@ function DiretoriaPageContent() {
 
   // Mural de Recados States
   const [muralContent, setMuralContent] = useState("");
-  const [muralDateFilter, setMuralDateFilter] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [muralDateFilter, setMuralDateFilter] = useState("");
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
   useEffect(() => {
