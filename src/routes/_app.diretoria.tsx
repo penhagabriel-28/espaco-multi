@@ -1032,13 +1032,6 @@ function DiretoriaPageContent() {
 
   const filteredMuralRecados = useMemo(() => {
     let list = muralRecados || [];
-    if (muralDateFilter && muralFilterType !== "past_undone") {
-      list = list.filter((msg) => {
-        if (!msg.created_at) return false;
-        const msgDate = format(new Date(msg.created_at), "yyyy-MM-dd");
-        return msgDate === muralDateFilter;
-      });
-    }
 
     if (muralFilterType === "done") {
       return list.filter((msg) => msg.feito);
@@ -1048,7 +1041,7 @@ function DiretoriaPageContent() {
     }
     if (muralFilterType === "past_undone") {
       const todayStr = format(new Date(), "yyyy-MM-dd");
-      return (muralRecados || []).filter((msg) => {
+      return list.filter((msg) => {
         if (!msg.created_at || msg.feito) return false;
         const msgDate = format(new Date(msg.created_at), "yyyy-MM-dd");
         return msgDate < todayStr;
@@ -1056,7 +1049,7 @@ function DiretoriaPageContent() {
     }
 
     return list;
-  }, [muralRecados, muralDateFilter, muralFilterType]);
+  }, [muralRecados, muralFilterType]);
 
   const professionalMap = useMemo(() => {
     return new Map<string, string>((profissionais || []).map((p) => [p.id, p.nome]));
@@ -3430,7 +3423,7 @@ Nosso pix: 54.747.611/0001-27
           {/* List of messages */}
           <div className="md:col-span-7 space-y-4">
 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Histórico de Tarefas {muralDateFilter ? `(${format(new Date(muralDateFilter + "T12:00:00"), "dd/MM/yyyy")})` : ""}
+              Histórico de Tarefas
             </h3>
             <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 rounded-lg border border-border/60 bg-muted/20 text-xs">
               <div className="flex items-center gap-1">
