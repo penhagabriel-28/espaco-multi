@@ -990,15 +990,15 @@ function DiretoriaPageContent() {
 
   // Mutation to update message
   const updateMuralMessageMutation = useMutation({
-    mutationFn: async ({ id, conteudo }: { id: string; conteudo: string }) => {
-      await updateMuralMessage({ data: { id, conteudo } });
+    mutationFn: async ({ id, conteudo, feito }: { id: string; conteudo?: string; feito?: boolean }) => {
+      await updateMuralMessage({ data: { id, conteudo, feito } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
       void refetchMural();
       setMuralContent("");
       setEditingMessageId(null);
-      toast.success("Mensagem atualizada!");
+      toast.success("Mural atualizado!");
     },
     onError: (err: any) => {
       toast.error("Erro ao atualizar mensagem: " + err.message);
@@ -3400,7 +3400,7 @@ Nosso pix: 54.747.611/0001-27
 
           {/* List of messages */}
           <div className="md:col-span-7 space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+<h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Histórico de Tarefas {muralDateFilter ? `(${format(new Date(muralDateFilter + "T12:00:00"), "dd/MM/yyyy")})` : ""}
             </h3>
             <div className="max-h-[260px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
@@ -3412,7 +3412,11 @@ Nosso pix: 54.747.611/0001-27
                 filteredMuralRecados.map((msg) => (
                   <div
                     key={msg.id}
-                    className="p-3.5 rounded-xl border border-primary/10 bg-primary/5 hover:bg-primary/10 transition duration-200 relative group shadow-sm flex flex-col gap-2"
+                    className={`p-3.5 rounded-xl border transition duration-200 relative group shadow-sm flex flex-col gap-2 ${
+                      msg.feito
+                        ? "border-emerald-200 dark:border-emerald-800/30 bg-emerald-50/40 dark:bg-emerald-950/10 hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20"
+                        : "border-primary/10 bg-primary/5 hover:bg-primary/10"
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -3429,14 +3433,42 @@ Nosso pix: 54.747.611/0001-27
                             )}
                           </>
                         ) : null}
+                        {msg.feito ? (
+                          <Badge className="bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-[9px] px-1.5 py-0.2 select-none border-transparent">
+                            Feito
+                          </Badge>
+                        ) : null}
                       </div>
                       <span className="text-[10px] text-muted-foreground">
                         {format(new Date(msg.created_at), "dd/MM/yyyy HH:mm")}
                       </span>
                     </div>
-                    <p className="text-xs text-muted-foreground whitespace-pre-line leading-relaxed">
+                    <p className={`text-xs whitespace-pre-line leading-relaxed ${msg.feito ? "text-emerald-700 dark:text-emerald-300/80 line-through" : "text-muted-foreground"}`}>
                       {msg.conteudo}
                     </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {msg.feito ? (
+                        <button
+                          type="button"
+                          className="text-[11px] text-amber-600 hover:text-amber-700 dark:text-amber-400 hover:underline cursor-pointer bg-transparent border-0 p-0 font-medium"
+                          onClick={() => {
+                            updateMuralMessageMutation.mutate({ id: msg.id, feito: false });
+                          }}
+                        >
+                          Desfazer
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-[11px] text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer bg-transparent border-0 p-0 font-medium"
+                          onClick={() => {
+                            updateMuralMessageMutation.mutate({ id: msg.id, feito: true });
+                          }}
+                        >
+                          Já Fiz
+                        </button>
+                      )}
+                    </div>
                     <div className="absolute right-2 bottom-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                       <Button
                         variant="ghost"

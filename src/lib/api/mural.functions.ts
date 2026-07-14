@@ -27,12 +27,20 @@ export const createMuralMessage = createServerFn({ method: "POST" })
   });
 
 export const updateMuralMessage = createServerFn({ method: "POST" })
-  .inputValidator(z.object({ id: z.string(), conteudo: z.string() }))
+  .inputValidator(z.object({ 
+    id: z.string(), 
+    conteudo: z.string().optional(),
+    feito: z.boolean().optional()
+  }))
   .handler(async ({ data }) => {
     const client = await getSupabaseClient();
+    const updateData: any = {};
+    if (data.conteudo !== undefined) updateData.conteudo = data.conteudo;
+    if (data.feito !== undefined) updateData.feito = data.feito;
+
     const { error } = await client
       .from("mural_recados")
-      .update({ conteudo: data.conteudo })
+      .update(updateData)
       .eq("id", data.id);
     if (error) throw new Error("Erro ao atualizar mensagem: " + error.message);
     return { success: true };
