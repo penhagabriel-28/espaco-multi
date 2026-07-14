@@ -229,6 +229,7 @@ function DiretoriaPageContent() {
   const [muralContent, setMuralContent] = useState("");
   const [muralDateFilter, setMuralDateFilter] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [muralFilterType, setMuralFilterType] = useState<"all" | "done" | "undone" | "past_undone">("all");
 
   // Cobrar Dia States
   const [editingCobrarDiaPatientId, setEditingCobrarDiaPatientId] = useState<string | null>(null);
@@ -1020,14 +1021,42 @@ function DiretoriaPageContent() {
     },
   });
 
-  const filteredMuralRecados = useMemo(() => {
-    if (!muralDateFilter) return muralRecados;
-    return muralRecados.filter((msg) => {
-      if (!msg.created_at) return false;
+  const pastUndoneCount = useMemo(() => {
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    return (muralRecados || []).filter((msg) => {
+      if (!msg.created_at || msg.feito) return false;
       const msgDate = format(new Date(msg.created_at), "yyyy-MM-dd");
-      return msgDate === muralDateFilter;
-    });
-  }, [muralRecados, muralDateFilter]);
+      return msgDate < todayStr;
+    }).length;
+  }, [muralRecados]);
+
+  const filteredMuralRecados = useMemo(() => {
+    let list = muralRecados || [];
+    if (muralDateFilter && muralFilterType !== "past_undone") {
+      list = list.filter((msg) => {
+        if (!msg.created_at) return false;
+        const msgDate = format(new Date(msg.created_at), "yyyy-MM-dd");
+        return msgDate === muralDateFilter;
+      });
+    }
+
+    if (muralFilterType === "done") {
+      return list.filter((msg) => msg.feito);
+    }
+    if (muralFilterType === "undone") {
+      return list.filter((msg) => !msg.feito);
+    }
+    if (muralFilterType === "past_undone") {
+      const todayStr = format(new Date(), "yyyy-MM-dd");
+      return (muralRecados || []).filter((msg) => {
+        if (!msg.created_at || msg.feito) return false;
+        const msgDate = format(new Date(msg.created_at), "yyyy-MM-dd");
+        return msgDate < todayStr;
+      });
+    }
+
+    return list;
+  }, [muralRecados, muralDateFilter, muralFilterType]);
 
   const professionalMap = useMemo(() => {
     return new Map<string, string>((profissionais || []).map((p) => [p.id, p.nome]));
@@ -3403,6 +3432,50 @@ Nosso pix: 54.747.611/0001-27
 <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
               Histórico de Tarefas {muralDateFilter ? `(${format(new Date(muralDateFilter + "T12:00:00"), "dd/MM/yyyy")})` : ""}
             </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 rounded-lg border border-border/60 bg-muted/20 text-xs">
+              <div className="flex items-center gap-1">
+                <Button
+                  variant={muralFilterType === "all" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-[11px] font-semibold px-2 rounded cursor-pointer"
+                  onClick={() => setMuralFilterType("all")}
+                >
+                  Todas
+                </Button>
+                <Button
+                  variant={muralFilterType === "undone" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-[11px] font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 px-2 rounded cursor-pointer"
+                  onClick={() => setMuralFilterType("undone")}
+                >
+                  Pendentes
+                </Button>
+                <Button
+                  variant={muralFilterType === "done" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 px-2 rounded cursor-pointer"
+                  onClick={() => setMuralFilterType("done")}
+                >
+                  Feitas
+                </Button>
+              </div>
+
+              {pastUndoneCount > 0 && (
+                <Button
+                  variant={muralFilterType === "past_undone" ? "destructive" : "outline"}
+                  size="sm"
+                  className={`h-7 text-[10px] font-bold px-2 rounded gap-1 cursor-pointer shrink-0 ${
+                    muralFilterType !== "past_undone"
+                      ? "border-red-500/20 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20"
+                      : "bg-red-500 hover:bg-red-600 text-white"
+                  }`}
+                  onClick={() => setMuralFilterType("past_undone")}
+                  title="Mostrar tarefas não realizadas de datas passadas"
+                >
+                  <AlertCircle className="h-3 w-3" /> {pastUndoneCount} Atrasada{pastUndoneCount > 1 ? "s" : ""}
+                </Button>
+              )}
+            </div>
             <div className="max-h-[260px] overflow-y-auto space-y-3 pr-2 scrollbar-thin">
               {filteredMuralRecados.length === 0 ? (
                 <div className="p-8 text-center text-xs text-muted-foreground border border-dashed rounded-lg bg-card/10">
