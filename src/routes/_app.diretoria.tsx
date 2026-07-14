@@ -3112,9 +3112,9 @@ Nosso pix: 54.747.611/0001-27
 
               return (
                 <TableRow key={c.key} className="hover:bg-muted/30 text-xs">
-                  <TableCell className="font-semibold text-foreground py-2 px-2.5 max-w-[180px] break-words">
+                  <TableCell className="font-semibold text-foreground py-2.5 px-2.5 max-w-[160px] break-words">
                     <div className="flex flex-col gap-1">
-                      <div className="truncate" title={c.nome}>{c.nome}</div>
+                      <div className="text-[13.5px] whitespace-normal leading-snug break-words text-foreground font-semibold" title={c.nome}>{c.nome}</div>
                       {editingCobrarDiaPatientId === c.pacienteId ? (
                         <div className="flex items-center gap-1 mt-1 bg-muted/50 p-1 rounded border border-border/60 w-max" onClick={(e) => e.stopPropagation()}>
                           <span className="text-[9px] text-muted-foreground uppercase font-bold">Dia:</span>
@@ -3198,15 +3198,15 @@ Nosso pix: 54.747.611/0001-27
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="py-2 px-2.5 max-w-[160px]">
+                  <TableCell className="py-2.5 px-2.5 max-w-[150px] break-words">
                     {primaryResp ? (
-                      <div className="flex items-center gap-1.5 justify-between">
-                        <div className="text-xs truncate flex-1">
-                          <span className="font-semibold text-foreground block leading-tight truncate" title={primaryResp.nome}>
+                      <div className="flex items-start gap-1.5 justify-between">
+                        <div className="flex-1 min-w-0">
+                          <span className="font-semibold text-foreground block text-[13px] leading-snug whitespace-normal break-words" title={primaryResp.nome}>
                             {primaryResp.nome}
                           </span>
                           {primaryResp.parentesco && (
-                            <span className="text-muted-foreground text-[10px] block truncate" title={primaryResp.parentesco}>
+                            <span className="text-muted-foreground text-[10px] block leading-tight mt-0.5 whitespace-normal break-words" title={primaryResp.parentesco}>
                               {primaryResp.parentesco}
                             </span>
                           )}
@@ -3215,7 +3215,7 @@ Nosso pix: 54.747.611/0001-27
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0"
+                            className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0 mt-0.5"
                             onClick={() =>
                               handleWhatsAppClick(c.pacienteId, c.totalPendente, c.nome)
                             }
