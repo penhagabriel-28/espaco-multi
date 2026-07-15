@@ -30,13 +30,15 @@ export const updateMuralMessage = createServerFn({ method: "POST" })
   .inputValidator(z.object({ 
     id: z.string(), 
     conteudo: z.string().optional(),
-    feito: z.boolean().optional()
+    feito: z.boolean().optional(),
+    resposta: z.string().optional().nullable()
   }))
   .handler(async ({ data }) => {
     const client = await getSupabaseClient();
     const updateData: any = {};
     if (data.conteudo !== undefined) updateData.conteudo = data.conteudo;
     if (data.feito !== undefined) updateData.feito = data.feito;
+    if (data.resposta !== undefined) updateData.resposta = data.resposta;
 
     const { error } = await client
       .from("mural_recados")

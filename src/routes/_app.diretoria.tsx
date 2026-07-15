@@ -73,6 +73,7 @@ import {
   ChevronDown,
   X,
   Printer,
+  CornerDownRight,
 } from "lucide-react";
 
 function parseDateFromDescription(desc: string): number | null {
@@ -230,6 +231,8 @@ function DiretoriaPageContent() {
   const [muralDateFilter, setMuralDateFilter] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [muralFilterType, setMuralFilterType] = useState<"all" | "done" | "undone" | "past_undone">("all");
+  const [respondingMessageId, setRespondingMessageId] = useState<string | null>(null);
+  const [respostaContent, setRespostaContent] = useState("");
 
   // Cobrar Dia States
   const [editingCobrarDiaPatientId, setEditingCobrarDiaPatientId] = useState<string | null>(null);
@@ -1019,8 +1022,8 @@ function DiretoriaPageContent() {
 
   // Mutation to update message
   const updateMuralMessageMutation = useMutation({
-    mutationFn: async ({ id, conteudo, feito }: { id: string; conteudo?: string; feito?: boolean }) => {
-      await updateMuralMessage({ data: { id, conteudo, feito } });
+    mutationFn: async ({ id, conteudo, feito, resposta }: { id: string; conteudo?: string; feito?: boolean; resposta?: string | null }) => {
+      await updateMuralMessage({ data: { id, conteudo, feito, resposta } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
@@ -3540,7 +3543,65 @@ Nosso pix: 54.747.611/0001-27
                     <p className={`text-[13.5px] whitespace-pre-line leading-relaxed ${msg.feito ? "text-emerald-800 dark:text-emerald-300 font-medium" : "text-muted-foreground"}`}>
                       {msg.conteudo}
                     </p>
-                    <div className="flex items-center gap-2 mt-1">
+
+                    {/* Resposta / Situação se existir e não estiver editando */}
+                    {msg.resposta && respondingMessageId !== msg.id && (
+                      <div className="mt-1 p-2 rounded bg-card border text-xs">
+                        <div className="flex items-center gap-1.5 text-muted-foreground font-semibold mb-1">
+                          <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <span>Situação:</span>
+                        </div>
+                        <p className="text-foreground whitespace-pre-line pl-5">
+                          {msg.resposta}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Formulário de Resposta */}
+                    {respondingMessageId === msg.id && (
+                      <div className="mt-2 space-y-2 p-2 rounded bg-muted/30 border border-dashed">
+                        <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Atualizar Situação / Resposta:</Label>
+                        <Textarea
+                          placeholder="Ex: Aguardando retorno, Finalizado, etc..."
+                          value={respostaContent}
+                          onChange={(e) => setRespostaContent(e.target.value)}
+                          className="min-h-[60px] text-xs resize-none bg-background"
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-[10px]"
+                            onClick={() => {
+                              setRespondingMessageId(null);
+                              setRespostaContent("");
+                            }}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-7 text-[10px]"
+                            onClick={() => {
+                              updateMuralMessageMutation.mutate({
+                                id: msg.id,
+                                resposta: respostaContent.trim() || null,
+                              }, {
+                                onSuccess: () => {
+                                  setRespondingMessageId(null);
+                                  setRespostaContent("");
+                                }
+                              });
+                            }}
+                            disabled={updateMuralMessageMutation.isPending}
+                          >
+                            Salvar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 mt-1">
                       {msg.feito ? (
                         <button
                           type="button"
@@ -3560,6 +3621,19 @@ Nosso pix: 54.747.611/0001-27
                           }}
                         >
                           Já Fiz
+                        </button>
+                      )}
+
+                      {respondingMessageId !== msg.id && (
+                        <button
+                          type="button"
+                          className="text-[11px] text-primary hover:text-primary-foreground/90 hover:underline cursor-pointer bg-transparent border-0 p-0 font-medium"
+                          onClick={() => {
+                            setRespondingMessageId(msg.id);
+                            setRespostaContent(msg.resposta || "");
+                          }}
+                        >
+                          {msg.resposta ? "Editar Situação" : "Responder"}
                         </button>
                       )}
                     </div>
