@@ -20,6 +20,7 @@ const statusColors: Record<string, string> = {
   realizado: "bg-primary/15 text-primary",
   falta: "bg-muted text-muted-foreground",
   pago: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+  ferias: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
 };
 
 function Dashboard() {
@@ -159,7 +160,8 @@ function Dashboard() {
                 (a: any) =>
                   a.sala_id === sala.id &&
                   a.status !== "cancelado" &&
-                  a.status !== "falta"
+                  a.status !== "falta" &&
+                  a.status !== "ferias"
               );
 
               // Encontrar agendamento ativo agora
