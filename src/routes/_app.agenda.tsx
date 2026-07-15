@@ -2366,6 +2366,15 @@ Fico à disposição para qualquer dúvida!`;
                   </div>
                 )}
 
+                <div className="space-y-1.5 animate-in fade-in duration-200">
+                  <Label>Observações</Label>
+                  <Textarea
+                    rows={2}
+                    value={form.observacoes}
+                    onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
+                  />
+                </div>
+
                 <DialogFooter className="gap-2 pt-2 border-t mt-4 justify-between flex-wrap">
                   <div className="flex gap-2">
                     {editing && (
