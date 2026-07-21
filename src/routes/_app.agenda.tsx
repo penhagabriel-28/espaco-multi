@@ -857,6 +857,8 @@ function AgendamentoDialog({
 
   const paymentMethodMatch = editing?.observacoes?.match(/\[Meio: (Pix|Espécie)\]/);
   const initialPaymentMethod = paymentMethodMatch ? paymentMethodMatch[1] : "Pix";
+  const initialPacientePagouFalta = editing?.status === "falta" && paymentMethodMatch ? "sim" : "nao";
+  const [pacientePagouFalta, setPacientePagouFalta] = useState<"sim" | "nao">(initialPacientePagouFalta);
 
   const initialObservacoes = editing?.observacoes
     ? editing.observacoes
@@ -1027,6 +1029,9 @@ function AgendamentoDialog({
   // Localiza o paciente selecionado para recuperar os detalhes de faturamento/cobrança
   const selectedPaciente = Array.isArray(pacientes) ? pacientes.find((p: any) => p.id === form.paciente_id) : undefined;
   const isMensal = !!(selectedPaciente?.valor_mensal && selectedPaciente.valor_mensal > 0);
+  const showMeioPagamento =
+    !isMensal &&
+    (form.status === "pago" || (form.status === "falta" && pacientePagouFalta === "sim"));
 
   const whatsappUrl = useMemo(() => {
     if (!Array.isArray(responsaveisPaciente) || !responsaveisPaciente.length) return null;
@@ -1367,7 +1372,7 @@ Fico à disposição para qualquer dúvida!`;
             ? "[Tipo: Anamnese]\n"
             : "[Tipo: Sessão Padrão]\n"
           : "";
-      const paymentPrefix = isMensal ? "" : `[Meio: ${form.meio_pagamento}]\n`;
+      const paymentPrefix = showMeioPagamento ? `[Meio: ${form.meio_pagamento}]\n` : "";
       const finalObservacoes = typePrefix + paymentPrefix + form.observacoes;
 
       // Calculate valor for sync
@@ -1801,14 +1806,16 @@ Fico à disposição para qualquer dúvida!`;
                           {form.recorrencia || "única"}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground font-medium">
-                          Meio de Pagamento:
-                        </span>{" "}
-                        <span className="text-foreground font-semibold">
-                          {isMensal ? "Mensal" : form.meio_pagamento || "Pix"}
-                        </span>
-                      </div>
+                      {(isMensal || showMeioPagamento) && (
+                        <div>
+                          <span className="text-muted-foreground font-medium">
+                            Meio de Pagamento:
+                          </span>{" "}
+                          <span className="text-foreground font-semibold">
+                            {isMensal ? "Mensal" : form.meio_pagamento || "Pix"}
+                          </span>
+                        </div>
+                      )}
                       <div>
                         <span className="text-muted-foreground font-medium">Sala:</span>{" "}
                         <span className="text-foreground font-semibold">
@@ -2348,7 +2355,25 @@ Fico à disposição para qualquer dúvida!`;
                   )}
                 </div>
 
-                {!isMensal && (
+                {form.status === "falta" && (
+                  <div className="space-y-1.5 animate-in fade-in duration-200">
+                    <Label>O paciente pagou por esta sessão?</Label>
+                    <Select
+                      value={pacientePagouFalta}
+                      onValueChange={(v) => setPacientePagouFalta(v as "sim" | "nao")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="nao">Não</SelectItem>
+                        <SelectItem value="sim">Sim</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {showMeioPagamento && (
                   <div className="space-y-1.5 animate-in fade-in duration-200">
                     <Label>Meio de pagamento realizado na sessão</Label>
                     <Select
