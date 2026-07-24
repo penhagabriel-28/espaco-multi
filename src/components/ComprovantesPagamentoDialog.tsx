@@ -40,6 +40,8 @@ import {
   X,
   ExternalLink,
   Plus,
+  Clock,
+  AlertTriangle,
 } from "lucide-react";
 
 export interface ComprovanteItem {
@@ -756,12 +758,19 @@ export function ComprovantesPagamentoDialog({
                                       <span className={isSelected ? "font-bold text-primary" : "text-muted-foreground"}>
                                         {brl(Number(f.valor))}
                                       </span>
-                                      <Badge
-                                        variant={f.status === "paga" ? "default" : "outline"}
-                                        className="text-[9px] px-1.5 py-0 uppercase"
-                                      >
-                                        {f.status}
-                                      </Badge>
+                                      {f.status === "paga" ? (
+                                        <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 font-bold text-[9px] gap-1 px-1.5 py-0 uppercase">
+                                          <CheckCircle2 className="h-3 w-3 text-emerald-600" /> PAGA
+                                        </Badge>
+                                      ) : f.status === "vencida" ? (
+                                        <Badge className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 font-bold text-[9px] gap-1 px-1.5 py-0 uppercase">
+                                          <AlertTriangle className="h-3 w-3 text-rose-600" /> VENCIDA
+                                        </Badge>
+                                      ) : (
+                                        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 font-bold text-[9px] gap-1 px-1.5 py-0 uppercase">
+                                          <Clock className="h-3 w-3 text-amber-600" /> EM ABERTO
+                                        </Badge>
+                                      )}
                                     </div>
                                   </div>
                                 );
@@ -1040,6 +1049,58 @@ export function ComprovantesPagamentoDialog({
                                 "{item.observacoes}"
                               </p>
                             )}
+                          </div>
+                        </div>
+
+                        {/* Linked Sessions Status Badges */}
+                        <div className="pt-2 border-t border-border/40 space-y-1">
+                          <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                            Sessões Vinculadas:
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {(() => {
+                              let fatIds: string[] = [];
+                              if (item.fatura_ids) {
+                                try {
+                                  if (Array.isArray(item.fatura_ids)) fatIds = item.fatura_ids;
+                                  else if (typeof item.fatura_ids === "string") fatIds = JSON.parse(item.fatura_ids);
+                                } catch {
+                                  fatIds = [item.fatura_id].filter(Boolean) as string[];
+                                }
+                              } else if (item.fatura_id) {
+                                fatIds = [item.fatura_id];
+                              }
+
+                              if (fatIds.length === 0) {
+                                return <Badge variant="outline" className="text-[10px] text-muted-foreground">Fatura Geral / Sem vínculo</Badge>;
+                              }
+
+                              return fatIds.map((fId) => {
+                                const fat = (faturas || []).find((f) => f.id === fId);
+                                const dateLabel = fat ? getFaturaConsultationDateLabel(fat) : "Sessão";
+                                const status = fat?.status || "paga";
+
+                                if (status === "paga") {
+                                  return (
+                                    <Badge key={fId} className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 text-[10px] px-2 py-0.5 font-bold gap-1">
+                                      <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Consulta {dateLabel} (PAGA)
+                                    </Badge>
+                                  );
+                                }
+                                if (status === "vencida") {
+                                  return (
+                                    <Badge key={fId} className="bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 text-[10px] px-2 py-0.5 font-bold gap-1">
+                                      <AlertTriangle className="h-3 w-3 text-rose-600" /> Consulta {dateLabel} (VENCIDA)
+                                    </Badge>
+                                  );
+                                }
+                                return (
+                                  <Badge key={fId} className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 text-[10px] px-2 py-0.5 font-bold gap-1">
+                                    <Clock className="h-3 w-3 text-amber-600" /> Consulta {dateLabel} (EM ABERTO)
+                                  </Badge>
+                                );
+                              });
+                            })()}
                           </div>
                         </div>
                       </CardContent>
