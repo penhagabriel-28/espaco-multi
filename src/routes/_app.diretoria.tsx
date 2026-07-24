@@ -74,7 +74,9 @@ import {
   X,
   Printer,
   CornerDownRight,
+  FileCheck,
 } from "lucide-react";
+import { ComprovantesPagamentoDialog } from "@/components/ComprovantesPagamentoDialog";
 
 function parseDateFromDescription(desc: string): number | null {
   if (!desc) return null;
@@ -237,6 +239,10 @@ function DiretoriaPageContent() {
   // Cobrar Dia States
   const [editingCobrarDiaPatientId, setEditingCobrarDiaPatientId] = useState<string | null>(null);
   const [cobrarDiaValue, setCobrarDiaValue] = useState("");
+
+  // Comprovantes de Pagamento States
+  const [comprovantesModalOpen, setComprovantesModalOpen] = useState(false);
+  const [comprovantesPatientId, setComprovantesPatientId] = useState<string | null>(null);
 
   const updatePatientCobrarDiaMutation = useMutation({
     mutationFn: async ({ pacienteId, cobrarDia }: { pacienteId: string; cobrarDia: number | null }) => {
@@ -3541,6 +3547,18 @@ Nosso pix: 54.747.611/0001-27
                       <Button
                         variant="outline"
                         size="icon"
+                        className="h-7 w-7 shrink-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20"
+                        title="Upload e Ver Comprovantes do Paciente"
+                        onClick={() => {
+                          setComprovantesPatientId(c.pacienteId);
+                          setComprovantesModalOpen(true);
+                        }}
+                      >
+                        <FileCheck className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
                         className="h-7 w-7 shrink-0"
                         title="Ver Faturas"
                         onClick={() => handleOpenPatientFaturas(c.pacienteId, c.nome)}
@@ -4044,7 +4062,17 @@ Nosso pix: 54.747.611/0001-27
                   pagamentos.
                 </CardDescription>
               </div>
-              <div className="flex gap-2 self-start sm:self-center">
+              <div className="flex flex-wrap gap-2 self-start sm:self-center">
+                <Button
+                  onClick={() => {
+                    setComprovantesPatientId(null);
+                    setComprovantesModalOpen(true);
+                  }}
+                  variant="outline"
+                  className="gap-1.5 border-emerald-500/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 font-semibold"
+                >
+                  <FileCheck className="h-4 w-4 text-emerald-600" /> Comprovantes de Pagamento
+                </Button>
                 <Button
                   onClick={handlePrintAllBilling}
                   disabled={filteredConsolidated.length === 0}
@@ -4578,6 +4606,24 @@ Nosso pix: 54.747.611/0001-27
                 value={payForm.observacoes}
                 onChange={(e) => setPayForm({ ...payForm, observacoes: e.target.value })}
               />
+            </div>
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg border border-emerald-500/20 flex items-center justify-between gap-2">
+              <div className="text-xs">
+                <span className="font-bold text-emerald-800 dark:text-emerald-300 block">Comprovante de Pagamento</span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Anexe imagens ou PDF do comprovante</span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setComprovantesPatientId(payDialog.fatura?.paciente_id || null);
+                  setComprovantesModalOpen(true);
+                }}
+                className="h-8 text-xs border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 font-semibold shrink-0 gap-1"
+              >
+                <FileCheck className="h-3.5 w-3.5" /> Anexar Comprovante
+              </Button>
             </div>
             <DialogFooter>
               <Button
@@ -5873,6 +5919,15 @@ Nosso pix: 54.747.611/0001-27
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Central de Comprovantes de Pagamento Dialog */}
+      <ComprovantesPagamentoDialog
+        open={comprovantesModalOpen}
+        onOpenChange={setComprovantesModalOpen}
+        pacientes={pacientes}
+        faturas={faturas}
+        initialPacienteId={comprovantesPatientId}
+      />
     </div>
   );
 }
