@@ -1179,7 +1179,7 @@ function FrequenciaPage() {
                   <SelectValue placeholder="Selecione o profissional..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos os profissionais</SelectItem>
+                  <SelectItem value="all">Todos os profissionais</SelectItem>
                   {profissionais.map((p: any) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.nome}

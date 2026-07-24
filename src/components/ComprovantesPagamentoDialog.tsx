@@ -86,9 +86,9 @@ export function ComprovantesPagamentoDialog({
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [formPacienteId, setFormPacienteId] = useState<string>(
-    initialPacienteId || ""
+    initialPacienteId || "none"
   );
-  const [formFaturaId, setFormFaturaId] = useState<string>("");
+  const [formFaturaId, setFormFaturaId] = useState<string>("none");
   const [formDataPagamento, setFormDataPagamento] = useState<string>(
     format(new Date(), "yyyy-MM-dd")
   );
@@ -140,7 +140,7 @@ export function ComprovantesPagamentoDialog({
 
   // Filtered patient's faturas for form dropdown
   const patientFaturas = useMemo(() => {
-    if (!formPacienteId) return [];
+    if (!formPacienteId || formPacienteId === "none") return [];
     return (faturas || []).filter((f) => f.paciente_id === formPacienteId);
   }, [faturas, formPacienteId]);
 
@@ -198,8 +198,8 @@ export function ComprovantesPagamentoDialog({
 
       const newRecord: Partial<ComprovanteItem> = {
         id: crypto.randomUUID(),
-        paciente_id: formPacienteId || null,
-        fatura_id: formFaturaId || null,
+        paciente_id: (formPacienteId && formPacienteId !== "none") ? formPacienteId : null,
+        fatura_id: (formFaturaId && formFaturaId !== "none") ? formFaturaId : null,
         nome_arquivo: uploadFile.name,
         tipo_arquivo: uploadFile.type || "application/octet-stream",
         url_arquivo: fileUrl,
@@ -268,7 +268,8 @@ export function ComprovantesPagamentoDialog({
   const resetForm = () => {
     setUploadFile(null);
     setFilePreview(null);
-    setFormFaturaId("");
+    setFormPacienteId(initialPacienteId || "none");
+    setFormFaturaId("none");
     setFormValor("");
     setFormObservacoes("");
     setFormDataPagamento(format(new Date(), "yyyy-MM-dd"));
@@ -465,14 +466,14 @@ export function ComprovantesPagamentoDialog({
                           value={formPacienteId}
                           onValueChange={(val) => {
                             setFormPacienteId(val);
-                            setFormFaturaId("");
+                            setFormFaturaId("none");
                           }}
                         >
                           <SelectTrigger className="h-9 text-xs">
                             <SelectValue placeholder="Selecione o paciente..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">Sem paciente específico</SelectItem>
+                            <SelectItem value="none">Sem paciente específico</SelectItem>
                             {pacientes.map((p) => (
                               <SelectItem key={p.id} value={p.id}>
                                 {p.nome}
@@ -482,7 +483,7 @@ export function ComprovantesPagamentoDialog({
                         </Select>
                       </div>
 
-                      {formPacienteId && patientFaturas.length > 0 && (
+                      {formPacienteId && formPacienteId !== "none" && patientFaturas.length > 0 && (
                         <div className="space-y-1">
                           <Label className="text-xs">Vincular a uma Fatura Específica (Opcional)</Label>
                           <Select value={formFaturaId} onValueChange={setFormFaturaId}>
@@ -490,7 +491,7 @@ export function ComprovantesPagamentoDialog({
                               <SelectValue placeholder="Selecione a fatura..." />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">Fatura Geral / Nenhuma</SelectItem>
+                              <SelectItem value="none">Fatura Geral / Nenhuma</SelectItem>
                               {patientFaturas.map((f) => (
                                 <SelectItem key={f.id} value={f.id}>
                                   {formatDateDisplay(f.competencia)} - {brl(Number(f.valor))} ({f.status})
