@@ -144,6 +144,122 @@ export function ComprovantesPagamentoDialog({
     return (faturas || []).filter((f) => f.paciente_id === formPacienteId);
   }, [faturas, formPacienteId]);
 
+  // Fetch fatura_itens for patient's faturas to get exact consultation dates
+  const faturaIds = useMemo(() => {
+    return (patientFaturas || []).map((f) => f.id);
+  }, [patientFaturas]);
+
+  const { data: formFaturaItens = [] } = useQuery<any[]>({
+    queryKey: ["dir-comprovante-fatura-itens", faturaIds],
+    queryFn: async () => {
+      if (faturaIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("fatura_itens")
+        .select("id, fatura_id, agendamento_id, descricao")
+        .in("fatura_id", faturaIds);
+      if (error) return [];
+      return data || [];
+    },
+    enabled: open && faturaIds.length > 0,
+  });
+
+  const agendamentoIds = useMemo(() => {
+    return (formFaturaItens || [])
+      .map((item) => item.agendamento_id)
+      .filter(Boolean) as string[];
+  }, [formFaturaItens]);
+
+  const { data: formAgendamentos = [] } = useQuery<any[]>({
+    queryKey: ["dir-comprovante-agendamentos", agendamentoIds],
+    queryFn: async () => {
+      if (agendamentoIds.length === 0) return [];
+      const { data, error } = await supabase
+        .from("agendamentos")
+        .select("id, data_inicio")
+        .in("id", agendamentoIds);
+      if (error) return [];
+      return data || [];
+    },
+    enabled: open && agendamentoIds.length > 0,
+  });
+
+  const agendamentoDateMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (formAgendamentos || []).forEach((ag) => {
+      if (ag.id && ag.data_inicio) {
+        map.set(ag.id, ag.data_inicio);
+      }
+    });
+    return map;
+  }, [formAgendamentos]);
+
+  // Helper to format exact consultation date(s) for a fatura instead of due date
+  const getFaturaConsultationDateLabel = (fatura: any): string => {
+    if (!fatura) return "—";
+
+    const datesSet = new Set<string>();
+
+    // 1. Check faturaItens linked to this fatura
+    const items = (formFaturaItens || []).filter(
+      (item: any) => item.fatura_id === fatura.id
+    );
+
+    items.forEach((item: any) => {
+      // Check linked agendamento data_inicio
+      if (item.agendamento_id && agendamentoDateMap.has(item.agendamento_id)) {
+        const rawDate = agendamentoDateMap.get(item.agendamento_id);
+        if (rawDate) {
+          try {
+            const dStr = rawDate.substring(0, 10);
+            const [y, m, d] = dStr.split("-");
+            if (y && m && d) {
+              datesSet.add(`${d}/${m}/${y}`);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      // Check item description for date pattern DD/MM/YYYY
+      if (item.descricao) {
+        const match = item.descricao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (match) {
+          datesSet.add(match[0]);
+        }
+      }
+    });
+
+    // 2. Check fatura observacoes if no item dates found
+    if (datesSet.size === 0 && fatura.observacoes) {
+      const match = fatura.observacoes.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (match) {
+        datesSet.add(match[0]);
+      }
+    }
+
+    // 3. Fallback: parse competencia / vencimento / created_at if no item date found
+    if (datesSet.size === 0) {
+      const rawDate = fatura.competencia || fatura.vencimento || fatura.created_at;
+      if (rawDate) {
+        try {
+          const dStr = typeof rawDate === "string" ? rawDate.substring(0, 10) : "";
+          if (dStr.includes("-")) {
+            const [y, m, d] = dStr.split("-");
+            if (y && m && d) {
+              return `${d}/${m}/${y}`;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return "Data N/I";
+    }
+
+    return Array.from(datesSet).join(", ");
+  };
+
   // Handle file select
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -492,11 +608,14 @@ export function ComprovantesPagamentoDialog({
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="none">Fatura Geral / Nenhuma</SelectItem>
-                              {patientFaturas.map((f) => (
-                                <SelectItem key={f.id} value={f.id}>
-                                  {formatDateDisplay(f.competencia)} - {brl(Number(f.valor))} ({f.status})
-                                </SelectItem>
-                              ))}
+                              {patientFaturas.map((f) => {
+                                const consultDateLabel = getFaturaConsultationDateLabel(f);
+                                return (
+                                  <SelectItem key={f.id} value={f.id}>
+                                    Consulta em {consultDateLabel} - {brl(Number(f.valor))} ({f.status})
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                         </div>
