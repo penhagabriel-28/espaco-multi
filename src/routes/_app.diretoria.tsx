@@ -841,49 +841,7 @@ function DiretoriaPageContent() {
     },
   });
 
-  // Calculations
-  const stats = useMemo(() => {
-    // Faturamento Recebido (Pagas)
-    const faturamentoRecebido = (faturas || [])
-      .filter((f) => f.status === "paga")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
 
-    // Faturamento A Receber (Abertas)
-    const faturamentoAReceber = (faturas || [])
-      .filter((f) => f.status === "aberta")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Faturamento Vencido (Vencidas)
-    const faturamentoVencido = (faturas || [])
-      .filter((f) => f.status === "vencida")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Faturamento Pendente (Abertas/Vencidas)
-    const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
-
-    // Faturamento Geral (Total Faturas)
-    const faturamentoTotal = (faturas || [])
-      .filter((f) => f.status !== "cancelada")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Despesas
-    const totalDespesas = despesas.reduce((acc, d) => acc + Number(d.valor), 0);
-
-    // Balanços
-    const balancoReal = faturamentoRecebido - totalDespesas;
-    const balancoEstimado = faturamentoTotal - totalDespesas;
-
-    return {
-      faturamentoRecebido,
-      faturamentoAReceber,
-      faturamentoVencido,
-      faturamentoPendente,
-      faturamentoTotal,
-      totalDespesas,
-      balancoReal,
-      balancoEstimado,
-    };
-  }, [faturas, despesas]);
 
   function brl(n: number) {
     return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -1289,6 +1247,93 @@ function DiretoriaPageContent() {
     });
     return map;
   }, [faturaItens]);
+
+  const getApoioFaturaValor = (fatura: any) => {
+    const p = patientDetailsMap.get(fatura.paciente_id);
+    if (!p) return Number(fatura.valor) || 0;
+    
+    const freq = p.apoio_frequencia || 'avulso';
+    const customVal = p.apoio_valor_personalizado;
+    
+    if (freq === 'avulso') {
+      const sessionsCount = (faturaItens || []).filter(
+        (item: any) => item.fatura_id === fatura.id && item.agendamento_id
+      ).length;
+      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "") 
+        ? Number(customVal) 
+        : 50.00;
+      return sessionsCount > 0 ? (sessionsCount * rate) : rate;
+    } else {
+      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+        return Number(customVal);
+      }
+      const defaultRates: Record<string, number> = {
+        "1x": 120.00,
+        "2x": 240.00,
+        "3x": 360.00,
+        semana_toda: 450.00
+      };
+      return defaultRates[freq] ?? 120.00;
+    }
+  };
+
+  // Helper to get exact effective value of a fatura (item total sum or fatura valor)
+  const getFaturaEffectiveValue = (fatura: any) => {
+    if (!fatura) return 0;
+    if (fatura.especialidade === "Apoio") {
+      return getApoioFaturaValor(fatura);
+    }
+    const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura.id);
+    if (items.length > 0) {
+      const itemsTotal = items.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0);
+      if (itemsTotal > 0) return itemsTotal;
+    }
+    return Number(fatura.valor) || 0;
+  };
+
+  // Calculations
+  const stats = useMemo(() => {
+    // Faturamento Recebido (Pagas)
+    const faturamentoRecebido = (faturas || [])
+      .filter((f) => f.status === "paga")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Faturamento A Receber (Abertas)
+    const faturamentoAReceber = (faturas || [])
+      .filter((f) => f.status === "aberta")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Faturamento Vencido (Vencidas)
+    const faturamentoVencido = (faturas || [])
+      .filter((f) => f.status === "vencida")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Faturamento Pendente (Abertas/Vencidas)
+    const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
+
+    // Faturamento Geral (Total Faturas)
+    const faturamentoTotal = (faturas || [])
+      .filter((f) => f.status !== "cancelada")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Despesas
+    const totalDespesas = despesas.reduce((acc, d) => acc + Number(d.valor), 0);
+
+    // Balanços
+    const balancoReal = faturamentoRecebido - totalDespesas;
+    const balancoEstimado = faturamentoTotal - totalDespesas;
+
+    return {
+      faturamentoRecebido,
+      faturamentoAReceber,
+      faturamentoVencido,
+      faturamentoPendente,
+      faturamentoTotal,
+      totalDespesas,
+      balancoReal,
+      balancoEstimado,
+    };
+  }, [faturas, faturaItens, despesas, patientDetailsMap]);
 
   const agendamentoProfMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2063,48 +2108,7 @@ function DiretoriaPageContent() {
     return null;
   };
 
-  const getApoioFaturaValor = (fatura: any) => {
-    const p = patientDetailsMap.get(fatura.paciente_id);
-    if (!p) return Number(fatura.valor) || 0;
-    
-    const freq = p.apoio_frequencia || 'avulso';
-    const customVal = p.apoio_valor_personalizado;
-    
-    if (freq === 'avulso') {
-      const sessionsCount = (faturaItens || []).filter(
-        (item: any) => item.fatura_id === fatura.id && item.agendamento_id
-      ).length;
-      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "") 
-        ? Number(customVal) 
-        : 50.00;
-      return sessionsCount > 0 ? (sessionsCount * rate) : rate;
-    } else {
-      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
-        return Number(customVal);
-      }
-      const defaultRates: Record<string, number> = {
-        "1x": 120.00,
-        "2x": 240.00,
-        "3x": 360.00,
-        semana_toda: 450.00
-      };
-      return defaultRates[freq] ?? 120.00;
-    }
-  };
 
-  // Helper to get exact effective value of a fatura (item total sum or fatura valor)
-  const getFaturaEffectiveValue = (fatura: any) => {
-    if (!fatura) return 0;
-    if (fatura.especialidade === "Apoio") {
-      return getApoioFaturaValor(fatura);
-    }
-    const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura.id);
-    if (items.length > 0) {
-      const itemsTotal = items.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0);
-      if (itemsTotal > 0) return itemsTotal;
-    }
-    return Number(fatura.valor) || 0;
-  };
 
   // Memoized consolidated billing by patient
   const consolidatedPatients = useMemo(() => {
