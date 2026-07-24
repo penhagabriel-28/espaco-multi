@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Upload,
   FileText,
@@ -44,6 +45,7 @@ import {
 export interface ComprovanteItem {
   id: string;
   fatura_id?: string | null;
+  fatura_ids?: string[] | string | null;
   paciente_id?: string | null;
   nome_arquivo: string;
   tipo_arquivo: string;
@@ -88,7 +90,7 @@ export function ComprovantesPagamentoDialog({
   const [formPacienteId, setFormPacienteId] = useState<string>(
     initialPacienteId || "none"
   );
-  const [formFaturaId, setFormFaturaId] = useState<string>("none");
+  const [formSelectedFaturaIds, setFormSelectedFaturaIds] = useState<string[]>([]);
   const [formDataPagamento, setFormDataPagamento] = useState<string>(
     format(new Date(), "yyyy-MM-dd")
   );
@@ -284,6 +286,12 @@ export function ComprovantesPagamentoDialog({
       if (!uploadFile || !filePreview) {
         throw new Error("Selecione um arquivo de comprovante.");
       }
+      if (!formPacienteId || formPacienteId === "none") {
+        throw new Error("Selecione o paciente relacionado.");
+      }
+      if (patientFaturas.length > 0 && formSelectedFaturaIds.length === 0) {
+        throw new Error("Selecione ao menos uma consulta para vincular o comprovante.");
+      }
       if (!formDataPagamento) {
         throw new Error("Informe a data de pagamento.");
       }
@@ -312,15 +320,20 @@ export function ComprovantesPagamentoDialog({
         console.warn("Storage bucket fallback to Data URL:", storageErr);
       }
 
+      const selectedFaturasSum = (patientFaturas || [])
+        .filter((f) => formSelectedFaturaIds.includes(f.id))
+        .reduce((sum, f) => sum + (Number(f.valor) || 0), 0);
+
       const newRecord: Partial<ComprovanteItem> = {
         id: crypto.randomUUID(),
         paciente_id: (formPacienteId && formPacienteId !== "none") ? formPacienteId : null,
-        fatura_id: (formFaturaId && formFaturaId !== "none") ? formFaturaId : null,
+        fatura_id: formSelectedFaturaIds[0] || null,
+        fatura_ids: formSelectedFaturaIds.length > 0 ? JSON.stringify(formSelectedFaturaIds) : null,
         nome_arquivo: uploadFile.name,
         tipo_arquivo: uploadFile.type || "application/octet-stream",
         url_arquivo: fileUrl,
         data_pagamento: formDataPagamento,
-        valor: formValor ? parseFloat(formValor.replace(",", ".")) : 0,
+        valor: formValor ? parseFloat(formValor.replace(",", ".")) : selectedFaturasSum,
         metodo: formMetodo,
         observacoes: formObservacoes.trim() || null,
         created_at: new Date().toISOString(),
@@ -385,7 +398,7 @@ export function ComprovantesPagamentoDialog({
     setUploadFile(null);
     setFilePreview(null);
     setFormPacienteId(initialPacienteId || "none");
-    setFormFaturaId("none");
+    setFormSelectedFaturaIds([]);
     setFormValor("");
     setFormObservacoes("");
     setFormDataPagamento(format(new Date(), "yyyy-MM-dd"));
@@ -577,19 +590,19 @@ export function ComprovantesPagamentoDialog({
                       </div>
 
                       <div className="space-y-1">
-                        <Label className="text-xs">Paciente Relacionado</Label>
+                        <Label className="text-xs font-semibold">Paciente Relacionado *</Label>
                         <Select
                           value={formPacienteId}
                           onValueChange={(val) => {
                             setFormPacienteId(val);
-                            setFormFaturaId("none");
+                            setFormSelectedFaturaIds([]);
                           }}
                         >
                           <SelectTrigger className="h-9 text-xs">
                             <SelectValue placeholder="Selecione o paciente..." />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="none">Sem paciente específico</SelectItem>
+                            <SelectItem value="none">Selecione um paciente...</SelectItem>
                             {pacientes.map((p) => (
                               <SelectItem key={p.id} value={p.id}>
                                 {p.nome}
@@ -599,25 +612,127 @@ export function ComprovantesPagamentoDialog({
                         </Select>
                       </div>
 
-                      {formPacienteId && formPacienteId !== "none" && patientFaturas.length > 0 && (
-                        <div className="space-y-1">
-                          <Label className="text-xs">Vincular a uma Fatura Específica (Opcional)</Label>
-                          <Select value={formFaturaId} onValueChange={setFormFaturaId}>
-                            <SelectTrigger className="h-9 text-xs">
-                              <SelectValue placeholder="Selecione a fatura..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Fatura Geral / Nenhuma</SelectItem>
+                      {formPacienteId && formPacienteId !== "none" && (
+                        <div className="space-y-2 border rounded-xl p-3 bg-background border-border/80 shadow-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                            <div>
+                              <Label className="text-xs font-bold text-foreground block">
+                                Vincular às Consultas (Obrigatório) *
+                              </Label>
+                              <span className="text-[10px] text-muted-foreground">
+                                Escolha uma ou mais consultas correspondentes ao comprovante.
+                              </span>
+                            </div>
+                            {patientFaturas.length > 0 && (
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2 border-primary/20 text-primary hover:bg-primary/10"
+                                  onClick={() => {
+                                    const allIds = patientFaturas.map((f) => f.id);
+                                    setFormSelectedFaturaIds(allIds);
+                                    const totalSum = patientFaturas.reduce((sum, f) => sum + (Number(f.valor) || 0), 0);
+                                    setFormValor(totalSum > 0 ? totalSum.toFixed(2) : "");
+                                  }}
+                                >
+                                  Selecionar Todas
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-[10px] px-2 text-muted-foreground hover:text-foreground"
+                                  onClick={() => {
+                                    setFormSelectedFaturaIds([]);
+                                    setFormValor("");
+                                  }}
+                                >
+                                  Limpar
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+
+                          {patientFaturas.length === 0 ? (
+                            <div className="p-3 text-center text-xs text-muted-foreground italic">
+                              Nenhuma consulta/fatura aberta encontrada para este paciente.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 scrollbar-thin">
                               {patientFaturas.map((f) => {
+                                const isSelected = formSelectedFaturaIds.includes(f.id);
                                 const consultDateLabel = getFaturaConsultationDateLabel(f);
+
+                                const toggleSelect = () => {
+                                  let nextIds: string[];
+                                  if (isSelected) {
+                                    nextIds = formSelectedFaturaIds.filter((id) => id !== f.id);
+                                  } else {
+                                    nextIds = [...formSelectedFaturaIds, f.id];
+                                  }
+                                  setFormSelectedFaturaIds(nextIds);
+
+                                  const nextSum = patientFaturas
+                                    .filter((pf) => nextIds.includes(pf.id))
+                                    .reduce((sum, pf) => sum + (Number(pf.valor) || 0), 0);
+                                  if (nextSum > 0) {
+                                    setFormValor(nextSum.toFixed(2));
+                                  }
+                                };
+
                                 return (
-                                  <SelectItem key={f.id} value={f.id}>
-                                    Consulta em {consultDateLabel} - {brl(Number(f.valor))} ({f.status})
-                                  </SelectItem>
+                                  <div
+                                    key={f.id}
+                                    onClick={toggleSelect}
+                                    className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition duration-150 ${
+                                      isSelected
+                                        ? "bg-primary/10 border-primary/40 font-semibold text-primary"
+                                        : "bg-muted/30 border-border/60 hover:bg-muted/60 text-foreground"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <Checkbox
+                                        checked={isSelected}
+                                        onCheckedChange={toggleSelect}
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                      <span className="truncate">
+                                        Consulta em <strong>{consultDateLabel}</strong>
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className={isSelected ? "font-bold text-primary" : "text-muted-foreground"}>
+                                        {brl(Number(f.valor))}
+                                      </span>
+                                      <Badge
+                                        variant={f.status === "paga" ? "default" : "outline"}
+                                        className="text-[9px] px-1.5 py-0 uppercase"
+                                      >
+                                        {f.status}
+                                      </Badge>
+                                    </div>
+                                  </div>
                                 );
                               })}
-                            </SelectContent>
-                          </Select>
+                            </div>
+                          )}
+
+                          {formSelectedFaturaIds.length > 0 && (
+                            <div className="flex items-center justify-between text-[11px] font-semibold text-primary pt-1 border-t border-border/40">
+                              <span>{formSelectedFaturaIds.length} consulta(s) selecionada(s)</span>
+                              <span>
+                                Total Calculado:{" "}
+                                {brl(
+                                  patientFaturas
+                                    .filter((f) => formSelectedFaturaIds.includes(f.id))
+                                    .reduce((sum, f) => sum + (Number(f.valor) || 0), 0)
+                                )}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
 
