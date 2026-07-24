@@ -140,16 +140,16 @@ export function ComprovantesPagamentoDialog({
     enabled: open,
   });
 
-  // Filtered patient's faturas for form dropdown
-  const patientFaturas = useMemo(() => {
+  // Filtered and sorted patient's faturas for form dropdown (Most recent consultation first)
+  const rawPatientFaturas = useMemo(() => {
     if (!formPacienteId || formPacienteId === "none") return [];
     return (faturas || []).filter((f) => f.paciente_id === formPacienteId);
   }, [faturas, formPacienteId]);
 
   // Fetch fatura_itens for patient's faturas to get exact consultation dates
   const faturaIds = useMemo(() => {
-    return (patientFaturas || []).map((f) => f.id);
-  }, [patientFaturas]);
+    return (rawPatientFaturas || []).map((f) => f.id);
+  }, [rawPatientFaturas]);
 
   const { data: formFaturaItens = [] } = useQuery<any[]>({
     queryKey: ["dir-comprovante-fatura-itens", faturaIds],
@@ -261,6 +261,55 @@ export function ComprovantesPagamentoDialog({
 
     return Array.from(datesSet).join(", ");
   };
+
+  // Sort patientFaturas in descending order of consultation date (most recent first)
+  const patientFaturas = useMemo(() => {
+    if (rawPatientFaturas.length === 0) return [];
+    const list = [...rawPatientFaturas];
+
+    const getFaturaTimestamp = (f: any): number => {
+      const items = (formFaturaItens || []).filter(
+        (item: any) => item.fatura_id === f.id
+      );
+
+      for (const item of items) {
+        if (item.agendamento_id && agendamentoDateMap.has(item.agendamento_id)) {
+          const rawDate = agendamentoDateMap.get(item.agendamento_id);
+          if (rawDate) {
+            const t = new Date(rawDate).getTime();
+            if (!isNaN(t) && t > 0) return t;
+          }
+        }
+        if (item.descricao) {
+          const match = item.descricao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+          if (match) {
+            const [_, d, m, y] = match;
+            const t = new Date(Number(y), Number(m) - 1, Number(d)).getTime();
+            if (!isNaN(t) && t > 0) return t;
+          }
+        }
+      }
+
+      if (f.observacoes) {
+        const match = f.observacoes.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (match) {
+          const [_, d, m, y] = match;
+          const t = new Date(Number(y), Number(m) - 1, Number(d)).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+      }
+
+      const rawDate = f.competencia || f.vencimento || f.created_at;
+      if (rawDate) {
+        const t = new Date(rawDate).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+
+      return 0;
+    };
+
+    return list.sort((a, b) => getFaturaTimestamp(b) - getFaturaTimestamp(a));
+  }, [rawPatientFaturas, formFaturaItens, agendamentoDateMap]);
 
   // Handle file select
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
