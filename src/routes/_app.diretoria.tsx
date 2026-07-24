@@ -846,17 +846,17 @@ function DiretoriaPageContent() {
     // Faturamento Recebido (Pagas)
     const faturamentoRecebido = (faturas || [])
       .filter((f) => f.status === "paga")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
 
     // Faturamento A Receber (Abertas)
     const faturamentoAReceber = (faturas || [])
       .filter((f) => f.status === "aberta")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
 
     // Faturamento Vencido (Vencidas)
     const faturamentoVencido = (faturas || [])
       .filter((f) => f.status === "vencida")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
 
     // Faturamento Pendente (Abertas/Vencidas)
     const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
@@ -864,7 +864,7 @@ function DiretoriaPageContent() {
     // Faturamento Geral (Total Faturas)
     const faturamentoTotal = (faturas || [])
       .filter((f) => f.status !== "cancelada")
-      .reduce((acc, f) => acc + Number(f.valor), 0);
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
 
     // Despesas
     const totalDespesas = despesas.reduce((acc, d) => acc + Number(d.valor), 0);
@@ -2092,6 +2092,20 @@ function DiretoriaPageContent() {
     }
   };
 
+  // Helper to get exact effective value of a fatura (item total sum or fatura valor)
+  const getFaturaEffectiveValue = (fatura: any) => {
+    if (!fatura) return 0;
+    if (fatura.especialidade === "Apoio") {
+      return getApoioFaturaValor(fatura);
+    }
+    const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura.id);
+    if (items.length > 0) {
+      const itemsTotal = items.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0);
+      if (itemsTotal > 0) return itemsTotal;
+    }
+    return Number(fatura.valor) || 0;
+  };
+
   // Memoized consolidated billing by patient
   const consolidatedPatients = useMemo(() => {
     const map = new Map<
@@ -2145,7 +2159,7 @@ function DiretoriaPageContent() {
       }
 
       entry.faturas.push(f);
-      const val = f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0);
+      const val = getFaturaEffectiveValue(f);
 
       if (f.status === "paga") {
         entry.totalPago += val;
