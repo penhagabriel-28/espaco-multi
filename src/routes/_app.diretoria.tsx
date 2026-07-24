@@ -223,9 +223,8 @@ function DiretoriaPageContent() {
     };
   }, [queryClient]);
   const today = new Date();
-  const lastDayOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
-  const [fim, setFim] = useState(format(lastDayOfPrevMonth, "yyyy-MM-dd"));
+  const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
   const [oldestDebitMonth, setOldestDebitMonth] = useState("");
 
   // Mural de Recados States
