@@ -242,7 +242,7 @@ function DiretoriaPageContent() {
     mutationFn: async ({ pacienteId, cobrarDia }: { pacienteId: string; cobrarDia: number | null }) => {
       const { error } = await supabaseClient
         .from("pacientes")
-        .update({ cobrar_dia: cobrarDia })
+        .update({ cobrar_dia: cobrarDia } as any)
         .eq("id", pacienteId);
       if (error) throw error;
     },
@@ -2651,6 +2651,207 @@ function DiretoriaPageContent() {
     printWindow.document.close();
   };
 
+  const handleExportPatientFaturasPdf = (pacienteId: string, pacienteNome: string) => {
+    if (!pacienteId) return;
+
+    const rowsToExport = selectedRowIds.length > 0
+      ? patientDetailedRows.filter((r: any) => selectedRowIds.includes(r.id))
+      : patientDetailedRows;
+
+    if (rowsToExport.length === 0) {
+      toast.error("Nenhuma fatura encontrada para exportar.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Por favor, permita pop-ups para exportar o PDF.");
+      return;
+    }
+
+    const resps = responsaveisMap.get(pacienteId) || [];
+    const respNames = resps
+      .map((r: any) => `${r.nome}${r.parentesco ? ` (${r.parentesco})` : ""}${r.whatsapp || r.telefone ? ` - Tel: ${r.whatsapp || r.telefone}` : ""}`)
+      .join("<br/>");
+
+    const totalPendente = rowsToExport
+      .filter((r: any) => r.status === "aberta" || r.status === "vencida")
+      .reduce((acc: number, r: any) => acc + (Number(r.valor) || 0), 0);
+    const totalPago = rowsToExport
+      .filter((r: any) => r.status === "paga")
+      .reduce((acc: number, r: any) => acc + (Number(r.valor) || 0), 0);
+    const totalGeral = rowsToExport
+      .reduce((acc: number, r: any) => acc + (Number(r.valor) || 0), 0);
+
+    const rowsHtml = rowsToExport.map((row: any) => {
+      let statusBg = "#f1f5f9";
+      let statusColor = "#475569";
+      let statusText = row.status;
+
+      if (row.status === "paga") {
+        statusBg = "#dcfce7";
+        statusColor = "#15803d";
+        statusText = "Pago";
+      } else if (row.status === "aberta") {
+        statusBg = "#e0f2fe";
+        statusColor = "#0369a1";
+        statusText = "Em Aberto";
+      } else if (row.status === "vencida") {
+        statusBg = "#ffe4e6";
+        statusColor = "#be123c";
+        statusText = "Vencida";
+      } else if (row.status === "cancelada") {
+        statusBg = "#f3f4f6";
+        statusColor = "#6b7280";
+        statusText = "Cancelada";
+      }
+
+      const dateStr = row.competencia
+        ? format(new Date(row.competencia + "T12:00:00"), "MM/yyyy")
+        : "—";
+
+      const vencStr = row.vencimento
+        ? format(new Date(row.vencimento + "T12:00:00"), "dd/MM/yyyy")
+        : "—";
+
+      const pagtoStr = row.status === "paga" && row.pago_em
+        ? `${format(new Date(row.pago_em), "dd/MM/yyyy")}${row.metodo ? ` (${String(row.metodo).toUpperCase()})` : ""}`
+        : "—";
+
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 8px 10px; font-size: 11px;">${dateStr}</td>
+          <td style="padding: 8px 10px; font-size: 11px; font-weight: 500;">${row.descricao || "—"}</td>
+          <td style="padding: 8px 10px; font-size: 11px;">${row.profissionalNome || "—"}</td>
+          <td style="padding: 8px 10px; font-size: 11px;">${vencStr}</td>
+          <td style="padding: 8px 10px; font-size: 11px; font-weight: bold; text-align: right;">${brl(Number(row.valor) || 0)}</td>
+          <td style="padding: 8px 10px; font-size: 11px; text-align: center;">
+            <span style="background-color: ${statusBg}; color: ${statusColor}; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 10px; display: inline-block;">
+              ${statusText}
+            </span>
+          </td>
+          <td style="padding: 8px 10px; font-size: 11px; text-align: center;">${pagtoStr}</td>
+        </tr>
+      `;
+    }).join("");
+
+    const nowStr = format(new Date(), "dd/MM/yyyy 'às' HH:mm");
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Extrato de Faturas - ${pacienteNome}</title>
+        <style>
+          body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 30px; color: #1e293b; background-color: #ffffff; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0284c7; padding-bottom: 15px; margin-bottom: 20px; }
+          .clinic-name { font-size: 22px; font-weight: 800; color: #0284c7; margin: 0; letter-spacing: -0.5px; }
+          .doc-subtitle { font-size: 12px; color: #64748b; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+          .info-card { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px; display: grid; grid-template-cols: 1fr 1fr; gap: 15px; }
+          .info-item label { font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 3px; }
+          .info-item div { font-size: 13px; font-weight: 600; color: #0f172a; }
+          .summary-grid { display: grid; grid-template-cols: 1fr 1fr 1fr; gap: 12px; margin-bottom: 25px; }
+          .summary-box { border-radius: 8px; padding: 12px 16px; border: 1px solid #e2e8f0; }
+          .summary-box.pendente { background-color: #fef2f2; border-color: #fecaca; }
+          .summary-box.pago { background-color: #f0fdf4; border-color: #bbf7d0; }
+          .summary-box.total { background-color: #f8fafc; border-color: #cbd5e1; }
+          .summary-box label { font-size: 10px; font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 4px; }
+          .summary-box.pendente label { color: #991b1b; }
+          .summary-box.pago label { color: #166534; }
+          .summary-box.total label { color: #334155; }
+          .summary-box .val { font-size: 18px; font-weight: 800; }
+          .summary-box.pendente .val { color: #dc2626; }
+          .summary-box.pago .val { color: #16a34a; }
+          .summary-box.total .val { color: #0f172a; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 11px; }
+          th { background-color: #f1f5f9; color: #334155; font-weight: 700; padding: 10px; text-align: left; border-bottom: 2px solid #cbd5e1; text-transform: uppercase; font-size: 10px; }
+          .footer-note { font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 30px; text-align: center; }
+          .print-btn { padding: 10px 20px; background-color: #0284c7; color: #ffffff; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; shadow: 0 1px 2px rgba(0,0,0,0.1); }
+          .print-btn:hover { background-color: #0369a1; }
+          @media print {
+            body { margin: 15px; }
+            .no-print { display: none !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1 class="clinic-name">Espaço Multi</h1>
+            <div class="doc-subtitle">Extrato Financeiro de Cobranças do Paciente</div>
+          </div>
+          <div class="no-print" style="text-align: right;">
+            <button class="print-btn" onclick="window.print()">
+              🖨️ Imprimir / Salvar em PDF
+            </button>
+          </div>
+        </div>
+
+        <div class="info-card">
+          <div class="info-item">
+            <label>Paciente</label>
+            <div>${pacienteNome}</div>
+          </div>
+          <div class="info-item">
+            <label>Responsável(eis)</label>
+            <div>${respNames || "Nenhum responsável cadastrado"}</div>
+          </div>
+          <div class="info-item">
+            <label>Período de Referência</label>
+            <div>${inicio.split('-').reverse().join('/')} a ${fim.split('-').reverse().join('/')}</div>
+          </div>
+          <div class="info-item">
+            <label>Data de Emissão</label>
+            <div>${nowStr}</div>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-box pendente">
+            <label>Total Pendente</label>
+            <div class="val">${brl(totalPendente)}</div>
+          </div>
+          <div class="summary-box pago">
+            <label>Total Pago</label>
+            <div class="val">${brl(totalPago)}</div>
+          </div>
+          <div class="summary-box total">
+            <label>Total Geral</label>
+            <div class="val">${brl(totalGeral)}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 80px;">Competência</th>
+              <th>Sessão / Descrição</th>
+              <th>Profissional</th>
+              <th style="width: 80px;">Vencimento</th>
+              <th style="width: 90px; text-align: right;">Valor</th>
+              <th style="width: 90px; text-align: center;">Status</th>
+              <th style="width: 120px; text-align: center;">Pagamento</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+
+        <div class="footer-note">
+          Este documento é um extrato demonstrativo das cobranças vinculadas ao paciente <strong>${pacienteNome}</strong>, gerado para acompanhamento do responsável.
+          <br/>
+          <strong>Espaço Multi</strong> — Todos os direitos reservados.
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
     const resps = responsaveisMap.get(pacienteId) || [];
     const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
@@ -3020,17 +3221,33 @@ Nosso pix: 54.747.611/0001-27
     setPayDialog({ open: true, fatura });
   };
 
-  const handleOpenEdit = (fatura: any) => {
+  const handleOpenEdit = (fatura: any, defaultValor?: number | string) => {
+    let valToUse = fatura?.valor;
+    if (defaultValor !== undefined && defaultValor !== null && Number(defaultValor) > 0) {
+      valToUse = defaultValor;
+    } else if (!valToUse || Number(valToUse) === 0) {
+      const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura?.id);
+      const itemsTotal = items.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0);
+      if (itemsTotal > 0) {
+        valToUse = itemsTotal;
+      } else {
+        const price = getFaturaPrice(fatura?.paciente_id, fatura?.profissional_id, fatura?.especialidade);
+        if (price > 0) {
+          valToUse = price;
+        }
+      }
+    }
+
     setFaturaForm({
-      paciente_id: fatura.paciente_id,
-      competencia: fatura.competencia,
-      vencimento: fatura.vencimento || getResolvedVencimento(fatura) || "",
-      valor: String(fatura.valor),
-      status: fatura.status,
-      pago_em: fatura.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
-      observacoes: fatura.observacoes || "",
-      profissional_id: fatura.profissional_id || "",
-      especialidade: fatura.especialidade || "",
+      paciente_id: fatura?.paciente_id || "",
+      competencia: fatura?.competencia || "",
+      vencimento: fatura?.vencimento || getResolvedVencimento(fatura) || "",
+      valor: String(valToUse ?? 0),
+      status: fatura?.status || "aberta",
+      pago_em: fatura?.pago_em ? format(new Date(fatura.pago_em), "yyyy-MM-dd") : "",
+      observacoes: fatura?.observacoes || "",
+      profissional_id: fatura?.profissional_id || "",
+      especialidade: fatura?.especialidade || "",
     });
     setEditDialog({ open: true, fatura });
   };
@@ -3090,19 +3307,19 @@ Nosso pix: 54.747.611/0001-27
       );
     }
     return (
-      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+      <div className="overflow-auto max-h-[65vh] rounded-lg border border-border bg-card relative">
         <Table>
-          <TableHeader className="bg-muted/40 font-semibold text-foreground">
+          <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
             <TableRow className="text-xs">
-              <TableHead className="py-2 px-2.5">Paciente</TableHead>
-              <TableHead className="py-2 px-2.5">Profissionais</TableHead>
-              <TableHead className="py-2 px-2.5">Responsável</TableHead>
-              <TableHead className="py-2 px-2.5 text-center">Fats. Pend.</TableHead>
-              <TableHead className="py-2 px-2.5">Soma Pend.</TableHead>
-              <TableHead className="py-2 px-2.5">Soma Paga</TableHead>
-              <TableHead className="py-2 px-2.5">Soma Geral</TableHead>
-              <TableHead className="py-2 px-2.5">Situação</TableHead>
-              <TableHead className="py-2 px-2.5 w-[150px] text-right">Ações</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Paciente</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Profissionais</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Responsável</TableHead>
+              <TableHead className="py-2 px-2.5 text-center sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Fats. Pend.</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Soma Pend.</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Soma Paga</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Soma Geral</TableHead>
+              <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Situação</TableHead>
+              <TableHead className="py-2 px-2.5 w-[150px] text-right sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -4799,6 +5016,20 @@ Nosso pix: 54.747.611/0001-27
               </div>
             </div>
             <div className="flex items-center gap-2 mr-6">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 font-semibold cursor-pointer border-primary/20 text-primary hover:bg-primary/5"
+                onClick={() =>
+                  handleExportPatientFaturasPdf(
+                    patientFaturasDialog.pacienteId,
+                    patientFaturasDialog.pacienteNome
+                  )
+                }
+                title="Exportar extrato financeiro para o responsável em PDF"
+              >
+                <Printer className="h-4 w-4" /> Exportar PDF
+              </Button>
               {selectedRowIds.length > 0 && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -4860,17 +5091,17 @@ Nosso pix: 54.747.611/0001-27
             </div>
           </DialogHeader>
 
-          <div className="py-4">
+          <div className="py-2 flex-1 overflow-hidden">
             {patientDetailedRows.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground border border-dashed rounded-lg">
                 Nenhuma fatura cadastrada para este paciente no período selecionado.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border">
+              <div className="overflow-auto max-h-[60vh] rounded-lg border border-border relative">
                 <Table>
-                  <TableHeader className="bg-muted/40 font-semibold text-foreground">
+                  <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
                     <TableRow>
-                      <TableHead className="w-12 text-center">
+                      <TableHead className="w-12 text-center sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">
                         <Checkbox
                           checked={
                             patientDetailedRows.length > 0 &&
@@ -4885,15 +5116,15 @@ Nosso pix: 54.747.611/0001-27
                           }}
                         />
                       </TableHead>
-                      <TableHead>Competência</TableHead>
-                      <TableHead>Sessão / Descrição</TableHead>
-                      <TableHead>Profissional</TableHead>
-                      <TableHead>Vencimento</TableHead>
-                      <TableHead>Valor</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Pagamento</TableHead>
-                      <TableHead>Dias de Atraso</TableHead>
-                      <TableHead className="w-[140px] text-right">Ações</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Competência</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Sessão / Descrição</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Profissional</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Vencimento</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Valor</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Status</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Pagamento</TableHead>
+                      <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Dias de Atraso</TableHead>
+                      <TableHead className="w-[140px] text-right sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -5059,7 +5290,7 @@ Nosso pix: 54.747.611/0001-27
                                 size="icon"
                                 title="Editar Cobrança"
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                onClick={() => handleOpenEdit(row.fatura)}
+                                onClick={() => handleOpenEdit(row.fatura, row.valor)}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
