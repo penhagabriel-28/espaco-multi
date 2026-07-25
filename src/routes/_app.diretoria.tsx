@@ -3330,9 +3330,8 @@ Nosso pix: 54.747.611/0001-27
       );
     }
     return (
-      <div className="overflow-auto max-h-[65vh] rounded-lg border border-border bg-card relative">
-        <Table>
-          <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
+      <Table containerClassName="overflow-auto max-h-[65vh] rounded-lg border border-border bg-card relative">
+        <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
             <TableRow className="text-xs">
               <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Paciente</TableHead>
               <TableHead className="py-2 px-2.5 sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">Profissionais</TableHead>
@@ -3611,7 +3610,6 @@ Nosso pix: 54.747.611/0001-27
             })}
           </TableBody>
         </Table>
-      </div>
     );
   };
   return (
@@ -4309,16 +4307,15 @@ Nosso pix: 54.747.611/0001-27
                     Nenhum profissional com sessões correspondentes no período.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <Table>
-                      <TableHeader className="bg-muted/40 font-semibold text-foreground">
+                    <Table containerClassName="overflow-auto max-h-[60vh] rounded-lg border border-border relative">
+                      <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
                         <TableRow>
-                          <TableHead>Profissional</TableHead>
-                          <TableHead>Especialidades Atendidas</TableHead>
-                          <TableHead className="text-center">Qtd de Sessões</TableHead>
-                          <TableHead>Faturamento Bruto</TableHead>
-                          <TableHead>Repasse Profissional</TableHead>
-                          <TableHead>Comissão Clínica</TableHead>
+                          <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 font-semibold text-foreground">Profissional</TableHead>
+                          <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 font-semibold text-foreground">Especialidades Atendidas</TableHead>
+                          <TableHead className="text-center sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 font-semibold text-foreground">Qtd de Sessões</TableHead>
+                          <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 font-semibold text-foreground">Faturamento Bruto</TableHead>
+                          <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 font-semibold text-foreground">Repasse Profissional</TableHead>
+                          <TableHead className="sticky top-0 z-20 bg-slate-100 dark:bg-slate-800 font-semibold text-foreground">Comissão Clínica</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -4531,7 +4528,6 @@ Nosso pix: 54.747.611/0001-27
                         })}
                       </TableBody>
                     </Table>
-                  </div>
                 )}
               </CardContent>
             </Card>
@@ -5160,9 +5156,8 @@ Nosso pix: 54.747.611/0001-27
                 Nenhuma fatura cadastrada para este paciente no período selecionado.
               </div>
             ) : (
-              <div className="overflow-auto max-h-[60vh] rounded-lg border border-border relative">
-                <Table>
-                  <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
+              <Table containerClassName="overflow-auto max-h-[60vh] rounded-lg border border-border relative">
+                <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-20 shadow-xs">
                     <TableRow>
                       <TableHead className="w-12 text-center sticky top-0 z-20 bg-slate-100 dark:bg-slate-800">
                         <Checkbox
@@ -5401,7 +5396,6 @@ Nosso pix: 54.747.611/0001-27
                     })}
                   </TableBody>
                 </Table>
-              </div>
             )}
           </div>
         </DialogContent>

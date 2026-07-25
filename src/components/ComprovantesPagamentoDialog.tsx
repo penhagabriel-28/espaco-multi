@@ -853,7 +853,7 @@ export function ComprovantesPagamentoDialog({
             )}
 
             {/* Filter and Order Controls */}
-            <div className="space-y-3 bg-muted/30 p-3.5 rounded-xl border border-border/60">
+            <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-md space-y-3 p-3.5 rounded-xl border border-border/60 shadow-xs">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 {/* Order Indicator Banner */}
                 <div className="flex items-center gap-2 text-xs font-semibold text-primary">
