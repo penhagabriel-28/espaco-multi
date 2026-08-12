@@ -10,7 +10,6 @@ SET search_path = public, auth
 AS $$
 BEGIN
   NEW.email_confirmed_at := COALESCE(NEW.email_confirmed_at, now());
-  NEW.confirmed_at := COALESCE(NEW.confirmed_at, now());
   RETURN NEW;
 END;
 $$;

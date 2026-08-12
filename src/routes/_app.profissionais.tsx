@@ -27,13 +27,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/profissionais")({
   component: ProfissionaisPage,
@@ -251,6 +246,36 @@ function ProfissionaisPage() {
     });
   }, [data, orderIds]);
 
+  const aniversariantesDoMes = useMemo(() => {
+    if (!Array.isArray(data)) return [];
+    const currentMonthNum = new Date().getMonth() + 1;
+    const currentDayNum = new Date().getDate();
+
+    return data
+      .map((p: any) => {
+        const dateStr = p.data_nascimento || (p.valores_config as any)?.data_nascimento;
+        if (!dateStr || typeof dateStr !== "string") return null;
+        const parts = dateStr.split("-");
+        if (parts.length !== 3) return null;
+        const month = parseInt(parts[1], 10);
+        const day = parseInt(parts[2], 10);
+        if (month !== currentMonthNum) return null;
+
+        const isToday = day === currentDayNum;
+        return {
+          id: p.id,
+          nome: p.nome,
+          especialidade: p.especialidade,
+          cor: p.cor,
+          dia: day,
+          dataNascimento: dateStr,
+          isToday,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a!.dia - b!.dia);
+  }, [data]);
+
   if (isLoading) {
     return (
       <div className="flex h-[50vh] items-center justify-center">
@@ -354,6 +379,50 @@ function ProfissionaisPage() {
           )}
         </Dialog>
       </div>
+
+      {aniversariantesDoMes.length > 0 && (
+        <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-amber-500/10 to-orange-500/5 dark:from-amber-950/20 dark:to-orange-950/20 shadow-sm">
+          <CardContent className="p-3.5">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-lg">🎂</span>
+              <h3 className="font-semibold text-xs text-foreground uppercase tracking-wider">
+                Aniversariantes do Mês (Equipe)
+              </h3>
+              <Badge variant="secondary" className="ml-auto text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 capitalize">
+                {format(new Date(), "MMMM", { locale: ptBR })}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {aniversariantesDoMes.map((prof: any) => (
+                <div
+                  key={prof.id}
+                  className={cn(
+                    "flex items-center gap-2 px-2.5 py-1.5 rounded-lg border bg-card/90 text-xs shadow-xs transition-all",
+                    prof.isToday && "border-amber-500 bg-amber-50/90 dark:bg-amber-950/60 ring-2 ring-amber-500/40"
+                  )}
+                >
+                  <div
+                    className="h-2.5 w-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: prof.cor || "var(--primary)" }}
+                  />
+                  <span className="font-medium text-foreground">{prof.nome}</span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] h-4 px-1.5 font-normal",
+                      prof.isToday
+                        ? "bg-amber-500 text-white font-semibold border-amber-500"
+                        : "bg-muted/60"
+                    )}
+                  >
+                    {prof.isToday ? "Hoje! 🎉" : `Dia ${prof.dia}`}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {data.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
@@ -505,6 +574,15 @@ function ProfissionaisPage() {
                         (a: any) => a && a.profissional_id === p.id && a.status !== "cancelado"
                       ).length;
                       
+                      const birthDateStr = (p as any).data_nascimento || (p.valores_config as any)?.data_nascimento;
+                      let formattedBirth = null;
+                      if (birthDateStr && typeof birthDateStr === "string" && birthDateStr.includes("-")) {
+                        const parts = birthDateStr.split("-");
+                        if (parts.length === 3) {
+                          formattedBirth = `${parts[2]}/${parts[1]}`;
+                        }
+                      }
+
                       return (
                         <>
                           <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-muted/60 text-muted-foreground hover:bg-muted/60 shrink-0">
@@ -518,6 +596,11 @@ function ProfissionaisPage() {
                           <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-primary/10 text-primary hover:bg-primary/10 shrink-0 border border-primary/10">
                             📅 {sessionsCount} {sessionsCount === 1 ? "Sessão" : "Sessões"}
                           </Badge>
+                          {formattedBirth && (
+                            <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 shrink-0 border border-amber-500/20">
+                              🎂 Nasc. {formattedBirth}
+                            </Badge>
+                          )}
                         </>
                       );
                     })()}
@@ -656,6 +739,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     especialidades: (prof?.valores_config as any)?.especialidades || [],
     descontos: (prof?.valores_config as any)?.descontos || [],
     ativo_ate: (prof?.valores_config as any)?.ativo_ate,
+    data_nascimento: prof?.data_nascimento ?? ((prof?.valores_config as any)?.data_nascimento || ""),
   };
 
   const [form, setForm] = useState(() => {
@@ -690,6 +774,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
       especialidades: initialSpecs,
       email: prof?.email ?? "",
       telefone: prof?.telefone ?? "",
+      data_nascimento: prof?.data_nascimento ?? (config.data_nascimento || ""),
       cor: prof?.cor ?? CORES[0],
       ativo: prof?.ativo ?? true,
       ativo_ate: config.ativo_ate ?? "",
@@ -745,6 +830,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
             };
           }),
         ativo_ate: form.ativo_ate || null,
+        data_nascimento: form.data_nascimento || null,
       };
 
       const payload: any = {
@@ -752,6 +838,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         especialidade: activeSpecs.map((e: any) => e.nome?.trim() || "").filter(Boolean).join(", ") || null,
         email: form.email || null,
         telefone: form.telefone || null,
+        data_nascimento: form.data_nascimento || null,
         cor: form.cor,
         ativo: form.ativo,
         valores_config: payloadConfig,
@@ -917,7 +1004,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="space-y-1.5">
           <Label>E-mail</Label>
           <Input
@@ -931,6 +1018,14 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
           <Input
             value={form.telefone}
             onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Data de Nascimento</Label>
+          <Input
+            type="date"
+            value={form.data_nascimento}
+            onChange={(e) => setForm({ ...form, data_nascimento: e.target.value })}
           />
         </div>
       </div>

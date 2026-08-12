@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Users, Stethoscope, CheckCircle2, Clock, XCircle, DoorOpen, DoorClosed } from "lucide-react";
+import { Calendar, Users, Stethoscope, CheckCircle2, Clock, XCircle, DoorOpen, DoorClosed, Cake, Gift } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/dashboard")({
   component: Dashboard,
@@ -105,6 +106,50 @@ function Dashboard() {
     },
   });
 
+  // Buscar profissionais para aniversariantes do mês
+  const { data: profissionaisList = [] } = useQuery({
+    queryKey: ["profissionais-dashboard-bday"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profissionais")
+        .select("id, nome, especialidade, cor, valores_config, ativo")
+        .eq("ativo", true)
+        .order("nome");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const aniversariantesDoMes = useMemo(() => {
+    if (!Array.isArray(profissionaisList)) return [];
+    const currentMonthNum = now.getMonth() + 1;
+    const currentDayNum = now.getDate();
+
+    return profissionaisList
+      .map((p: any) => {
+        const dateStr = p.data_nascimento || (p.valores_config as any)?.data_nascimento;
+        if (!dateStr || typeof dateStr !== "string") return null;
+        const parts = dateStr.split("-");
+        if (parts.length !== 3) return null;
+        const month = parseInt(parts[1], 10);
+        const day = parseInt(parts[2], 10);
+        if (month !== currentMonthNum) return null;
+
+        const isToday = day === currentDayNum;
+        return {
+          id: p.id,
+          nome: p.nome,
+          especialidade: p.especialidade,
+          cor: p.cor,
+          dia: day,
+          dataNascimento: dateStr,
+          isToday,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a!.dia - b!.dia);
+  }, [profissionaisList, now]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -135,6 +180,64 @@ function Dashboard() {
           tone="accent"
         />
       </div>
+
+      {aniversariantesDoMes.length > 0 && (
+        <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-amber-500/10 to-orange-500/5 dark:from-amber-950/20 dark:to-orange-950/20 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="p-1.5 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                <Cake className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm text-foreground">
+                  Aniversariantes do Mês (Equipe)
+                </h3>
+                <p className="text-[11px] text-muted-foreground">
+                  Profissionais comemorando aniversário em {format(new Date(), "MMMM", { locale: ptBR })}
+                </p>
+              </div>
+              <Badge variant="secondary" className="ml-auto text-[10px] bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-medium capitalize">
+                🎂 {aniversariantesDoMes.length} {aniversariantesDoMes.length === 1 ? "aniversariante" : "aniversariantes"}
+              </Badge>
+            </div>
+            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+              {aniversariantesDoMes.map((prof: any) => (
+                <div
+                  key={prof.id}
+                  className={cn(
+                    "flex items-center justify-between gap-3 p-2.5 rounded-lg border bg-card/90 shadow-xs transition-all",
+                    prof.isToday && "border-amber-500 bg-amber-50/90 dark:bg-amber-950/60 ring-2 ring-amber-500/40"
+                  )}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className="h-3 w-3 rounded-full shrink-0"
+                      style={{ backgroundColor: prof.cor || "var(--primary)" }}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-medium text-xs truncate text-foreground">{prof.nome}</div>
+                      {prof.especialidade && (
+                        <div className="text-[10px] text-muted-foreground truncate">{prof.especialidade}</div>
+                      )}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] h-5 px-2 font-normal shrink-0",
+                      prof.isToday
+                        ? "bg-amber-500 text-white font-semibold border-amber-500 animate-pulse"
+                        : "bg-muted/50"
+                    )}
+                  >
+                    {prof.isToday ? "Hoje! 🎉" : `Dia ${prof.dia}`}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Central de Monitoramento de Salas */}
       <div className="space-y-3">

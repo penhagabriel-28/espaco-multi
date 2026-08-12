@@ -270,7 +270,10 @@ function FrequenciaPage() {
   });
 
   const activeProfissionais = useMemo(() => {
+    const EXCLUDED_FILTER_PROF_NAMES = ["dailson", "daniele", "danielle", "cristina"];
     return (profissionais || []).filter((p: any) => {
+      const normalized = normalizeString(p.nome || "");
+      if (EXCLUDED_FILTER_PROF_NAMES.some((ex) => normalized.includes(ex))) return false;
       if (selectedProfs.includes(p.id)) return true;
       if (p.ativo) return true;
       const config = p.valores_config as any;

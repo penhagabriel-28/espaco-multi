@@ -37,7 +37,6 @@ BEGIN
     -- Update existing user to ensure confirmed_at is set and password is correct
     UPDATE auth.users
     SET 
-      confirmed_at = COALESCE(confirmed_at, now()),
       email_confirmed_at = COALESCE(email_confirmed_at, now()),
       encrypted_password = v_encrypted_pw,
       raw_app_meta_data = '{"provider":"email","providers":["email"]}'::jsonb,
@@ -57,7 +56,7 @@ BEGIN
         created_at,
         updated_at
       ) VALUES (
-        v_user_id::text,
+      v_user_id,
         v_user_id,
         format('{"sub":"%s","email":"%s"}', v_user_id::text, 'gabymartyns04@gmail.com')::jsonb,
         'email',
@@ -88,7 +87,6 @@ BEGIN
       email,
       encrypted_password,
       email_confirmed_at,
-      confirmed_at,
       raw_app_meta_data,
       raw_user_meta_data,
       created_at,
@@ -100,7 +98,6 @@ BEGIN
       'authenticated',
       'gabymartyns04@gmail.com',
       v_encrypted_pw,
-      now(),
       now(),
       '{"provider":"email","providers":["email"]}'::jsonb,
       '{"nome":"Gabi Martins"}'::jsonb,
@@ -119,7 +116,7 @@ BEGIN
       created_at,
       updated_at
     ) VALUES (
-      v_user_id::text,
+      v_user_id,
       v_user_id,
       format('{"sub":"%s","email":"%s"}', v_user_id::text, 'gabymartyns04@gmail.com')::jsonb,
       'email',

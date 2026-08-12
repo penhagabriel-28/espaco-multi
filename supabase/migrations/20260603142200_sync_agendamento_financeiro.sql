@@ -125,10 +125,12 @@ BEGIN
     RETURN COALESCE(v_valor_sessao, 0);
   END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE FUNCTION public.tg_sync_agendamento_financeiro()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
 DECLARE
   v_especialidade text;
   v_tipo_agendamento text;
@@ -221,7 +223,7 @@ BEGIN
 
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE OR REPLACE TRIGGER tr_sync_agendamento_financeiro
 AFTER INSERT OR UPDATE OR DELETE ON public.agendamentos

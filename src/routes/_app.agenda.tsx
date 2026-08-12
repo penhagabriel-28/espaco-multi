@@ -175,8 +175,12 @@ function Agenda() {
   const sortedProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
     
-    // Filter active professionals in the selected week
+    const EXCLUDED_FILTER_PROF_NAMES = ["dailson", "daniele", "danielle", "cristina"];
+    
+    // Filter active professionals in the selected week, excluding specified names from filters
     const activeInWeek = profissionais.filter((p: any) => {
+      const normalized = normalizeString(p.nome || "");
+      if (EXCLUDED_FILTER_PROF_NAMES.some((ex) => normalized.includes(ex))) return false;
       if (selectedProfs.includes(p.id)) return true;
       if (p.ativo) return true;
       const config = p.valores_config as any;

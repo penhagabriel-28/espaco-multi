@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay } from "date-fns";
+import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay, subMonths } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { createMuralMessage, updateMuralMessage, deleteMuralMessage } from "@/lib/api/mural.functions";
@@ -223,8 +223,9 @@ function DiretoriaPageContent() {
     };
   }, [queryClient]);
   const today = new Date();
-  const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
-  const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
+  const prevMonth = subMonths(today, 1);
+  const [inicio, setInicio] = useState(format(startOfMonth(prevMonth), "yyyy-MM-dd"));
+  const [fim, setFim] = useState(format(endOfMonth(prevMonth), "yyyy-MM-dd"));
   const [oldestDebitMonth, setOldestDebitMonth] = useState("");
 
   // Mural de Recados States
@@ -286,7 +287,6 @@ function DiretoriaPageContent() {
         if (data && data.length > 0 && data[0]?.competencia) {
           const rawDate = data[0].competencia;
           const formattedDate = typeof rawDate === "string" ? rawDate.substring(0, 10) : format(new Date(rawDate), "yyyy-MM-dd");
-          setInicio(formattedDate);
           setOldestDebitMonth(formattedDate.substring(0, 7));
         }
       } catch (err) {

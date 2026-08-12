@@ -15,7 +15,7 @@ async function getSupabaseClient() {
 export const createMuralMessage = createServerFn({ method: "POST" })
   .inputValidator(z.object({ autor: z.string(), conteudo: z.string() }))
   .handler(async ({ data }) => {
-    const client = await getSupabaseClient();
+    const client: any = await getSupabaseClient();
     const { error } = await client
       .from("mural_recados")
       .insert({
@@ -34,7 +34,7 @@ export const updateMuralMessage = createServerFn({ method: "POST" })
     resposta: z.string().optional().nullable()
   }))
   .handler(async ({ data }) => {
-    const client = await getSupabaseClient();
+    const client: any = await getSupabaseClient();
     const updateData: any = {};
     if (data.conteudo !== undefined) updateData.conteudo = data.conteudo;
     if (data.feito !== undefined) updateData.feito = data.feito;
@@ -51,7 +51,7 @@ export const updateMuralMessage = createServerFn({ method: "POST" })
 export const deleteMuralMessage = createServerFn({ method: "POST" })
   .inputValidator(z.object({ id: z.string() }))
   .handler(async ({ data }) => {
-    const client = await getSupabaseClient();
+    const client: any = await getSupabaseClient();
     const { error } = await client
       .from("mural_recados")
       .delete()
