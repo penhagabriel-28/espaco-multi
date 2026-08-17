@@ -34,3 +34,8 @@ dist-ssr
 # Vercel build output
 .vercel
 
+# Scratch scripts
+scratch/
+inspect_schema_pac_ag.js
+calculate_active_patients.js
+
