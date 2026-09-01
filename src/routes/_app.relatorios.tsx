@@ -57,6 +57,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { formatCPF } from "@/components/PacienteFormDialog";
+import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/relatorios")({
@@ -750,15 +751,35 @@ function RelatoriosPage() {
   };
 
   // --- Módulo de Evolução AT ABA ---
-  const [selectedAbaPacienteId, setSelectedAbaPacienteId] = useState("");
+  const [selectedAbaPacienteId, setSelectedAbaPacienteId] = useState("todos");
+  
+  const { data: abaPacientesDb = [] } = useQuery({
+    queryKey: ["aba-pacientes-db"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("agendamentos")
+        .select("paciente_id, pacientes(id, nome, cids_secundarios)")
+        .not("plano_aba", "is", null);
+      return data ?? [];
+    },
+  });
+
   const abaPatients = useMemo(() => {
-    return activePatients.filter((p: any) => {
-      const pacSpecs = Array.isArray(p.cids_secundarios)
-        ? p.cids_secundarios.map((s: any) => String(s).trim().toLowerCase())
-        : [];
-      return pacSpecs.includes("at aba");
+    const map = new Map<string, any>();
+    (activePatients || []).forEach((p: any) => {
+      const isAba = Array.isArray(p.cids_secundarios) && p.cids_secundarios.some((s: any) => String(s).toLowerCase().includes("aba"));
+      map.set(p.id, { ...p, hasAbaTag: isAba, hasSavedPlans: false });
     });
-  }, [activePatients]);
+    (abaPacientesDb || []).forEach((r: any) => {
+      if (r.pacientes && !map.has(r.pacientes.id)) {
+        map.set(r.pacientes.id, { ...r.pacientes, hasAbaTag: true, hasSavedPlans: true });
+      } else if (r.pacientes && map.has(r.pacientes.id)) {
+        map.get(r.pacientes.id).hasSavedPlans = true;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+  }, [activePatients, abaPacientesDb]);
+
   const [abaInicio, setAbaInicio] = useState(() => {
     const d = addDays(new Date(), -180); // Default last 6 months
     return format(startOfMonth(d), "yyyy-MM-dd");
@@ -767,27 +788,31 @@ function RelatoriosPage() {
   const [selectedAbaProgram, setSelectedAbaProgram] = useState("");
   const [viewAbaOpen, setViewAbaOpen] = useState(false);
   const [viewAbaSession, setViewAbaSession] = useState<any>(null);
+  const [editAbaOpen, setEditAbaOpen] = useState(false);
+  const [editAbaSession, setEditAbaSession] = useState<any>(null);
 
-  // Query ABA sessions
+  // Query ABA sessions (all or filtered by patient)
   const { data: abaSessions = [], isLoading: isLoadingAba } = useQuery({
     queryKey: ["aba-sessions", selectedAbaPacienteId, abaInicio, abaFim],
     queryFn: async () => {
-      if (!selectedAbaPacienteId) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from("agendamentos")
-        .select("id, data_inicio, data_fim, status, profissional:profissionais(id, nome), plano_aba")
-        .eq("paciente_id", selectedAbaPacienteId)
+        .select("id, paciente_id, data_inicio, data_fim, status, paciente:pacientes(id, nome), profissional:profissionais(id, nome), plano_aba")
         .not("plano_aba", "is", null)
         .gte("data_inicio", `${abaInicio}T00:00:00`)
         .lte("data_inicio", `${abaFim}T23:59:59`)
         .order("data_inicio", { ascending: true });
+
+      if (selectedAbaPacienteId && selectedAbaPacienteId !== "todos") {
+        query = query.eq("paciente_id", selectedAbaPacienteId);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       return data ?? [];
     },
-    enabled: !!selectedAbaPacienteId,
   });
 
-  // Calculate session-by-session stats for charts
+  // Calculate session-by-session stats for charts and tables
   const chartData = useMemo(() => {
     return abaSessions.map((session: any) => {
       const plano = session.plano_aba as any;
@@ -814,8 +839,12 @@ function RelatoriosPage() {
       const pctAT = totRespostas > 0 ? Math.round((totAT / totRespostas) * 100) : 0;
       const pctE = totRespostas > 0 ? Math.round((totE / totRespostas) * 100) : 0;
 
+      const pacNome = session.paciente?.nome || activePatients.find((p: any) => p.id === session.paciente_id)?.nome || "Paciente";
+
       return {
         id: session.id,
+        pacienteId: session.paciente_id,
+        pacienteNome: pacNome,
         dataCompleta: format(parseISO(session.data_inicio), "dd/MM/yyyy HH:mm"),
         dataLabel: format(parseISO(session.data_inicio), "dd/MM"),
         profissional: session.profissional?.nome || "—",
@@ -832,7 +861,7 @@ function RelatoriosPage() {
         plano,
       };
     });
-  }, [abaSessions]);
+  }, [abaSessions, activePatients]);
 
   const tableSessions = useMemo(() => {
     return [...chartData].reverse();
@@ -1551,9 +1580,10 @@ function RelatoriosPage() {
                     <SelectValue placeholder="Selecione o paciente..." />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="todos">✨ Todos os Pacientes (Visão Geral de Planos ABA)</SelectItem>
                     {abaPatients.map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
+                        {p.nome} {p.hasSavedPlans ? "• (Possui Registros)" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1579,252 +1609,385 @@ function RelatoriosPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button
-                  onClick={handlePrintConsolidated}
-                  disabled={!selectedAbaPacienteId || chartData.length === 0}
-                  className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold"
-                >
-                  <Printer className="h-4 w-4" /> Gerar PDF da Evolução
-                </Button>
+                {selectedAbaPacienteId && selectedAbaPacienteId !== "todos" && (
+                  <Button
+                    onClick={handlePrintConsolidated}
+                    disabled={chartData.length === 0}
+                    className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold"
+                  >
+                    <Printer className="h-4 w-4" /> Gerar PDF da Evolução
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Conditional rendering when patient is selected */}
-          {selectedAbaPacienteId ? (
+          {isLoadingAba ? (
+            <div className="p-8 text-center text-muted-foreground">
+              Carregando sessões e planos ABA...
+            </div>
+          ) : chartData.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center">
+                <Activity className="h-12 w-12 text-slate-400 mb-2" />
+                <p className="font-semibold text-slate-600 dark:text-slate-300">Nenhum registro de Plano ABA encontrado</p>
+                <p className="text-xs max-w-sm mt-1">Não foram encontrados agendamentos com Plano ABA preenchido no período selecionado.</p>
+              </CardContent>
+            </Card>
+          ) : selectedAbaPacienteId === "todos" ? (
             <>
-              {isLoadingAba ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  Carregando sessões ABA...
-                </div>
-              ) : chartData.length === 0 ? (
+              {/* Summary Metrics for All Patients */}
+              <div className="grid gap-3 sm:grid-cols-3">
+                <RelatorioStat
+                  icon={Activity}
+                  label="Total de Planos ABA Registrados"
+                  value={String(chartData.length)}
+                />
+                <RelatorioStat
+                  icon={Users}
+                  label="Pacientes Distintos com Planos ABA"
+                  value={String(new Set(chartData.map((c: any) => c.pacienteId)).size)}
+                  variant="info"
+                />
+                <RelatorioStat
+                  icon={TrendingUp}
+                  label="Média Geral de Respostas Independentes (RI)"
+                  value={`${abaMetrics.avgRI}%`}
+                  variant="success"
+                />
+              </div>
+
+              {/* Master Table of All Recorded ABA Plans */}
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base font-bold flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-purple-600" />
+                      Todos os Planos ABA Registrados
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Lista consolidada de todos os registros de Plano ABA salvos em agendamentos.
+                    </p>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Paciente</TableHead>
+                          <TableHead>Data / Hora</TableHead>
+                          <TableHead>Terapeuta</TableHead>
+                          <TableHead>Supervisor ABA</TableHead>
+                          <TableHead className="text-center">Programas</TableHead>
+                          <TableHead className="text-center">Desempenho (% RI)</TableHead>
+                          <TableHead className="text-right">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tableSessions.map((session: any) => (
+                          <TableRow key={session.id} className="group hover:bg-muted/30">
+                            <TableCell className="font-bold text-foreground">
+                              <button
+                                type="button"
+                                className="text-left hover:text-purple-600 hover:underline cursor-pointer flex items-center gap-1.5"
+                                onClick={() => setSelectedAbaPacienteId(session.pacienteId)}
+                                title="Filtrar evolução deste paciente"
+                              >
+                                {session.pacienteNome}
+                              </button>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{session.dataCompleta}</TableCell>
+                            <TableCell>{session.profissional}</TableCell>
+                            <TableCell>{session.supervisor}</TableCell>
+                            <TableCell className="text-center font-mono font-semibold">
+                              {session.plano?.programas?.length || 0}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge className={cn("border-0 text-white font-bold", 
+                                session.pctRI >= 80 ? "bg-emerald-500 hover:bg-emerald-600" :
+                                session.pctRI >= 50 ? "bg-amber-500 hover:bg-amber-600" :
+                                "bg-rose-500 hover:bg-rose-600"
+                              )}>
+                                {session.pctRI}% RI
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end items-center gap-1.5 opacity-90 group-hover:opacity-100">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2 text-xs font-semibold gap-1"
+                                  title="Visualizar Ficha da Sessão"
+                                  onClick={() => {
+                                    setViewAbaSession(session);
+                                    setViewAbaOpen(true);
+                                  }}
+                                >
+                                  <Eye className="h-3.5 w-3.5 text-purple-600" /> Ver
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2 text-xs font-semibold gap-1 border-purple-200 text-purple-700 hover:bg-purple-50"
+                                  title="Editar Plano ABA"
+                                  onClick={() => {
+                                    setEditAbaSession(session);
+                                    setEditAbaOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" /> Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-8 px-2 text-xs font-bold gap-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                  title="Salvar como PDF / Imprimir"
+                                  onClick={() => handlePrintSession(session)}
+                                >
+                                  <Printer className="h-3.5 w-3.5" /> PDF
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                  title="Baixar Planilha CSV"
+                                  onClick={() => downloadSessionCSV(session)}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <>
+              {/* Individual Patient Evolution View */}
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <RelatorioStat
+                  icon={Activity}
+                  label="Sessões ABA no Período"
+                  value={String(chartData.length)}
+                />
+                <RelatorioStat
+                  icon={TrendingUp}
+                  label="Desempenho Médio (Respostas Independentes - RI)"
+                  value={`${abaMetrics.avgRI}%`}
+                  variant="success"
+                />
+                <RelatorioStat
+                  icon={Calendar}
+                  label="Último Atendimento"
+                  value={tableSessions[0]?.dataCompleta.split(' ')[0] || "—"}
+                />
+              </div>
+
+              {/* Graphs Panel */}
+              <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+                
+                {/* Graph 1: Overall Evolution */}
                 <Card>
-                  <CardContent className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center">
-                    <Activity className="h-12 w-12 text-slate-400 mb-2" />
-                    <p className="font-semibold text-slate-600 dark:text-slate-300">Nenhuma sessão registrada</p>
-                    <p className="text-xs max-w-sm mt-1">Não encontramos sessões de Plano ABA para este paciente no período selecionado.</p>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                      <TrendingUp className="h-4 w-4 text-primary" />
+                      Evolução Geral (% de Respostas)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[280px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="dataLabel" tickMargin={8} />
+                        <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                        <RechartsTooltip formatter={(v: any) => [`${v}%`]} />
+                        <RechartsLegend verticalAlign="top" height={36} />
+                        <Line
+                          type="monotone"
+                          dataKey="pctRI"
+                          name="Independente (RI)"
+                          stroke="#10b981"
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          activeDot={{ r: 6 }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="pctAP"
+                          name="Ajuda Parcial (AP)"
+                          stroke="#f59e0b"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="pctAT"
+                          name="Ajuda Total (AT)"
+                          stroke="#f43f5e"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="pctE"
+                          name="Erro (E)"
+                          stroke="#6366f1"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </CardContent>
                 </Card>
-              ) : (
-                <>
-                  {/* Summary Metrics */}
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <RelatorioStat
-                      icon={Activity}
-                      label="Sessões ABA no Período"
-                      value={String(chartData.length)}
-                    />
-                    <RelatorioStat
-                      icon={TrendingUp}
-                      label="Desempenho Médio (Respostas Independentes - RI)"
-                      value={`${abaMetrics.avgRI}%`}
-                      variant="success"
-                    />
-                    <RelatorioStat
-                      icon={Calendar}
-                      label="Último Atendimento"
-                      value={tableSessions[0]?.dataCompleta.split(' ')[0] || "—"}
-                    />
-                  </div>
 
-                  {/* Graphs Panel */}
-                  <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
-                    
-                    {/* Graph 1: Overall Evolution */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                          <TrendingUp className="h-4 w-4 text-primary" />
-                          Evolução Geral (% de Respostas)
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="h-[280px]">
+                {/* Graph 2: Program Specific Progression */}
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                      <Activity className="h-4 w-4 text-purple-600" />
+                      Evolução por Programa (% RI)
+                    </CardTitle>
+                    {uniquePrograms.length > 0 && (
+                      <Select value={selectedAbaProgram} onValueChange={setSelectedAbaProgram}>
+                        <SelectTrigger className="h-7 text-xs w-[180px]">
+                          <SelectValue placeholder="Selecione o programa..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {uniquePrograms.map((name) => (
+                            <SelectItem key={name} value={name} className="text-xs">
+                              {name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </CardHeader>
+                  <CardContent className="h-[280px]">
+                    {selectedAbaProgram ? (
+                      programChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <LineChart data={programChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="dataLabel" tickMargin={8} />
                             <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                            <RechartsTooltip formatter={(v: any) => [`${v}%`]} />
-                            <RechartsLegend verticalAlign="top" height={36} />
+                            <RechartsTooltip formatter={(v: any) => [`${v}% RI`]} />
                             <Line
                               type="monotone"
                               dataKey="pctRI"
-                              name="Independente (RI)"
-                              stroke="#10b981"
+                              name={selectedAbaProgram}
+                              stroke="#8b5cf6"
                               strokeWidth={3}
                               dot={{ r: 4 }}
                               activeDot={{ r: 6 }}
                             />
-                            <Line
-                              type="monotone"
-                              dataKey="pctAP"
-                              name="Ajuda Parcial (AP)"
-                              stroke="#f59e0b"
-                              strokeWidth={1.5}
-                              dot={{ r: 3 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="pctAT"
-                              name="Ajuda Total (AT)"
-                              stroke="#ef4444"
-                              strokeWidth={1.5}
-                              dot={{ r: 3 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="pctE"
-                              name="Ecoico (E)"
-                              stroke="#6366f1"
-                              strokeWidth={1.5}
-                              dot={{ r: 3 }}
-                            />
                           </LineChart>
                         </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-
-                    {/* Graph 2: Program Specific Evolution */}
-                    <Card>
-                      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-                          <Activity className="h-4 w-4 text-purple-600 animate-pulse" />
-                          Evolução por Programa Específico
-                        </CardTitle>
-                        <div className="w-[180px]">
-                          <Select
-                            value={selectedAbaProgram}
-                            onValueChange={setSelectedAbaProgram}
-                          >
-                            <SelectTrigger className="h-8 text-xs">
-                              <SelectValue placeholder="Selecione o programa" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {uniquePrograms.map((name) => (
-                                <SelectItem key={name} value={name} className="text-xs">
-                                  {name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                          Sem dados de tentativas registradas para este programa.
                         </div>
-                      </CardHeader>
-                      <CardContent className="h-[280px]">
-                        {selectedAbaProgram ? (
-                          programChartData.length > 0 ? (
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={programChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="dataLabel" tickMargin={8} />
-                                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                                <RechartsTooltip formatter={(v: any, name: any, props: any) => {
-                                  if (name === "pctRI") {
-                                    return [`${v}% (${props.payload.totRI}/${props.payload.totRespostas} tents)`, "Acertos Independentes"];
-                                  }
-                                  return [v, name];
-                                }} />
-                                <Line
-                                  type="monotone"
-                                  dataKey="pctRI"
-                                  name="Acertos Independentes"
-                                  stroke="#8b5cf6"
-                                  strokeWidth={3}
-                                  dot={{ r: 4 }}
-                                  activeDot={{ r: 6 }}
-                                />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          ) : (
-                            <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                              Sem dados de tentativas registradas para este programa.
-                            </div>
-                          )
-                        ) : (
-                          <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                            Nenhum programa selecionado.
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                  </div>
-
-                  {/* Sessions List */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Histórico de Registros de Sessões ABA</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-0">
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Data / Hora</TableHead>
-                              <TableHead>Terapeuta</TableHead>
-                              <TableHead>Supervisor ABA</TableHead>
-                              <TableHead className="text-center">Respostas Realizadas</TableHead>
-                              <TableHead className="text-center">Desempenho (% RI)</TableHead>
-                              <TableHead className="text-right">Ações</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {tableSessions.map((session) => (
-                              <TableRow key={session.id} className="group">
-                                <TableCell className="font-semibold">{session.dataCompleta}</TableCell>
-                                <TableCell>{session.profissional}</TableCell>
-                                <TableCell>{session.supervisor}</TableCell>
-                                <TableCell className="text-center font-mono">{session.totRespostas}</TableCell>
-                                <TableCell className="text-center">
-                                  <Badge className={cn("border-0 text-white font-bold", 
-                                    session.pctRI >= 80 ? "bg-emerald-500 hover:bg-emerald-600" :
-                                    session.pctRI >= 50 ? "bg-amber-500 hover:bg-amber-600" :
-                                    "bg-rose-500 hover:bg-rose-600"
-                                  )}>
-                                    {session.pctRI}% RI
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end items-center gap-2 opacity-90 group-hover:opacity-100">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-8 px-2.5 text-xs font-semibold gap-1.5"
-                                      title="Visualizar Sessão"
-                                      onClick={() => {
-                                        setViewAbaSession(session);
-                                        setViewAbaOpen(true);
-                                      }}
-                                    >
-                                      <Eye className="h-3.5 w-3.5" /> Visualizar
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      className="h-8 px-2.5 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
-                                      title="Salvar como PDF / Imprimir"
-                                      onClick={() => handlePrintSession(session)}
-                                    >
-                                      <Printer className="h-3.5 w-3.5" /> Gerar PDF
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                      )
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                        Nenhum programa selecionado.
                       </div>
-                    </CardContent>
-                  </Card>
-                </>
-              )}
+                    )}
+                  </CardContent>
+                </Card>
+
+              </div>
+
+              {/* Sessions List */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Histórico de Registros de Sessões ABA</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Data / Hora</TableHead>
+                          <TableHead>Terapeuta</TableHead>
+                          <TableHead>Supervisor ABA</TableHead>
+                          <TableHead className="text-center">Respostas Realizadas</TableHead>
+                          <TableHead className="text-center">Desempenho (% RI)</TableHead>
+                          <TableHead className="text-right">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tableSessions.map((session: any) => (
+                          <TableRow key={session.id} className="group">
+                            <TableCell className="font-semibold">{session.dataCompleta}</TableCell>
+                            <TableCell>{session.profissional}</TableCell>
+                            <TableCell>{session.supervisor}</TableCell>
+                            <TableCell className="text-center font-mono">{session.totRespostas}</TableCell>
+                            <TableCell className="text-center">
+                              <Badge className={cn("border-0 text-white font-bold", 
+                                session.pctRI >= 80 ? "bg-emerald-500 hover:bg-emerald-600" :
+                                session.pctRI >= 50 ? "bg-amber-500 hover:bg-amber-600" :
+                                "bg-rose-500 hover:bg-rose-600"
+                              )}>
+                                {session.pctRI}% RI
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end items-center gap-1.5 opacity-90 group-hover:opacity-100">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5"
+                                  title="Visualizar Sessão"
+                                  onClick={() => {
+                                    setViewAbaSession(session);
+                                    setViewAbaOpen(true);
+                                  }}
+                                >
+                                  <Eye className="h-3.5 w-3.5" /> Visualizar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50"
+                                  title="Editar Plano ABA"
+                                  onClick={() => {
+                                    setEditAbaSession(session);
+                                    setEditAbaOpen(true);
+                                  }}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" /> Editar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-8 px-2.5 text-xs font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                  title="Salvar como PDF / Imprimir"
+                                  onClick={() => handlePrintSession(session)}
+                                >
+                                  <Printer className="h-3.5 w-3.5" /> Gerar PDF
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                  title="Baixar Planilha CSV"
+                                  onClick={() => downloadSessionCSV(session)}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
             </>
-          ) : (
-            <Card>
-              <CardContent className="p-12 text-center text-muted-foreground flex flex-col items-center justify-center">
-                <Users className="h-12 w-12 text-slate-400 mb-3" />
-                <p className="font-semibold text-slate-600 dark:text-slate-300">Selecione um Paciente</p>
-                <p className="text-xs max-w-sm mt-1">Escolha um paciente na caixa de seleção acima para carregar o histórico de sessões, gráficos de melhora e relatórios evolutivos.</p>
-              </CardContent>
-            </Card>
           )}
         </TabsContent>
       </Tabs>
@@ -2429,6 +2592,33 @@ function RelatoriosPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {editAbaSession && (
+        <PlanoAbaDialog
+          open={editAbaOpen}
+          onOpenChange={(open) => {
+            setEditAbaOpen(open);
+            if (!open) setEditAbaSession(null);
+          }}
+          pacienteId={editAbaSession.pacienteId || editAbaSession.paciente_id || ""}
+          pacienteNome={editAbaSession.pacienteNome || editAbaSession.paciente?.nome || ""}
+          profissionalNome={editAbaSession.profissional || editAbaSession.profissional?.nome || ""}
+          value={editAbaSession.plano || editAbaSession.plano_aba}
+          onChange={(val) => {
+            if (editAbaSession) {
+              setEditAbaSession((prev: any) => ({ ...prev, plano: val, plano_aba: val }));
+            }
+          }}
+          onConfirm={editAbaSession?.id ? async (val) => {
+            const { error } = await supabase
+              .from("agendamentos")
+              .update({ plano_aba: val })
+              .eq("id", editAbaSession.id);
+            if (error) throw error;
+            qc.invalidateQueries({ queryKey: ["aba-sessions"] });
+            qc.invalidateQueries({ queryKey: ["ags"] });
+          } : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -2442,12 +2632,13 @@ function RelatorioStat({
   icon: any;
   label: string;
   value: string;
-  variant?: "default" | "destructive" | "success";
+  variant?: "default" | "destructive" | "success" | "info";
 }) {
   const iconColors = {
     default: "bg-primary/10 text-primary",
     destructive: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
     success: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    info: "bg-purple-500/10 text-purple-600 dark:text-purple-400",
   };
 
   return (

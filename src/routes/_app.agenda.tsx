@@ -246,6 +246,7 @@ function Agenda() {
           recorrencia,
           recorrencia_grupo,
           motivo_cancelamento,
+          plano_aba,
           pacientes (
             id,
             nome,
@@ -1039,6 +1040,7 @@ function AgendamentoDialog({
           data_fim,
           status,
           observacoes,
+          plano_aba,
           profissionais (
             id,
             nome,
@@ -1499,6 +1501,7 @@ Fico à disposição para qualquer dúvida!`;
                 sala_id: form.sala_id || null,
                 recorrencia: form.recorrencia,
                 observacoes: finalObservacoes,
+                plano_aba: form.plano_aba,
               })
               .eq("id", occ.id);
             if (error) throw error;
@@ -1563,7 +1566,7 @@ Fico à disposição para qualquer dúvida!`;
               observacoes: finalObservacoes,
               recorrencia_grupo: groupId,
               created_by: user?.id || null,
-              plano_aba: i === 0 ? form.plano_aba : null,
+              plano_aba: form.plano_aba,
             };
             delete (payload as any).meio_pagamento;
             occurrences.push(payload);
@@ -1835,26 +1838,37 @@ Fico à disposição para qualquer dúvida!`;
                                 </span>
                               </div>
                             </div>
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "h-4 px-1 text-[8px] uppercase font-bold shrink-0",
-                                a.status === "confirmado" &&
-                                  "border-green-500/30 text-green-600 bg-green-50/50",
-                                a.status === "pago" &&
-                                  "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                                a.status === "cancelado" &&
-                                  "border-red-500/30 text-red-600 bg-red-50/50",
-                                a.status === "realizado" &&
-                                  "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                                a.status === "falta" &&
-                                  "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                                a.status === "pendente" &&
-                                  "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                            <div className="flex items-center gap-1">
+                              {a.plano_aba && (
+                                <Badge
+                                  variant="outline"
+                                  className="h-4 px-1 text-[8px] uppercase font-bold border-purple-400/50 bg-purple-50/60 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300"
+                                  title="Esta sessão possui Plano ABA salvo"
+                                >
+                                  Plano ABA
+                                </Badge>
                               )}
-                            >
-                              {STATUS_LABEL[a.status] || a.status || ""}
-                            </Badge>
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "h-4 px-1 text-[8px] uppercase font-bold shrink-0",
+                                  a.status === "confirmado" &&
+                                    "border-green-500/30 text-green-600 bg-green-50/50",
+                                  a.status === "pago" &&
+                                    "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                                  a.status === "cancelado" &&
+                                    "border-red-500/30 text-red-600 bg-red-50/50",
+                                  a.status === "realizado" &&
+                                    "border-blue-500/30 text-blue-600 bg-blue-50/50",
+                                  a.status === "falta" &&
+                                    "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                                  a.status === "pendente" &&
+                                    "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                                )}
+                              >
+                                {STATUS_LABEL[a.status] || a.status || ""}
+                              </Badge>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2117,11 +2131,23 @@ Fico à disposição para qualquer dúvida!`;
                           {editing ? "Preencher Anamnese" : "Ver Rascunho Anamnese"}
                         </Button>
                       )}
-                      {specialtyUpper === "AT ABA" && (
+                      {(specialtyUpper.includes("ABA") ||
+                        specialtyUpper === "AT" ||
+                        !!form.plano_aba ||
+                        (selectedPaciente?.cids_secundarios &&
+                          Array.isArray(selectedPaciente.cids_secundarios) &&
+                          selectedPaciente.cids_secundarios.some((s: string) =>
+                            String(s).toLowerCase().includes("aba"),
+                          ))) && (
                         <Button
                           type="button"
                           variant="outline"
-                          className="w-full mt-2 gap-1.5 border-purple-400 hover:bg-purple-50 text-purple-700 dark:text-purple-300 dark:hover:bg-purple-950/30 text-xs font-semibold h-8"
+                          className={cn(
+                            "w-full mt-2 gap-1.5 text-xs font-semibold h-8 transition-colors",
+                            form.plano_aba
+                              ? "border-emerald-500/50 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100/60 dark:bg-emerald-950/20 dark:text-emerald-300"
+                              : "border-purple-400 hover:bg-purple-50 text-purple-700 dark:text-purple-300 dark:hover:bg-purple-950/30"
+                          )}
                           onClick={() => {
                             if (!form.paciente_id) {
                               toast.error("Por favor, selecione um paciente antes de abrir o Plano ABA");
@@ -2130,14 +2156,14 @@ Fico à disposição para qualquer dúvida!`;
                             setPlanoAbaOpen(true);
                           }}
                         >
-                          <Activity className="h-3.5 w-3.5 text-purple-600" />
+                          <Activity className={cn("h-3.5 w-3.5", form.plano_aba ? "text-emerald-600" : "text-purple-600")} />
                           {form.plano_aba ? (
                             <span className="flex items-center gap-1.5">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                              Editar Plano ABA
+                              Plano ABA Vinculado ({form.plano_aba?.programas?.length || 0} progs) — Editar
                             </span>
                           ) : (
-                            "Preencher Plano ABA"
+                            "Preencher / Vincular Plano ABA"
                           )}
                         </Button>
                       )}
