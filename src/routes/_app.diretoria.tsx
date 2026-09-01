@@ -1115,59 +1115,38 @@ function DiretoriaPageContent() {
     },
   });
 
-  // Fetch all fatura_itens to link them to agendamentos in memory (avoids missing relation schema constraint join issue)
+  // Fetch all fatura_itens in a single fast query using inner join on faturas.competencia
   const { data: faturaItens = [], isLoading: loadingFaturaItens } = useQuery<any[]>({
     queryKey: ["dir-fatura-itens", inicio, fim],
     queryFn: async () => {
-      // First fetch faturas for this date range to get their IDs
-      const { data: fList, error: fError } = await supabase
-        .from("faturas")
-        .select("id")
-        .gte("competencia", inicio)
-        .lte("competencia", fim);
-      if (fError) throw fError;
-      
-      const fIds = (fList || []).map((f: any) => f.id);
-      if (fIds.length === 0) return [];
-      
-      // Fetch in chunks of 100 to avoid URL length limit
-      const chunkSize = 100;
-      const chunks = [];
-      for (let i = 0; i < fIds.length; i += chunkSize) {
-        chunks.push(fIds.slice(i, i + chunkSize));
-      }
-      
-      const promises = chunks.map(async (chunk) => {
-        const { data, error } = await supabase
-          .from("fatura_itens")
-          .select(`
+      const { data, error } = await supabase
+        .from("fatura_itens")
+        .select(`
+          id,
+          fatura_id,
+          total,
+          valor_unitario,
+          agendamento_id,
+          descricao,
+          faturas!inner (
             id,
-            fatura_id,
-            total,
-            valor_unitario,
-            agendamento_id,
-            descricao,
-            faturas (
-              id,
-              status,
-              pago_em,
-              metodo,
-              vencimento,
-              profissional_id,
-              especialidade,
-              paciente_id,
-              competencia,
-              valor
-            )
-          `)
-          .in("fatura_id", chunk);
-        if (error) throw error;
-        return data || [];
-      });
-      
-      const results = await Promise.all(promises);
-      return results.flat();
+            status,
+            pago_em,
+            metodo,
+            vencimento,
+            profissional_id,
+            especialidade,
+            paciente_id,
+            competencia,
+            valor
+          )
+        `)
+        .gte("faturas.competencia", inicio)
+        .lte("faturas.competencia", fim);
+      if (error) throw error;
+      return data || [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   const linkedAgendamentoIds = useMemo(() => {
@@ -1186,8 +1165,7 @@ function DiretoriaPageContent() {
     queryFn: async () => {
       if (linkedAgendamentoIds.length === 0) return [];
       
-      // Chunk the IDs to avoid URL length limit (max ~100 IDs per request)
-      const chunkSize = 100;
+      const chunkSize = 300;
       const chunks = [];
       for (let i = 0; i < linkedAgendamentoIds.length; i += chunkSize) {
         chunks.push(linkedAgendamentoIds.slice(i, i + chunkSize));
@@ -1206,6 +1184,7 @@ function DiretoriaPageContent() {
       return results.flat();
     },
     enabled: linkedAgendamentoIds.length > 0,
+    staleTime: 5 * 60 * 1000,
   });
 
   const agendamentoProfIdMap = useMemo(() => {

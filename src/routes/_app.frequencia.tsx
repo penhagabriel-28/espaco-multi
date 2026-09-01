@@ -322,13 +322,39 @@ function FrequenciaPage() {
     );
   }, [sortedPacientesList, pacSearch]);
 
-  // Fetch Appointments
+  // Fetch Appointments (Lightweight payload without heavy Base64 signature strings)
   const { data: agendamentos = [], isLoading: loadingAgs } = useQuery({
     queryKey: ["freq-agendamentos", inicio, fim],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("*, pacientes(nome), profissionais(nome), servicos(nome)")
+        .select(`
+          id,
+          paciente_id,
+          profissional_id,
+          servico_id,
+          sala_id,
+          data_inicio,
+          data_fim,
+          status,
+          nome_assinante,
+          data_assinatura,
+          observacoes,
+          pacientes (
+            id,
+            nome
+          ),
+          profissionais (
+            id,
+            nome,
+            cor,
+            especialidade
+          ),
+          servicos (
+            id,
+            nome
+          )
+        `)
         .gte("data_inicio", `${inicio}T00:00:00`)
         .lte("data_inicio", `${fim}T23:59:59`)
         .order("data_inicio", { ascending: true });
@@ -343,7 +369,8 @@ function FrequenciaPage() {
     // (i.e. status is not cancelado)
     let list = agendamentos.filter(
       (a: any) =>
-        !!a.assinatura_responsavel ||
+        !!a.data_assinatura ||
+        !!a.nome_assinante ||
         a.status !== "cancelado"
     );
 
@@ -369,6 +396,51 @@ function FrequenciaPage() {
       .map(([id, nome]) => ({ id, nome }))
       .sort((a, b) => a.nome.localeCompare(b.nome));
   }, [agendamentos]);
+
+  // Lazy-load single signature on demand for view modal
+  const { data: viewSignImage, isLoading: loadingSignImage } = useQuery({
+    queryKey: ["freq-signature-view", viewSignDialog.ag?.id],
+    queryFn: async () => {
+      if (!viewSignDialog.ag?.id) return null;
+      const { data, error } = await supabase
+        .from("agendamentos")
+        .select("assinatura_responsavel")
+        .eq("id", viewSignDialog.ag.id)
+        .single();
+      if (error) throw error;
+      return data?.assinatura_responsavel || null;
+    },
+    enabled: viewSignDialog.open && !!viewSignDialog.ag?.id,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // Lazy-load patient signatures only when generating printable report
+  const { data: reportSignaturesMap = {} } = useQuery({
+    queryKey: ["freq-report-signatures", reportDialog.pacienteId, reportDialog.mesComp],
+    queryFn: async () => {
+      if (!reportDialog.pacienteId || !reportDialog.mesComp) return {};
+      const [year, month] = reportDialog.mesComp.split("-");
+      const mStart = format(startOfMonth(new Date(Number(year), Number(month) - 1)), "yyyy-MM-dd");
+      const mEnd = format(endOfMonth(new Date(Number(year), Number(month) - 1)), "yyyy-MM-dd");
+      const { data, error } = await supabase
+        .from("agendamentos")
+        .select("id, assinatura_responsavel")
+        .eq("paciente_id", reportDialog.pacienteId)
+        .gte("data_inicio", `${mStart}T00:00:00`)
+        .lte("data_inicio", `${mEnd}T23:59:59`)
+        .not("assinatura_responsavel", "is", null);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      (data || []).forEach((row: any) => {
+        if (row.id && row.assinatura_responsavel) {
+          map[row.id] = row.assinatura_responsavel;
+        }
+      });
+      return map;
+    },
+    enabled: reportDialog.open && !!reportDialog.pacienteId,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Sign Attendance Mutation
   const signMutation = useMutation({
@@ -398,6 +470,7 @@ function FrequenciaPage() {
       qc.invalidateQueries({ queryKey: ["faturas"] });
       qc.invalidateQueries({ queryKey: ["dir-faturas"] });
       qc.invalidateQueries({ queryKey: ["agendamentos"] });
+      qc.invalidateQueries({ queryKey: ["freq-signature-view"] });
       toast.success("Frequência assinada com sucesso!");
       setSignDialog({ open: false, ag: null });
       setNomeResponsavel("");
@@ -424,6 +497,7 @@ function FrequenciaPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["freq-agendamentos"] });
+      qc.invalidateQueries({ queryKey: ["freq-signature-view"] });
       toast.success("Assinatura removida.");
       setViewSignDialog({ open: false, ag: null });
     },
@@ -492,6 +566,7 @@ function FrequenciaPage() {
   }, [agendamentos, reportDialog.pacienteId, reportDialog.profissionalId, reportDialog.mesComp]);
 
   const selectedReportProfessional = profissionais.find((p: any) => p.id === reportDialog.profissionalId);
+
   const selectedReportPatientName =
     reportPatients.find((p) => p.id === reportDialog.pacienteId)?.nome || "";
 
@@ -755,7 +830,7 @@ function FrequenciaPage() {
                   variant="outline"
                   className="px-2.5 py-1 text-xs text-green-600 border-green-200 bg-green-50/20"
                 >
-                  {filteredAgendamentos.filter((a: any) => a.assinatura_responsavel).length} Assinadas
+                  {filteredAgendamentos.filter((a: any) => a.data_assinatura || a.nome_assinante).length} Assinadas
                 </Badge>
               </div>
             </div>
@@ -778,7 +853,7 @@ function FrequenciaPage() {
                 {/* Visualização Mobile (celular) */}
                 <div className="md:hidden divide-y divide-border/60">
                   {filteredAgendamentos.map((a: any) => {
-                    const signed = !!a.assinatura_responsavel;
+                    const signed = !!a.data_assinatura || !!a.nome_assinante;
                     const isApoio = a.servicos?.nome?.toLowerCase() === "apoio";
                     return (
                       <div key={a.id} className="p-4 space-y-3">
@@ -913,7 +988,7 @@ function FrequenciaPage() {
                     </TableHeader>
                     <TableBody>
                       {filteredAgendamentos.map((a: any) => {
-                        const signed = !!a.assinatura_responsavel;
+                        const signed = !!a.data_assinatura || !!a.nome_assinante;
                         const isApoio = a.servicos?.nome?.toLowerCase() === "apoio";
                         return (
                           <TableRow key={a.id}>
@@ -1109,10 +1184,12 @@ function FrequenciaPage() {
                 </div>
               </div>
             </div>
-            <div className="border border-border rounded-lg bg-white p-4 flex items-center justify-center">
-              {viewSignDialog.ag?.assinatura_responsavel ? (
+            <div className="border border-border rounded-lg bg-white p-4 flex items-center justify-center min-h-[144px]">
+              {loadingSignImage ? (
+                <div className="text-xs text-muted-foreground">Carregando assinatura...</div>
+              ) : viewSignImage ? (
                 <img
-                  src={viewSignDialog.ag.assinatura_responsavel}
+                  src={viewSignImage}
                   alt="Assinatura Digital"
                   className="max-h-36 object-contain"
                 />
@@ -1299,15 +1376,24 @@ function FrequenciaPage() {
                           {STATUS_LABEL[a.status] || a.status}
                         </td>
                         <td className="p-1.5 flex items-center justify-center">
-                          {a.assinatura_responsavel ? (
+                          {reportSignaturesMap[a.id] ? (
                             <div className="flex flex-col items-center">
                               <img
-                                src={a.assinatura_responsavel}
+                                src={reportSignaturesMap[a.id]}
                                 alt="Assinatura"
                                 className="h-8 max-w-[120px] object-contain"
                               />
                               <span className="text-[9px] text-gray-500 font-medium mt-0.5">
-                                Signed by: {a.nome_assinante}
+                                Assinado por: {a.nome_assinante}
+                              </span>
+                            </div>
+                          ) : a.data_assinatura || a.nome_assinante ? (
+                            <div className="flex flex-col items-center">
+                              <span className="text-emerald-700 font-semibold text-[10px]">
+                                Assinado Digitalmente
+                              </span>
+                              <span className="text-[9px] text-gray-500 font-medium mt-0.5">
+                                {a.nome_assinante || "Responsável"}
                               </span>
                             </div>
                           ) : (

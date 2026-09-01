@@ -231,16 +231,48 @@ function Agenda() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("agendamentos")
-        .select(
-          "*, pacientes(nome, cids_secundarios), profissionais(nome, cor, especialidade), servicos(nome), salas(nome)",
-        )
+        .select(`
+          id,
+          paciente_id,
+          profissional_id,
+          servico_id,
+          sala_id,
+          data_inicio,
+          data_fim,
+          status,
+          observacoes,
+          created_at,
+          updated_at,
+          recorrencia,
+          recorrencia_grupo,
+          motivo_cancelamento,
+          pacientes (
+            id,
+            nome,
+            cids_secundarios
+          ),
+          profissionais (
+            id,
+            nome,
+            cor,
+            especialidade
+          ),
+          servicos (
+            id,
+            nome
+          ),
+          salas (
+            id,
+            nome
+          )
+        `)
         .gte("data_inicio", weekStart.toISOString())
         .lt("data_inicio", addDays(weekEnd, 1).toISOString())
         .order("data_inicio");
       if (error) throw error;
       return data;
     },
-    staleTime: 15 * 1000,
+    staleTime: 60 * 1000,
   });
 
   const filteredAgs = useMemo(() => {
@@ -999,7 +1031,30 @@ function AgendamentoDialog({
       if (!form.paciente_id) return [];
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("*, profissionais(nome, cor), servicos(nome), salas(nome)")
+        .select(`
+          id,
+          paciente_id,
+          profissional_id,
+          servico_id,
+          sala_id,
+          data_inicio,
+          data_fim,
+          status,
+          observacoes,
+          profissionais (
+            id,
+            nome,
+            cor
+          ),
+          servicos (
+            id,
+            nome
+          ),
+          salas (
+            id,
+            nome
+          )
+        `)
         .eq("paciente_id", form.paciente_id)
         .order("data_inicio", { ascending: false })
         .limit(30);

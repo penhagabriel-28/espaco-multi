@@ -47,7 +47,31 @@ function Dashboard() {
 
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("*, pacientes(nome), profissionais(nome, cor, especialidade), servicos(nome)")
+        .select(`
+          id,
+          paciente_id,
+          profissional_id,
+          servico_id,
+          sala_id,
+          data_inicio,
+          data_fim,
+          status,
+          observacoes,
+          pacientes (
+            id,
+            nome
+          ),
+          profissionais (
+            id,
+            nome,
+            cor,
+            especialidade
+          ),
+          servicos (
+            id,
+            nome
+          )
+        `)
         .gte("data_inicio", start.toISOString())
         .lte("data_inicio", end.toISOString())
         .order("data_inicio");
