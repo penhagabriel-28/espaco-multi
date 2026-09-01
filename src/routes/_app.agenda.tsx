@@ -583,13 +583,11 @@ function Agenda() {
           <AgendamentoDialog
             editing={dialog.editing}
             defaults={dialog.defaults}
-            onSaved={async () => {
-              await Promise.all([
-                qc.invalidateQueries({ queryKey: ["ags"] }),
-                qc.invalidateQueries({ queryKey: ["patient-ags-dialog"] }),
-                qc.invalidateQueries({ queryKey: ["faturas"] }),
-              ]);
+            onSaved={() => {
               setDialog({ open: false });
+              qc.invalidateQueries({ queryKey: ["ags"] });
+              qc.invalidateQueries({ queryKey: ["patient-ags-dialog"] });
+              qc.invalidateQueries({ queryKey: ["faturas"] });
             }}
             onCancel={(a: any) => {
               setDialog({ open: false });
@@ -1507,48 +1505,18 @@ Fico à disposição para qualquer dúvida!`;
           });
 
           await Promise.all(updates);
-
-          if (futureAgs && futureAgs.length > 0) {
-            for (const occ of futureAgs) {
-              const occStart = new Date(
-                new Date(occ.data_inicio).getTime() + startDiff,
-              ).toISOString();
-              await syncAgendamentoFinanceiro(
-                occ.id,
-                form.paciente_id,
-                form.profissional_id,
-                occStart,
-                form.status,
-                tipoAgendamento,
-                selectedSpecialty,
-                valor,
-                form.meio_pagamento,
-              );
-            }
-          }
         } else {
           const { error } = await supabase
             .from("agendamentos")
             .update(explicitPayload)
             .eq("id", editing.id);
           if (error) throw error;
-
-          await syncAgendamentoFinanceiro(
-            editing.id,
-            form.paciente_id,
-            form.profissional_id,
-            start,
-            form.status,
-            tipoAgendamento,
-            selectedSpecialty,
-            valor,
-            form.meio_pagamento,
-          );
         }
       } else {
         const {
-          data: { user },
-        } = await supabase.auth.getUser();
+          data: { session },
+        } = await supabase.auth.getSession();
+        const user = session?.user;
 
         if (form.recorrencia !== "unica") {
           const occurrences: any[] = [];
@@ -1600,27 +1568,10 @@ Fico à disposição para qualquer dúvida!`;
             delete (payload as any).meio_pagamento;
             occurrences.push(payload);
           }
-          const { data: insertedAgs, error } = await supabase
+          const { error } = await supabase
             .from("agendamentos")
-            .insert(occurrences)
-            .select("id, data_inicio, status");
+            .insert(occurrences);
           if (error) throw error;
-
-          if (insertedAgs && insertedAgs.length > 0) {
-            for (const occ of insertedAgs) {
-              await syncAgendamentoFinanceiro(
-                occ.id,
-                form.paciente_id,
-                form.profissional_id,
-                occ.data_inicio,
-                occ.status,
-                tipoAgendamento,
-                selectedSpecialty,
-                valor,
-                form.meio_pagamento,
-              );
-            }
-          }
         } else {
           const payload: any = {
             ...form,
@@ -1632,26 +1583,10 @@ Fico à disposição para qualquer dúvida!`;
             created_by: user?.id || null,
           };
           delete (payload as any).meio_pagamento;
-          const { data: insertedAg, error } = await supabase
+          const { error } = await supabase
             .from("agendamentos")
-            .insert(payload)
-            .select("id")
-            .single();
+            .insert(payload);
           if (error) throw error;
-
-          if (insertedAg) {
-            await syncAgendamentoFinanceiro(
-              insertedAg.id,
-              form.paciente_id,
-              form.profissional_id,
-              start,
-              form.status,
-              tipoAgendamento,
-              selectedSpecialty,
-              valor,
-              form.meio_pagamento,
-            );
-          }
         }
       }
     },
@@ -1677,41 +1612,9 @@ Fico à disposição para qualquer dúvida!`;
           .eq("recorrencia_grupo", editing.recorrencia_grupo)
           .gte("data_inicio", editing.data_inicio);
         if (error) throw error;
-
-        if (futureAgs && futureAgs.length > 0) {
-          for (const occ of futureAgs) {
-            const occTipo = occ.observacoes?.startsWith("[Tipo: Anamnese]") ? "anamnese" : "sessao";
-            const occSpec = (occ as any).servicos?.nome || "";
-            await syncAgendamentoFinanceiro(
-              occ.id,
-              editing.paciente_id,
-              editing.profissional_id,
-              occ.data_inicio,
-              "cancelado",
-              occTipo,
-              occSpec,
-              0,
-              editing.meio_pagamento,
-            );
-          }
-        }
       } else {
         const { error } = await supabase.from("agendamentos").delete().eq("id", editing.id);
         if (error) throw error;
-
-        const occTipo = editing.observacoes?.startsWith("[Tipo: Anamnese]") ? "anamnese" : "sessao";
-        const occSpec = editing.servicos?.nome || getEspecialidade(editing) || "";
-        await syncAgendamentoFinanceiro(
-          editing.id,
-          editing.paciente_id,
-          editing.profissional_id,
-          editing.data_inicio,
-          "cancelado",
-          occTipo,
-          occSpec,
-          0,
-          editing.meio_pagamento,
-        );
       }
     },
     onSuccess: () => {
@@ -2565,42 +2468,12 @@ function CancelDialog({ ag, onDone }: any) {
           .eq("recorrencia_grupo", ag.recorrencia_grupo)
           .gte("data_inicio", ag.data_inicio);
         if (error) throw error;
-
-        if (futureAgs && futureAgs.length > 0) {
-          for (const occ of futureAgs) {
-            const occTipo = occ.observacoes?.startsWith("[Tipo: Anamnese]") ? "anamnese" : "sessao";
-            const occSpec = getEspecialidade(occ) || "";
-            await syncAgendamentoFinanceiro(
-              occ.id,
-              ag.paciente_id,
-              ag.profissional_id,
-              occ.data_inicio,
-              "cancelado",
-              occTipo,
-              occSpec,
-              0,
-            );
-          }
-        }
       } else {
         const { error } = await supabase
           .from("agendamentos")
           .update({ status: "cancelado", motivo_cancelamento: motivo })
           .eq("id", ag.id);
         if (error) throw error;
-
-        const occTipo = ag.observacoes?.startsWith("[Tipo: Anamnese]") ? "anamnese" : "sessao";
-        const occSpec = getEspecialidade(ag) || "";
-        await syncAgendamentoFinanceiro(
-          ag.id,
-          ag.paciente_id,
-          ag.profissional_id,
-          ag.data_inicio,
-          "cancelado",
-          occTipo,
-          occSpec,
-          0,
-        );
       }
     },
     onSuccess: () => {
