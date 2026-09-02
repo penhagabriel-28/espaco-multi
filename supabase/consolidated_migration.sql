@@ -4080,3 +4080,36 @@ CREATE INDEX IF NOT EXISTS idx_comprovantes_fatura ON public.comprovantes_pagame
 CREATE INDEX IF NOT EXISTS idx_comprovantes_data_pagamento ON public.comprovantes_pagamento(data_pagamento ASC);
 
 
+-- ==========================================
+-- Migration: 20260902103000_default_fatura_vencimento.sql
+-- ==========================================
+-- Migration to enforce default vencimento for all faturas (invoices)
+-- Rule: Due date (vencimento) defaults to the 1st day of the month following the competence month (MM/YYYY -> 01/(MM+1)/YYYY)
+
+CREATE OR REPLACE FUNCTION public.tg_default_fatura_vencimento()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.competencia IS NOT NULL AND NEW.vencimento IS NULL THEN
+    NEW.vencimento := (date_trunc('month', NEW.competencia) + interval '1 month')::date;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_default_fatura_vencimento ON public.faturas;
+CREATE TRIGGER trg_default_fatura_vencimento
+BEFORE INSERT OR UPDATE OF vencimento, competencia ON public.faturas
+FOR EACH ROW
+EXECUTE FUNCTION public.tg_default_fatura_vencimento();
+
+UPDATE public.faturas
+SET vencimento = (date_trunc('month', competencia) + interval '1 month')::date
+WHERE competencia IS NOT NULL 
+  AND (vencimento IS NULL OR vencimento != (date_trunc('month', competencia) + interval '1 month')::date);
+
+
+

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay, subMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay, subMonths, addMonths } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { createMuralMessage, updateMuralMessage, deleteMuralMessage } from "@/lib/api/mural.functions";
@@ -1787,6 +1787,27 @@ function DiretoriaPageContent() {
     });
   }, [agendamentosRepasses, selectedProfId, sessionStatusFilter]);
 
+  const getDefaultVencimento = (competencia: string | Date | null | undefined): string | null => {
+    if (!competencia) return null;
+    try {
+      const compStr = typeof competencia === "string" ? competencia : format(competencia, "yyyy-MM-dd");
+      const dateStr = compStr.length === 7 ? `${compStr}-01` : compStr;
+      const parsed = new Date(dateStr + "T12:00:00");
+      if (isNaN(parsed.getTime())) return null;
+      return format(addMonths(startOfMonth(parsed), 1), "yyyy-MM-dd");
+    } catch {
+      return null;
+    }
+  };
+
+  const getResolvedVencimento = (fatura: any) => {
+    if (fatura?.vencimento) return fatura.vencimento;
+    if (fatura?.competencia) {
+      return getDefaultVencimento(fatura.competencia);
+    }
+    return null;
+  };
+
   const getPatientPaymentStatus = (a: any) => {
     const fatItem = faturaItensMap.get(a.id);
     if (a.status === "pago" || fatItem?.faturas?.status === "paga") {
@@ -1796,9 +1817,10 @@ function DiretoriaPageContent() {
     if (!fat) {
       return "nao_faturado";
     }
-    if (fat.status === "aberta" && fat.vencimento) {
+    const resolvedVenc = getResolvedVencimento(fat);
+    if (fat.status === "aberta" && resolvedVenc) {
       const today = startOfDay(new Date());
-      const dueDate = startOfDay(new Date(fat.vencimento + "T12:00:00"));
+      const dueDate = startOfDay(new Date(resolvedVenc + "T12:00:00"));
       const diff = differenceInDays(today, dueDate);
       if (diff > 0) return "vencida";
     }
@@ -2065,26 +2087,6 @@ function DiretoriaPageContent() {
 
   const handleOpenPatientFaturas = (pacienteId: string, pacienteNome: string) => {
     setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
-  };
-
-  const getResolvedVencimento = (fatura: any) => {
-    if (fatura.vencimento) return fatura.vencimento;
-    const pDetails = patientDetailsMap.get(fatura.paciente_id);
-    const billingType = fatura.especialidade === "Apoio"
-      ? "mensal"
-      : (pDetails && pDetails.valor_mensal && pDetails.valor_mensal > 0 ? "mensal" : "sessao");
-    
-    if (billingType === "sessao") {
-      const items = (faturaItens || []).filter((it: any) => it.fatura_id === fatura.id);
-      const sessionItem = items.find((it: any) => it.agendamento_id);
-      if (sessionItem) {
-        const agDate = agendamentoDateMap.get(sessionItem.agendamento_id);
-        if (agDate) {
-          return format(new Date(agDate), "yyyy-MM-dd");
-        }
-      }
-    }
-    return null;
   };
 
 
@@ -2440,7 +2442,7 @@ function DiretoriaPageContent() {
             faturaId: f.id,
             paciente_id: f.paciente_id,
             competencia: f.competencia,
-            vencimento: f.vencimento,
+            vencimento: getResolvedVencimento(f),
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
@@ -2504,7 +2506,7 @@ function DiretoriaPageContent() {
               faturaId: f.id,
               paciente_id: f.paciente_id,
               competencia: f.competencia,
-              vencimento: f.vencimento,
+              vencimento: getResolvedVencimento(f),
               pago_em: f.pago_em,
               status: f.status,
               metodo: f.metodo,
@@ -2997,16 +2999,19 @@ Nosso pix: 54.747.611/0001-27
     observacoes: "",
   });
 
-  const [faturaForm, setFaturaForm] = useState({
-    paciente_id: "",
-    competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-    vencimento: "",
-    valor: "",
-    status: "aberta",
-    pago_em: "",
-    observacoes: "",
-    profissional_id: "",
-    especialidade: "",
+  const [faturaForm, setFaturaForm] = useState(() => {
+    const initComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
+    return {
+      paciente_id: "",
+      competencia: initComp,
+      vencimento: getDefaultVencimento(initComp) || "",
+      valor: "",
+      status: "aberta",
+      pago_em: "",
+      observacoes: "",
+      profissional_id: "",
+      especialidade: "",
+    };
   });
 
   const availableSpecialties = useMemo(() => {
@@ -3566,10 +3571,11 @@ Nosso pix: 54.747.611/0001-27
                         title="Nova Cobrança para este Paciente"
                         className="h-7 w-7 text-primary hover:bg-primary/5 shrink-0"
                         onClick={() => {
+                          const comp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                           setFaturaForm({
                             paciente_id: c.pacienteId,
-                            competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                            vencimento: "",
+                            competencia: comp,
+                            vencimento: getDefaultVencimento(comp) || "",
                             valor: "",
                             status: "aberta",
                             pago_em: "",
@@ -4077,10 +4083,11 @@ Nosso pix: 54.747.611/0001-27
                 </Button>
                 <Button
                   onClick={() => {
+                    const comp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                     setFaturaForm({
                       paciente_id: "",
-                      competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                      vencimento: "",
+                      competencia: comp,
+                      vencimento: getDefaultVencimento(comp) || "",
                       valor: "",
                       status: "aberta",
                       pago_em: "",
@@ -4684,7 +4691,11 @@ Nosso pix: 54.747.611/0001-27
                   type="month"
                   required
                   value={faturaForm.competencia ? faturaForm.competencia.substring(0, 7) : ""}
-                  onChange={(e) => setFaturaForm({ ...faturaForm, competencia: e.target.value ? e.target.value + "-01" : "" })}
+                  onChange={(e) => {
+                    const newComp = e.target.value ? e.target.value + "-01" : "";
+                    const nextVenc = getDefaultVencimento(newComp) || "";
+                    setFaturaForm({ ...faturaForm, competencia: newComp, vencimento: nextVenc });
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -4786,7 +4797,7 @@ Nosso pix: 54.747.611/0001-27
                 {
                   paciente_id: faturaForm.paciente_id,
                   competencia: faturaForm.competencia,
-                  vencimento: faturaForm.vencimento ? faturaForm.vencimento : null,
+                  vencimento: faturaForm.vencimento || getDefaultVencimento(faturaForm.competencia) || null,
                   valor: parseFloat(faturaForm.valor.replace(",", ".")),
                   status: faturaForm.status,
                   observacoes: faturaForm.observacoes,
@@ -4795,11 +4806,12 @@ Nosso pix: 54.747.611/0001-27
                 },
                 {
                   onSuccess: () => {
+                    const initComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                     setCreateDialog(false);
                     setFaturaForm({
                       paciente_id: "",
-                      competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                      vencimento: "",
+                      competencia: initComp,
+                      vencimento: getDefaultVencimento(initComp) || "",
                       valor: "",
                       status: "aberta",
                       pago_em: "",
@@ -4865,7 +4877,11 @@ Nosso pix: 54.747.611/0001-27
                   type="date"
                   required
                   value={faturaForm.competencia}
-                  onChange={(e) => setFaturaForm({ ...faturaForm, competencia: e.target.value })}
+                  onChange={(e) => {
+                    const newComp = e.target.value;
+                    const nextVenc = getDefaultVencimento(newComp) || "";
+                    setFaturaForm({ ...faturaForm, competencia: newComp, vencimento: nextVenc });
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -5110,10 +5126,11 @@ Nosso pix: 54.747.611/0001-27
                 size="sm"
                 className="gap-1.5 font-semibold cursor-pointer"
                 onClick={() => {
+                  const comp = format(startOfMonth(new Date()), "yyyy-MM-dd");
                   setFaturaForm({
                     paciente_id: patientFaturasDialog.pacienteId,
-                    competencia: format(startOfMonth(new Date()), "yyyy-MM-dd"),
-                    vencimento: "",
+                    competencia: comp,
+                    vencimento: getDefaultVencimento(comp) || "",
                     valor: "",
                     status: "aberta",
                     pago_em: "",
