@@ -34,7 +34,7 @@ function PacienteDetail() {
   const [feriasOpen, setFeriasOpen] = useState(false);
   const [gerarSemanaOpen, setGerarSemanaOpen] = useState(false);
 
-  const { data: paciente } = useQuery({
+  const { data: paciente, isLoading: loadingPac, isError: errorPac, error: errPac } = useQuery({
     queryKey: ["paciente", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("pacientes").select("*").eq("id", id).single();
@@ -152,7 +152,30 @@ function PacienteDetail() {
     }
   };
 
-  if (!paciente) return <p className="text-muted-foreground">Carregando…</p>;
+  if (loadingPac) {
+    return (
+      <div className="space-y-4 p-4">
+        <p className="text-sm text-muted-foreground">Carregando dados do paciente…</p>
+      </div>
+    );
+  }
+
+  if (errorPac || !paciente) {
+    return (
+      <div className="space-y-4">
+        <Button asChild variant="ghost" size="sm" className="gap-1">
+          <Link to="/pacientes">
+            <ArrowLeft className="h-4 w-4" /> Voltar para Pacientes
+          </Link>
+        </Button>
+        <Card className="border-destructive/30">
+          <CardContent className="py-8 text-center text-sm text-destructive">
+            Não foi possível carregar os dados deste paciente. {(errPac as any)?.message || ""}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

@@ -36,27 +36,35 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
+  console.error("Router error:", error);
   const router = useRouter();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
+      <div className="max-w-lg text-center space-y-4">
         <h1 className="text-xl font-semibold">Esta página não carregou</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Algo deu errado. Você pode tentar novamente ou voltar ao início.
+        <p className="text-sm text-muted-foreground">
+          Algo deu errado ao processar a página.
         </p>
-        <div className="mt-6 flex justify-center gap-2">
+        {error?.message && (
+          <div className="text-left bg-muted/70 p-3 rounded-lg border border-border text-xs font-mono text-destructive break-words max-h-40 overflow-auto">
+            {error.message}
+          </div>
+        )}
+        <div className="flex justify-center gap-2 pt-2">
           <button
             onClick={() => {
               router.invalidate();
               reset();
             }}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
           >
             Tentar novamente
           </button>
-          <a href="/" className="rounded-md border px-4 py-2 text-sm">
+          <a href="/pacientes" className="rounded-md border px-4 py-2 text-sm hover:bg-muted">
+            Voltar a Pacientes
+          </a>
+          <a href="/dashboard" className="rounded-md border px-4 py-2 text-sm hover:bg-muted">
             Início
           </a>
         </div>
