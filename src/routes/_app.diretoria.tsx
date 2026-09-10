@@ -93,6 +93,11 @@ function parseDateFromDescription(desc: string): number | null {
   return null;
 }
 
+export function isApoioSpec(specialty?: string | null): boolean {
+  const s = String(specialty || "").trim().toUpperCase();
+  return s === "APOIO" || s === "AP";
+}
+
 export const Route = createFileRoute("/_app/diretoria")({
   component: DiretoriaPage,
 });
@@ -1228,7 +1233,8 @@ function DiretoriaPageContent() {
   }, [faturaItens]);
 
   const getApoioFaturaValor = (fatura: any) => {
-    const p = patientDetailsMap.get(fatura.paciente_id);
+    if (!fatura) return 0;
+    const p = fatura.paciente_id ? patientDetailsMap.get(fatura.paciente_id) : null;
     if (!p) return Number(fatura.valor) || 0;
     
     const freq = p.apoio_frequencia || 'avulso';
@@ -1521,11 +1527,6 @@ function DiretoriaPageContent() {
     } else {
       return valorDefault;
     }
-  };
-
-  const isApoioSpec = (specialty: string) => {
-    const s = String(specialty || "").trim().toUpperCase();
-    return s === "APOIO" || s === "AP";
   };
 
   const getRepasseRates = (specialty: string) => {
@@ -5706,7 +5707,7 @@ Nosso pix: 54.747.611/0001-27
                         Valor Total
                       </span>
                       <span className="text-2xl font-bold text-primary">
-                        {brl(Number(isApoioSpec(activeDetailedFatura.especialidade) ? getApoioFaturaValor(activeDetailedFatura) : activeDetailedFatura.valor) || 0)}
+                        {brl(Number(isApoioSpec(activeDetailedFatura?.especialidade) ? getApoioFaturaValor(activeDetailedFatura) : activeDetailedFatura?.valor) || 0)}
                       </span>
                     </div>
                   </div>
@@ -5724,8 +5725,8 @@ Nosso pix: 54.747.611/0001-27
                       </TableHeader>
                       <TableBody>
                         {(() => {
-                          let items = faturaItens.filter((item: any) => item.fatura_id === activeDetailedFatura.id);
-                          if (isApoioSpec(activeDetailedFatura.especialidade)) {
+                          let items = (faturaItens || []).filter((item: any) => item.fatura_id === activeDetailedFatura?.id);
+                          if (isApoioSpec(activeDetailedFatura?.especialidade)) {
                             items = items.filter((item: any) => !item.agendamento_id);
                           }
                           const sortedItems = items.sort((a: any, b: any) => {
