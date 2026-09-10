@@ -97,7 +97,7 @@ export function PacienteFormDialog({
   const { data: profissionais = EMPTY_ARRAY } = useQuery({
     queryKey: ["profissionais"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("profissionais").select("especialidade, tipo, valores_config");
+      const { data, error } = await supabase.from("profissionais").select("especialidade, valores_config");
       if (error) throw error;
       return (data ?? []).filter((p: any) => !isProfissionalAdmin(p));
     },
@@ -108,7 +108,7 @@ export function PacienteFormDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, cor, especialidade, valores_config, ativo, tipo")
+        .select("id, nome, cor, especialidade, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data ?? [];

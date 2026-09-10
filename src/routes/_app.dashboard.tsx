@@ -136,7 +136,7 @@ function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valores_config, ativo, tipo, cargo")
+        .select("id, nome, especialidade, cor, valores_config, ativo")
         .eq("ativo", true)
         .order("nome");
       if (error) throw error;

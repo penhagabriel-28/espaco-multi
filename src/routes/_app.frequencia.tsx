@@ -249,7 +249,7 @@ function FrequenciaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valores_config, ativo, tipo")
+        .select("id, nome, especialidade, cor, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data ?? [];

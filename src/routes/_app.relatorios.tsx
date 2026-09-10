@@ -190,7 +190,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, telefone, valores_config, ativo, tipo")
+        .select("id, nome, telefone, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return (data ?? []).filter((p: any) => !isProfissionalAdmin(p));

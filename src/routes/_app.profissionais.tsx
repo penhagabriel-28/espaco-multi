@@ -963,14 +963,11 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
 
       const payload: any = {
         nome: form.nome,
-        tipo: form.tipo,
-        cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
         especialidade: isAdm
           ? form.cargo?.trim() || "Administrativo"
           : activeSpecs.map((e: any) => e.nome?.trim() || "").filter(Boolean).join(", ") || null,
         email: form.email || null,
         telefone: form.telefone || null,
-        data_nascimento: form.data_nascimento || null,
         cor: form.cor,
         ativo: form.ativo,
         valores_config: payloadConfig,

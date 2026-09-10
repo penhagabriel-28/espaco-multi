@@ -145,7 +145,7 @@ export function PlanoAbaDialog({
     queryFn: async () => {
       const { data } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, valores_config, ativo, tipo")
+        .select("id, nome, especialidade, valores_config, ativo")
         .order("nome");
       return data ?? [];
     },
