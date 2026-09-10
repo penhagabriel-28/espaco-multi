@@ -4575,7 +4575,9 @@ Nosso pix: 54.747.611/0001-27
                                                          {isApoio ? "Valor do Plano" : "Valor da Sessão"}
                                                        </TableHead>
                                                        <TableHead className="font-semibold text-foreground w-[90px] text-center">% Repasse</TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[120px] text-center">Valor</TableHead>
+                                                       {!isApoio && (
+                                                         <TableHead className="font-semibold text-foreground w-[120px] text-center">Valor</TableHead>
+                                                       )}
                                                        <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
                                                      </TableRow>
                                                    </TableHeader>
@@ -4653,29 +4655,31 @@ Nosso pix: 54.747.611/0001-27
                                                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
                                                              </div>
                                                            </TableCell>
-                                                           <TableCell className="text-center py-2">
-                                                             <div className="relative max-w-[110px] mx-auto">
-                                                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
-                                                               <Input
-                                                                 type="number"
-                                                                 step="any"
-                                                                 className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium"
-                                                                 value={Number(item.unitRepVal.toFixed(2))}
-                                                                 onChange={(e) =>
-                                                                   handleOverrideChange(
-                                                                     group.profissionalId,
-                                                                     item.key,
-                                                                     "unitRepVal",
-                                                                     e.target.value,
-                                                                     defaultSessions,
-                                                                     isApoio ? defaultFaturamento : defaultAvgValue,
-                                                                     defaultRate,
-                                                                     item.value
-                                                                   )
-                                                                 }
-                                                               />
-                                                             </div>
-                                                           </TableCell>
+                                                           {!isApoio && (
+                                                             <TableCell className="text-center py-2">
+                                                               <div className="relative max-w-[110px] mx-auto">
+                                                                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
+                                                                 <Input
+                                                                   type="number"
+                                                                   step="any"
+                                                                   className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium"
+                                                                   value={Number(item.unitRepVal.toFixed(2))}
+                                                                   onChange={(e) =>
+                                                                     handleOverrideChange(
+                                                                       group.profissionalId,
+                                                                       item.key,
+                                                                       "unitRepVal",
+                                                                       e.target.value,
+                                                                       defaultSessions,
+                                                                       isApoio ? defaultFaturamento : defaultAvgValue,
+                                                                       defaultRate,
+                                                                       item.value
+                                                                     )
+                                                                   }
+                                                                 />
+                                                               </div>
+                                                             </TableCell>
+                                                           )}
                                                            <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                              {brl(item.repVal)}
                                                            </TableCell>
@@ -4694,7 +4698,7 @@ Nosso pix: 54.747.611/0001-27
                                                          {brl(totalFat)}
                                                        </TableCell>
                                                        <TableCell className="py-2" />
-                                                       <TableCell className="py-2" />
+                                                       {!isApoio && <TableCell className="py-2" />}
                                                        <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                          {brl(totalRep)}
                                                        </TableCell>
