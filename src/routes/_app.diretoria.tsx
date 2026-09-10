@@ -1259,7 +1259,7 @@ function DiretoriaPageContent() {
   // Helper to get exact effective value of a fatura (item total sum or fatura valor)
   const getFaturaEffectiveValue = (fatura: any) => {
     if (!fatura) return 0;
-    if (fatura.especialidade === "Apoio") {
+    if (isApoioSpec(fatura.especialidade)) {
       return getApoioFaturaValor(fatura);
     }
     const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura.id);
@@ -2120,7 +2120,7 @@ function DiretoriaPageContent() {
       const patientName = patientMap.get(pId) || "Paciente Desconhecido";
       const pDetails = patientDetailsMap.get(pId);
       
-      const billingType = f.especialidade === "Apoio" 
+      const billingType = isApoioSpec(f.especialidade) 
         ? "mensal" 
         : (pDetails && pDetails.valor_mensal && pDetails.valor_mensal > 0 ? "mensal" : "sessao");
 
@@ -2206,8 +2206,9 @@ function DiretoriaPageContent() {
   const patientDetailedRows = useMemo(() => {
     const rows: any[] = [];
     (patientFaturas || []).forEach((f) => {
+      const isApoio = isApoioSpec(f.especialidade);
       let items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
-      if (f.especialidade === "Apoio") {
+      if (isApoio) {
         items = items.filter((item: any) => !item.agendamento_id);
       }
       if (items.length === 0) {
@@ -2216,7 +2217,7 @@ function DiretoriaPageContent() {
         if (profFilter !== "all" && rowProfId !== profFilter) return;
 
         let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual");
-        if (f.especialidade === "Apoio") {
+        if (isApoio) {
           const p = patientDetailsMap.get(f.paciente_id);
           const freq = p?.apoio_frequencia || 'avulso';
           const freqLabels: Record<string, string> = {
@@ -2230,7 +2231,7 @@ function DiretoriaPageContent() {
         }
 
         let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—";
-        if (f.especialidade === "Apoio" && profNome === "—") {
+        if (isApoio && profNome === "—") {
           const fatProfs = faturaProfIdsMap.get(f.id);
           if (fatProfs && fatProfs.size > 0) {
             profNome = Array.from(fatProfs)
@@ -2257,7 +2258,7 @@ function DiretoriaPageContent() {
           pago_em: f.pago_em,
           status: f.status,
           metodo: f.metodo,
-          valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
+          valor: isApoio ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
           descricao: rowDesc,
           profissionalNome: profNome,
           especialidade: f.especialidade || null,
@@ -2267,17 +2268,17 @@ function DiretoriaPageContent() {
       } else {
         // Session items
         items.forEach((item: any) => {
-          const isApoioMatch = f.especialidade === "Apoio" && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
+          const isApoioMatch = isApoio && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
           const rowProfId = isApoioMatch 
             ? profFilter 
             : (item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id);
           if (profFilter !== "all" && rowProfId !== profFilter) return;
- 
+
           const profName = isApoioMatch 
             ? (professionalMap.get(profFilter) || "—") 
             : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
           let finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
-          if (f.especialidade === "Apoio" && finalProfName === "—") {
+          if (isApoio && finalProfName === "—") {
             const fatProfs = faturaProfIdsMap.get(f.id);
             if (fatProfs && fatProfs.size > 0) {
               finalProfName = Array.from(fatProfs)
@@ -2296,7 +2297,7 @@ function DiretoriaPageContent() {
           }
 
           let rowDesc = item.descricao || "Sessão";
-          if (f.especialidade === "Apoio") {
+          if (isApoio) {
             if (item.descricao && item.descricao.startsWith("Pacote Apoio")) {
               rowDesc = item.descricao;
             } else {
@@ -2322,7 +2323,7 @@ function DiretoriaPageContent() {
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
-            valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
+            valor: isApoio ? getApoioFaturaValor(f) : (Number(item.total || 0)),
             descricao: rowDesc,
             profissionalNome: finalProfName,
             especialidade: f.especialidade || null,
@@ -2396,8 +2397,9 @@ function DiretoriaPageContent() {
 
       const rows: any[] = [];
       pFats.forEach((f: any) => {
+        const isApoio = isApoioSpec(f.especialidade);
         let items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
-        if (f.especialidade === "Apoio") {
+        if (isApoio) {
           items = items.filter((item: any) => !item.agendamento_id);
         }
         if (items.length === 0) {
@@ -2405,7 +2407,7 @@ function DiretoriaPageContent() {
           if (profFilter !== "all" && rowProfId !== profFilter) return;
 
           let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual");
-          if (f.especialidade === "Apoio") {
+          if (isApoio) {
             const p = patientDetailsMap.get(f.paciente_id);
             const freq = p?.apoio_frequencia || 'avulso';
             const freqLabels: Record<string, string> = {
@@ -2419,7 +2421,7 @@ function DiretoriaPageContent() {
           }
 
           let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—";
-          if (f.especialidade === "Apoio" && profNome === "—") {
+          if (isApoio && profNome === "—") {
             const fatProfs = faturaProfIdsMap.get(f.id);
             if (fatProfs && fatProfs.size > 0) {
               profNome = Array.from(fatProfs)
@@ -2446,7 +2448,7 @@ function DiretoriaPageContent() {
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
-            valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
+            valor: isApoio ? getApoioFaturaValor(f) : (Number(f.valor) || 0),
             descricao: rowDesc,
             profissionalNome: profNome,
             especialidade: f.especialidade || null,
@@ -2455,7 +2457,7 @@ function DiretoriaPageContent() {
           });
         } else {
           items.forEach((item: any) => {
-            const isApoioMatch = f.especialidade === "Apoio" && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
+            const isApoioMatch = isApoio && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
             const rowProfId = isApoioMatch 
               ? profFilter 
               : (item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id);
@@ -2465,7 +2467,7 @@ function DiretoriaPageContent() {
               ? (professionalMap.get(profFilter) || "—") 
               : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
             let finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
-            if (f.especialidade === "Apoio" && finalProfName === "—") {
+            if (isApoio && finalProfName === "—") {
               const fatProfs = faturaProfIdsMap.get(f.id);
               if (fatProfs && fatProfs.size > 0) {
                 finalProfName = Array.from(fatProfs)
@@ -2484,7 +2486,7 @@ function DiretoriaPageContent() {
             }
 
             let rowDesc = item.descricao || "Sessão";
-            if (f.especialidade === "Apoio") {
+            if (isApoio) {
               if (item.descricao && item.descricao.startsWith("Pacote Apoio")) {
                 rowDesc = item.descricao;
               } else {
@@ -2510,7 +2512,7 @@ function DiretoriaPageContent() {
               pago_em: f.pago_em,
               status: f.status,
               metodo: f.metodo,
-              valor: f.especialidade === "Apoio" ? getApoioFaturaValor(f) : (Number(item.total || 0)),
+              valor: isApoio ? getApoioFaturaValor(f) : (Number(item.total || 0)),
               descricao: rowDesc,
               profissionalNome: finalProfName,
               especialidade: f.especialidade || null,
@@ -2894,14 +2896,15 @@ function DiretoriaPageContent() {
     const groupedPackages: Record<string, { desc: string; profName: string }> = {};
 
     periodFats.forEach((f) => {
+      const isApoio = isApoioSpec(f.especialidade);
       let items = (faturaItens || []).filter((item: any) => item.fatura_id === f.id);
-      if (f.especialidade === "Apoio") {
+      if (isApoio) {
         items = items.filter((item: any) => !item.agendamento_id);
       }
 
       if (items.length === 0) {
         let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—";
-        if (f.especialidade === "Apoio" && profNome === "—") {
+        if (isApoio && profNome === "—") {
           const fatProfs = faturaProfIdsMap.get(f.id);
           if (fatProfs && fatProfs.size > 0) {
             profNome = Array.from(fatProfs)
@@ -2919,7 +2922,7 @@ function DiretoriaPageContent() {
           }
         }
 
-        if (f.especialidade === "Apoio") {
+        if (isApoio) {
           const p = patientDetailsMap.get(f.paciente_id);
           const freq = p?.apoio_frequencia || 'avulso';
           const freqLabels: Record<string, string> = {
@@ -2945,7 +2948,7 @@ function DiretoriaPageContent() {
           const profId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
           const profName = profId ? (professionalMap.get(profId) || "—") : "—";
           
-          if (f.especialidade === "Apoio") {
+          if (isApoio) {
             const desc = item.descricao || "Pacote Apoio";
             const key = `${desc}-${profName}`;
             groupedPackages[key] = { desc, profName };
@@ -3041,7 +3044,7 @@ Nosso pix: 54.747.611/0001-27
   const getFaturaPrice = (pacienteId: string, profissionalId: string, especialidade: string, isAnamnese = false) => {
     if (!pacienteId) return 0;
 
-    if (especialidade === "Apoio") {
+    if (isApoioSpec(especialidade)) {
       const p = patientDetailsMap.get(pacienteId);
       if (p) {
         const freq = p.apoio_frequencia || 'avulso';
@@ -3056,7 +3059,7 @@ Nosso pix: 54.747.611/0001-27
           "3x": 360.00,
           semana_toda: 450.00
         };
-        return defaultRates[freq] ?? 50.00;
+        return defaultRates[freq] ?? 120.00;
       }
       return 0;
     }
@@ -3108,7 +3111,29 @@ Nosso pix: 54.747.611/0001-27
     setFaturaForm((prev) => ({ ...prev, valor: price > 0 ? String(price) : "" }));
   };
 
+  const detectedApoioConfig = useMemo(() => {
+    if (!faturaForm.paciente_id || !isApoioSpec(faturaForm.especialidade)) return null;
+    const p = patientDetailsMap.get(faturaForm.paciente_id);
+    if (!p) return null;
+    const freq = p.apoio_frequencia || 'avulso';
+    const customVal = p.apoio_valor_personalizado;
+    const freqLabels: Record<string, string> = {
+      avulso: "Sessão Avulsa",
+      "1x": "1x por semana",
+      "2x": "2x por semana",
+      "3x": "3x por semana",
+      semana_toda: "Semana Toda",
+    };
+    return {
+      freq,
+      freqLabel: freqLabels[freq] || freq,
+      customVal: customVal !== null && customVal !== undefined && String(customVal) !== "" ? Number(customVal) : null,
+      price: getFaturaPrice(faturaForm.paciente_id, faturaForm.profissional_id, "Apoio")
+    };
+  }, [faturaForm.paciente_id, faturaForm.especialidade, patientDetailsMap, faturaForm.profissional_id]);
+
   const detectedDiscount = useMemo(() => {
+    if (isApoioSpec(faturaForm.especialidade)) return null;
     if (!faturaForm.paciente_id || !faturaForm.profissional_id || !faturaForm.especialidade) return null;
     const prof = (profissionais || []).find((p: any) => p.id === faturaForm.profissional_id);
     if (!prof) return null;
@@ -3123,6 +3148,7 @@ Nosso pix: 54.747.611/0001-27
   }, [faturaForm.paciente_id, faturaForm.profissional_id, faturaForm.especialidade, profissionais]);
 
   const detectedSpecialtyRate = useMemo(() => {
+    if (isApoioSpec(faturaForm.especialidade)) return null;
     if (detectedDiscount) return null;
     if (!faturaForm.profissional_id || !faturaForm.especialidade) return null;
     const prof = (profissionais || []).find((p: any) => p.id === faturaForm.profissional_id);
@@ -3162,7 +3188,29 @@ Nosso pix: 54.747.611/0001-27
     return (faturas || []).find((f) => f.id === invoiceDetailsDialog.fatura.id) || invoiceDetailsDialog.fatura;
   }, [faturas, invoiceDetailsDialog.fatura]);
 
+  const detectedDetailsApoioConfig = useMemo(() => {
+    if (!activeDetailedFatura?.paciente_id || !isApoioSpec(activeDetailedFatura?.especialidade)) return null;
+    const p = patientDetailsMap.get(activeDetailedFatura.paciente_id);
+    if (!p) return null;
+    const freq = p.apoio_frequencia || 'avulso';
+    const customVal = p.apoio_valor_personalizado;
+    const freqLabels: Record<string, string> = {
+      avulso: "Sessão Avulsa",
+      "1x": "1x por semana",
+      "2x": "2x por semana",
+      "3x": "3x por semana",
+      semana_toda: "Semana Toda",
+    };
+    return {
+      freq,
+      freqLabel: freqLabels[freq] || freq,
+      customVal: customVal !== null && customVal !== undefined && String(customVal) !== "" ? Number(customVal) : null,
+      price: getFaturaPrice(activeDetailedFatura.paciente_id, activeDetailedFatura.profissional_id, "Apoio")
+    };
+  }, [activeDetailedFatura, patientDetailsMap]);
+
   const detectedDetailsDiscount = useMemo(() => {
+    if (isApoioSpec(activeDetailedFatura?.especialidade)) return null;
     if (!activeDetailedFatura?.paciente_id || !activeDetailedFatura?.profissional_id || !activeDetailedFatura?.especialidade) return null;
     const prof = (profissionais || []).find((p: any) => p.id === activeDetailedFatura.profissional_id);
     if (!prof) return null;
@@ -3177,6 +3225,7 @@ Nosso pix: 54.747.611/0001-27
   }, [activeDetailedFatura, profissionais]);
 
   const detectedDetailsSpecialtyRate = useMemo(() => {
+    if (isApoioSpec(activeDetailedFatura?.especialidade)) return null;
     if (detectedDetailsDiscount) return null;
     if (!activeDetailedFatura?.profissional_id || !activeDetailedFatura?.especialidade) return null;
     const prof = (profissionais || []).find((p: any) => p.id === activeDetailedFatura.profissional_id);
@@ -3193,7 +3242,7 @@ Nosso pix: 54.747.611/0001-27
     setInvoiceDetailsDialog({ open: true, fatura });
     
     let profId = fatura.profissional_id || "";
-    if (fatura.especialidade === "Apoio" && !profId) {
+    if (isApoioSpec(fatura.especialidade) && !profId) {
       const p = patientDetailsMap.get(fatura.paciente_id);
       const matchedProf = p?.paciente_profissional?.find((pp: any) =>
         professionalMatchesSpecialty(pp.profissional_id, fatura.especialidade)
@@ -3230,7 +3279,9 @@ Nosso pix: 54.747.611/0001-27
 
   const handleOpenEdit = (fatura: any, defaultValor?: number | string) => {
     let valToUse = fatura?.valor;
-    if (defaultValor !== undefined && defaultValor !== null && Number(defaultValor) > 0) {
+    if (isApoioSpec(fatura?.especialidade)) {
+      valToUse = getApoioFaturaValor(fatura);
+    } else if (defaultValor !== undefined && defaultValor !== null && Number(defaultValor) > 0) {
       valToUse = defaultValor;
     } else if (!valToUse || Number(valToUse) === 0) {
       const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura?.id);
@@ -4832,7 +4883,7 @@ Nosso pix: 54.747.611/0001-27
                 onValueChange={(val) => {
                   setFaturaForm((prev) => {
                     const p = patientDetailsMap.get(val);
-                    const isApoio = prev.especialidade === "Apoio" || p?.cids_secundarios?.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
+                    const isApoio = isApoioSpec(prev.especialidade) || p?.cids_secundarios?.some((s: string) => isApoioSpec(s));
                     let profId = prev.profissional_id;
                     let spec = prev.especialidade;
                     if (isApoio) {
@@ -4903,7 +4954,17 @@ Nosso pix: 54.747.611/0001-27
                   value={faturaForm.valor}
                   onChange={(e) => setFaturaForm({ ...faturaForm, valor: e.target.value })}
                 />
-                {detectedDiscount ? (
+                {detectedApoioConfig ? (
+                  detectedApoioConfig.customVal !== null ? (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-1 animate-in fade-in duration-200">
+                      🏷️ Valor Customizado do Apoio: {brl(detectedApoioConfig.customVal)} (Pacote)
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-sky-600 dark:text-sky-400 font-semibold flex items-center gap-1 mt-1 animate-in fade-in duration-200">
+                      ⭐ Pacote Apoio ({detectedApoioConfig.freqLabel}): {brl(detectedApoioConfig.price)}
+                    </span>
+                  )
+                ) : detectedDiscount ? (
                   <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-1 animate-in fade-in duration-200">
                     🏷️ Desconto de paciente aplicado: {brl(Number(detectedDiscount.valor_sessao || 0))}
                   </span>
@@ -4990,7 +5051,7 @@ Nosso pix: 54.747.611/0001-27
                     const spec = val === "none" ? "" : val;
                     setFaturaForm((prev) => {
                       let profId = prev.profissional_id;
-                      if (spec === "Apoio" && !profId && prev.paciente_id) {
+                      if (isApoioSpec(spec) && !profId && prev.paciente_id) {
                         const p = patientDetailsMap.get(prev.paciente_id);
                         if (p?.paciente_profissional?.length > 0) {
                           const matchedProf = p.paciente_profissional.find((pp: any) =>
@@ -5645,7 +5706,7 @@ Nosso pix: 54.747.611/0001-27
                         Valor Total
                       </span>
                       <span className="text-2xl font-bold text-primary">
-                        {brl(Number(activeDetailedFatura.valor) || 0)}
+                        {brl(Number(isApoioSpec(activeDetailedFatura.especialidade) ? getApoioFaturaValor(activeDetailedFatura) : activeDetailedFatura.valor) || 0)}
                       </span>
                     </div>
                   </div>
@@ -5664,7 +5725,7 @@ Nosso pix: 54.747.611/0001-27
                       <TableBody>
                         {(() => {
                           let items = faturaItens.filter((item: any) => item.fatura_id === activeDetailedFatura.id);
-                          if (activeDetailedFatura.especialidade === "Apoio") {
+                          if (isApoioSpec(activeDetailedFatura.especialidade)) {
                             items = items.filter((item: any) => !item.agendamento_id);
                           }
                           const sortedItems = items.sort((a: any, b: any) => {

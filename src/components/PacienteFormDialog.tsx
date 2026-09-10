@@ -326,10 +326,30 @@ export function PacienteFormDialog({
         if (form.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP")) {
           const today = new Date();
           const competencia = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
-          await supabase.rpc("fn_recalculate_apoio_package", {
-            p_paciente_id: paciente.id,
-            p_competencia: competencia
-          });
+          try {
+            await supabase.rpc("fn_recalculate_apoio_package", {
+              p_paciente_id: paciente.id,
+              p_competencia: competencia
+            });
+            // Also check for existing faturas of this patient to recalculate
+            const { data: existingFats } = await supabase
+              .from("faturas")
+              .select("competencia")
+              .eq("paciente_id", paciente.id);
+            if (existingFats && existingFats.length > 0) {
+              const uniqueComps = Array.from(new Set(existingFats.map((f: any) => f.competencia))).filter(Boolean);
+              for (const comp of uniqueComps) {
+                if (comp !== competencia) {
+                  await supabase.rpc("fn_recalculate_apoio_package", {
+                    p_paciente_id: paciente.id,
+                    p_competencia: comp
+                  });
+                }
+              }
+            }
+          } catch (err) {
+            console.error("Erro ao recalcular pacote Apoio:", err);
+          }
         }
 
         return { ...paciente, ...payload };
@@ -374,10 +394,14 @@ export function PacienteFormDialog({
         if (newPaciente && form.cids_secundarios.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP")) {
           const today = new Date();
           const competencia = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
-          await supabase.rpc("fn_recalculate_apoio_package", {
-            p_paciente_id: newPaciente.id,
-            p_competencia: competencia
-          });
+          try {
+            await supabase.rpc("fn_recalculate_apoio_package", {
+              p_paciente_id: newPaciente.id,
+              p_competencia: competencia
+            });
+          } catch (err) {
+            console.error("Erro ao recalcular pacote Apoio:", err);
+          }
         }
 
         return newPaciente;
@@ -385,6 +409,11 @@ export function PacienteFormDialog({
     },
     onSuccess: (data) => {
       toast.success(paciente ? "Paciente atualizado" : "Paciente cadastrado");
+      qc.invalidateQueries({ queryKey: ["pacientes"] });
+      qc.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+      qc.invalidateQueries({ queryKey: ["dir-faturas"] });
+      qc.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
+      qc.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       qc.invalidateQueries({ queryKey: ["paciente-profissional-all"] });
       qc.invalidateQueries({ queryKey: ["paciente-profissionais-detail", paciente?.id] });
       qc.invalidateQueries({ queryKey: ["paciente-profissionais", paciente?.id] });
