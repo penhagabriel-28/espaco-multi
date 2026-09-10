@@ -897,6 +897,12 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
       nome: prof?.nome ?? "",
       tipo: initialTipo as "clinico" | "administrativo",
       cargo: initialCargo ?? "",
+      salario:
+        prof?.salario !== undefined && prof?.salario !== null
+          ? String(prof.salario)
+          : ((prof?.valores_config as any)?.salario !== undefined && (prof?.valores_config as any)?.salario !== null
+            ? String((prof?.valores_config as any).salario)
+            : ""),
       especialidades: initialSpecs,
       email: prof?.email ?? "",
       telefone: prof?.telefone ?? "",
@@ -932,9 +938,12 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         ? []
         : form.especialidades.filter((e: any) => e && e.nome && e.nome.trim());
 
+      const salarioNum = parseMoneyValue(form.salario);
+
       const payloadConfig = {
         tipo: form.tipo,
         cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
+        salario: salarioNum,
         especialidades: activeSpecs.map((v: any) => {
           const nomeLower = v.nome?.trim().toLowerCase() || "";
           const isAP = nomeLower === "ap";
@@ -968,6 +977,9 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
 
       const payload: any = {
         nome: form.nome,
+        tipo: form.tipo,
+        cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
+        salario: salarioNum,
         especialidade: isAdm
           ? form.cargo?.trim() || "Administrativo"
           : activeSpecs.map((e: any) => e.nome?.trim() || "").filter(Boolean).join(", ") || null,
@@ -1051,144 +1063,174 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
               onChange={(e) => setForm({ ...form, cargo: e.target.value })}
             />
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+              <span>💵</span> Salário Mensal / Fixo (R$)
+            </Label>
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="Ex.: 2500.00"
+              value={form.salario}
+              onChange={(e) => setForm({ ...form, salario: e.target.value })}
+            />
+          </div>
           <div className="text-[11px] text-muted-foreground bg-background/80 p-2.5 rounded border border-indigo-500/20 leading-relaxed">
             💡 <strong>Aviso:</strong> Profissionais administrativos são registrados para a equipe interna e <strong>não</strong> aparecerão na grade de marcação de consultas ou relatórios clínicos.
           </div>
         </div>
       ) : (
-        <div className="space-y-1.5">
-          <Label>Especialidades & Valores</Label>
-          <div className="space-y-3">
-            {form.especialidades.map((esp: any, index: number) => (
-              <div
-                key={index}
-                className="border p-3.5 rounded-lg bg-accent/10 space-y-2.5 relative group"
-              >
-                <div className="flex gap-2 items-center">
-                  <Input
-                    required={!isAdm}
-                    value={esp.nome}
-                    onChange={(e) => {
-                      const next = [...form.especialidades];
-                      next[index].nome = e.target.value;
-                      setForm({ ...form, especialidades: next });
-                    }}
-                    placeholder={`Especialidade ${index + 1}`}
-                    className="font-semibold text-sm"
-                  />
-                  {form.especialidades.length > 1 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => {
-                        setForm({
-                          ...form,
-                          especialidades: form.especialidades.filter(
-                            (_: any, i: number) => i !== index,
-                          ),
-                        });
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Especialidades & Valores</Label>
+            <div className="space-y-3">
+              {form.especialidades.map((esp: any, index: number) => (
+                <div
+                  key={index}
+                  className="border p-3.5 rounded-lg bg-accent/10 space-y-2.5 relative group"
+                >
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      required={!isAdm}
+                      value={esp.nome}
+                      onChange={(e) => {
+                        const next = [...form.especialidades];
+                        next[index].nome = e.target.value;
+                        setForm({ ...form, especialidades: next });
                       }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-
-                {esp.nome.trim() && (
-                  <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
-                    {esp.nome.toUpperCase() === "AP" ? (
-                      <div className="col-span-2 space-y-1">
-                        <Label className="text-[11px] text-muted-foreground">Plano Mensal (AP)</Label>
-                        <Select
-                          value={esp.plano_mensal}
-                          onValueChange={(val) => {
-                            const next = [...form.especialidades];
-                            next[index].plano_mensal = val;
-                            setForm({ ...form, especialidades: next });
-                          }}
-                        >
-                          <SelectTrigger className="w-full h-8 text-xs">
-                            <SelectValue placeholder="Selecione um plano..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {PLANOS_AP.map((plano) => (
-                              <SelectItem key={plano.value} value={plano.value}>
-                                {plano.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : (
-                      <>
-                        {esp.nome.toLowerCase() !== "supervisor aba" && (
-                          <div
-                            className={`space-y-1 ${esp.nome.toLowerCase() === "at aba" ? "col-span-2" : ""}`}
-                          >
-                            <Label className="text-[11px] text-muted-foreground">
-                              Sessão Padrão (R$)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="Ex.: 100.00"
-                              value={esp.valor_sessao}
-                              onChange={(e) => {
-                                const next = [...form.especialidades];
-                                next[index].valor_sessao = e.target.value;
-                                setForm({ ...form, especialidades: next });
-                              }}
-                              className="h-8 text-xs"
-                            />
-                          </div>
-                        )}
-                        {esp.nome.toLowerCase() !== "at aba" && (
-                          <div
-                            className={`space-y-1 ${esp.nome.toLowerCase() === "supervisor aba" ? "col-span-2" : ""}`}
-                          >
-                            <Label className="text-[11px] text-muted-foreground">
-                              Anamnese Padrão (R$)
-                            </Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="Ex.: 200.00"
-                              value={esp.valor_avaliacao}
-                              onChange={(e) => {
-                                const next = [...form.especialidades];
-                                next[index].valor_avaliacao = e.target.value;
-                                setForm({ ...form, especialidades: next });
-                              }}
-                              className="h-8 text-xs"
-                            />
-                          </div>
-                        )}
-                      </>
+                      placeholder={`Especialidade ${index + 1}`}
+                      className="font-semibold text-sm"
+                    />
+                    {form.especialidades.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => {
+                          setForm({
+                            ...form,
+                            especialidades: form.especialidades.filter(
+                              (_: any, i: number) => i !== index,
+                            ),
+                          });
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     )}
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {esp.nome.trim() && (
+                    <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
+                      {esp.nome.toUpperCase() === "AP" ? (
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">Plano Mensal (AP)</Label>
+                          <Select
+                            value={esp.plano_mensal}
+                            onValueChange={(val) => {
+                              const next = [...form.especialidades];
+                              next[index].plano_mensal = val;
+                              setForm({ ...form, especialidades: next });
+                            }}
+                          >
+                            <SelectTrigger className="w-full h-8 text-xs">
+                              <SelectValue placeholder="Selecione um plano..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PLANOS_AP.map((plano) => (
+                                <SelectItem key={plano.value} value={plano.value}>
+                                  {plano.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <>
+                          {esp.nome.toLowerCase() !== "supervisor aba" && (
+                            <div
+                              className={`space-y-1 ${esp.nome.toLowerCase() === "at aba" ? "col-span-2" : ""}`}
+                            >
+                              <Label className="text-[11px] text-muted-foreground">
+                                Sessão Padrão (R$)
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Ex.: 100.00"
+                                value={esp.valor_sessao}
+                                onChange={(e) => {
+                                  const next = [...form.especialidades];
+                                  next[index].valor_sessao = e.target.value;
+                                  setForm({ ...form, especialidades: next });
+                                }}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          )}
+                          {esp.nome.toLowerCase() !== "at aba" && (
+                            <div
+                              className={`space-y-1 ${esp.nome.toLowerCase() === "supervisor aba" ? "col-span-2" : ""}`}
+                            >
+                              <Label className="text-[11px] text-muted-foreground">
+                                Anamnese Padrão (R$)
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Ex.: 200.00"
+                                value={esp.valor_avaliacao}
+                                onChange={(e) => {
+                                  const next = [...form.especialidades];
+                                  next[index].valor_avaliacao = e.target.value;
+                                  setForm({ ...form, especialidades: next });
+                                }}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-1"
+              onClick={() =>
+                setForm({
+                  ...form,
+                  especialidades: [
+                    ...form.especialidades,
+                    { nome: "", valor_sessao: "", valor_avaliacao: "", plano_mensal: "" },
+                  ],
+                })
+              }
+            >
+              <Plus className="h-4 w-4 mr-1.5" /> Adicionar especialidade
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-1"
-            onClick={() =>
-              setForm({
-                ...form,
-                especialidades: [
-                  ...form.especialidades,
-                  { nome: "", valor_sessao: "", valor_avaliacao: "", plano_mensal: "" },
-                ],
-              })
-            }
-          >
-            <Plus className="h-4 w-4 mr-1.5" /> Adicionar especialidade
-          </Button>
+
+          <div className="space-y-1.5 pt-1 border-t border-border/50">
+            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+              <span>💵</span> Salário Fixo / Base Mensal (R$) - Opcional
+            </Label>
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="Ex.: 2000.00 (Opcional caso receba valor fixo além dos repasses)"
+              value={form.salario}
+              onChange={(e) => setForm({ ...form, salario: e.target.value })}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Se preenchido, este valor fixo será incluído no repasse do profissional no módulo financeiro da diretoria.
+            </p>
+          </div>
         </div>
       )}
 

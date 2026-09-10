@@ -944,7 +944,7 @@ function DiretoriaPageContent() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valor_sessao, valores_config, ativo")
+        .select("id, nome, especialidade, cor, valor_sessao, valores_config, ativo, tipo, cargo, salario")
         .order("nome");
       if (error) throw error;
       return data || [];
@@ -2054,21 +2054,59 @@ function DiretoriaPageContent() {
         comissaoRecebida: number;
         comissaoPendente: number;
         sessoes: any[];
+        salario: number;
+        isAdm: boolean;
+        cargo?: string;
       }
     >();
 
+    // 1. Initialize all active professionals in the period (or matching selected filter)
+    (profissionais || []).forEach((p: any) => {
+      if (!isProfActiveInPeriod(p, inicio, fim, true)) return;
+      if (selectedProfId !== "all" && p.id !== selectedProfId) return;
+
+      const isAdm = isProfissionalAdmin(p);
+      const cargo = (p as any).cargo || (p.valores_config as any)?.cargo || (isAdm ? p.especialidade : null);
+      const salario = Number((p as any).salario ?? (p.valores_config as any)?.salario ?? 0);
+
+      const specSet = new Set<string>();
+      if (isAdm) {
+        specSet.add(cargo || "Administrativo");
+      } else if (p.especialidade) {
+        p.especialidade.split(",").forEach((s: string) => {
+          if (s.trim()) specSet.add(s.trim());
+        });
+      }
+
+      groups.set(p.id, {
+        profissionalId: p.id,
+        nome: p.nome,
+        cor: p.cor || "#3b82f6",
+        especialidades: specSet,
+        totalSessões: 0,
+        faturamentoBruto: 0,
+        repasseProfissional: salario,
+        comissaoClinica: 0,
+        repasseApto: salario,
+        repasseBloqueado: 0,
+        comissaoRecebida: 0,
+        comissaoPendente: 0,
+        sessoes: [],
+        salario,
+        isAdm,
+        cargo,
+      });
+    });
+
+    // 2. Add sessions from filteredRepasses
     filteredRepasses.forEach((a: any) => {
       const profId = a.profissional_id;
       if (!profId) return;
 
-      const profName = a.profissionais?.nome || "Desconhecido";
-      const profCor = a.profissionais?.cor || "#000000";
-      const spec = getAppointmentSpecialty(a);
-      const val = getAppointmentValue(a);
-      const { profPct, clinicPct } = getRepasseRates(spec);
-
       let group = groups.get(profId);
       if (!group) {
+        const profName = a.profissionais?.nome || "Desconhecido";
+        const profCor = a.profissionais?.cor || "#000000";
         group = {
           profissionalId: profId,
           nome: profName,
@@ -2083,15 +2121,18 @@ function DiretoriaPageContent() {
           comissaoRecebida: 0,
           comissaoPendente: 0,
           sessoes: [],
+          salario: 0,
+          isAdm: false,
         };
         groups.set(profId, group);
       }
 
+      const spec = getAppointmentSpecialty(a);
       group.especialidades.add(spec);
       group.sessoes.push(a);
     });
 
-    // Apply custom overrides
+    // 3. Apply custom overrides and calculate totals per professional
     groups.forEach((group, profId) => {
       // Group sessions by specialty and patient
       const patientSpecGroups: Record<
@@ -2164,19 +2205,19 @@ function DiretoriaPageContent() {
 
       group.totalSessões = totalSess;
       group.faturamentoBruto = totalFat;
-      group.repasseProfissional = totalRep;
+      group.repasseProfissional = totalRep + group.salario;
 
       if (isCoordenadora(profId)) {
         group.repasseProfissional += 300;
       }
 
-      group.comissaoClinica = group.faturamentoBruto - group.repasseProfissional + (isCoordenadora(profId) ? 300 : 0);
+      group.comissaoClinica = group.faturamentoBruto - totalRep;
       group.repasseApto = group.repasseProfissional;
       group.comissaoRecebida = group.comissaoClinica;
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, profissionais, customRepasses, customPatientDefaults]);
+  }, [filteredRepasses, profissionais, customRepasses, customPatientDefaults, inicio, fim, selectedProfId]);
 
   const repasseStats = useMemo(() => {
     let totalSessões = 0;
@@ -4629,12 +4670,22 @@ Nosso pix: 54.747.611/0001-27
                             <Fragment key={group.profissionalId}>
                               <TableRow className="hover:bg-muted/30">
                                 <TableCell className="font-semibold text-foreground">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                                     <div
                                       className="h-2.5 w-2.5 rounded-full shrink-0"
                                       style={{ backgroundColor: group.cor }}
                                     />
-                                    <span>{group.nome}</span>
+                                    <span className="font-semibold">{group.nome}</span>
+                                    {group.isAdm && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20 font-semibold shrink-0 gap-1">
+                                        <span>💼</span> {group.cargo || "Administrativo"}
+                                      </Badge>
+                                    )}
+                                    {group.salario > 0 && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 font-medium shrink-0">
+                                        Salário: {brl(group.salario)}
+                                      </Badge>
+                                    )}
                                     {isCoordenadora(group.profissionalId) && (
                                       <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-700 border-yellow-500/20 font-bold shrink-0">
                                         Coord. (+R$300)
@@ -4644,7 +4695,7 @@ Nosso pix: 54.747.611/0001-27
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-6 w-6 p-0 hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 rounded"
+                                        className="h-6 w-6 p-0 hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 rounded cursor-pointer"
                                         onClick={() => toggleExpandProf(group.profissionalId)}
                                       >
                                         {expandedProfs.has(group.profissionalId) ? (
@@ -4685,86 +4736,153 @@ Nosso pix: 54.747.611/0001-27
                                 <TableRow className="bg-muted/10 border-t-0">
                                   <TableCell colSpan={6} className="p-4">
                                     <div className="space-y-4 w-full">
-                                       {/* Patient Calculator Tables grouped by Specialty */}
-{(() => {
-                                         const specs = Array.from(group.especialidades).sort();
-                                         return specs.map((spec) => {
-                                           const isApoio = isApoioSpec(spec);
-                                           const bd = getPatientBreakdownForSpecialty(group.profissionalId, spec, group.sessoes);
-                                           if (bd.length === 0) return null;
+                                      {/* Fixed Salary Card if configured */}
+                                      {group.salario > 0 && (
+                                        <div className="flex items-center justify-between p-3.5 bg-background rounded-lg border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-xs">
+                                          <div className="flex items-center gap-2.5">
+                                            <div className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm">
+                                              💵
+                                            </div>
+                                            <div>
+                                              <div className="font-semibold text-xs text-foreground">
+                                                Salário Fixo / Base Mensal
+                                              </div>
+                                              <div className="text-[11px] text-muted-foreground">
+                                                {group.isAdm
+                                                  ? `Equipe Administrativa • ${group.cargo || "Administrativo"}`
+                                                  : "Valor fixo mensal configurado no cadastro do profissional"}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <div className="text-right">
+                                            <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                                              {brl(group.salario)}
+                                            </div>
+                                            <div className="text-[10px] text-muted-foreground">Repasse Mensal</div>
+                                          </div>
+                                        </div>
+                                      )}
 
-                                           const totalSess = bd.reduce((sum, item) => sum + item.sessions, 0);
-                                           const totalFat = bd.reduce((sum, item) => sum + item.faturamento, 0);
-                                           const totalRep = bd.reduce((sum, item) => sum + item.repVal, 0);
+                                      {/* Coordination bonus card if applicable */}
+                                      {isCoordenadora(group.profissionalId) && (
+                                        <div className="flex items-center justify-between p-3 bg-background rounded-lg border border-yellow-500/30 bg-yellow-500/5 dark:bg-yellow-950/20 shadow-xs">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-sm">⭐</span>
+                                            <div className="font-semibold text-xs text-foreground">
+                                              Adicional de Coordenação AP
+                                            </div>
+                                          </div>
+                                          <div className="text-xs font-bold text-yellow-700 dark:text-yellow-400">
+                                            {brl(300)}
+                                          </div>
+                                        </div>
+                                      )}
 
-                                           return (
-                                             <div key={spec} className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
-                                               <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1 flex justify-between items-center">
-                                                 <span>Resumo de Pacientes - {spec}</span>
-                                                 <div className="flex items-center gap-2">
-                                                   <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
-                                                     Taxa Padrão: {getRepasseRates(spec).label}
-                                                   </span>
-                                                   {bd.some((i) => i.isCustomized) && (
-                                                     <Button
-                                                       type="button"
-                                                       variant="ghost"
-                                                       size="sm"
-                                                       onClick={() => handleResetSpecialtyDefaults(group.profissionalId, spec)}
-                                                       className="h-6 text-[10px] px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center gap-1 transition-colors cursor-pointer"
-                                                     >
-                                                       <RotateCcw className="h-3 w-3" />
-                                                       <span>Restaurar padrões ({spec})</span>
-                                                     </Button>
-                                                   )}
-                                                 </div>
-                                               </div>
-                                               <div className="overflow-x-auto">
-                                                 <Table className="text-xs">
-                                                   <TableHeader className="bg-muted/30">
-                                                     <TableRow>
-                                                       <TableHead className="font-semibold text-foreground">Paciente</TableHead>
-                                                       {isApoio && (
-                                                         <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
-                                                       )}
-                                                       <TableHead className="font-semibold text-foreground w-[70px] text-center">Sessões</TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[150px] text-center">
-                                                         {isApoio ? "Valor do Plano" : "Valor da Sessão"}
-                                                       </TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[120px] text-center">% Repasse</TableHead>
-                                                       {!isApoio && (
-                                                         <TableHead className="font-semibold text-foreground w-[140px] text-center">Valor</TableHead>
-                                                       )}
-                                                       <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
-                                                       <TableHead className="w-[40px] text-center"></TableHead>
-                                                     </TableRow>
-                                                   </TableHeader>
-                                                   <TableBody>
-                                                     {bd.map((item) => {
-                                                       let defaultSessions = 0;
-                                                       let defaultFaturamento = 0;
-                                                       group.sessoes.forEach((a: any) => {
-                                                         const s = getAppointmentSpecialty(a);
-                                                         if (s === spec && a.paciente_id === item.pacienteId) {
-                                                           defaultSessions += 1;
-                                                           defaultFaturamento += getAppointmentValue(a);
-                                                         }
-                                                       });
+                                      {/* Patient Calculator Tables grouped by Specialty */}
+                                      {(() => {
+                                        const specs = Array.from(group.especialidades).sort();
+                                        const hasAnySessions = group.sessoes.length > 0;
 
-                                                       return (
-                                                         <TableRow key={item.pacienteId} className="hover:bg-transparent">
-                                                           <TableCell className="font-medium text-foreground py-2">{item.pacienteNome}</TableCell>
-                                                           {isApoio && (
-                                                             <TableCell className="text-muted-foreground py-2">{item.freqLabel}</TableCell>
-                                                           )}
-                                                           <TableCell className="text-center py-2">
-                                                             <Input
-                                                               type="number"
-                                                               className="h-8 text-center text-xs p-1 max-w-[80px] mx-auto border-muted-foreground/30 bg-muted cursor-not-allowed"
-                                                               value={item.sessions}
-                                                               disabled
-                                                             />
-                                                           </TableCell>
+                                        if (!hasAnySessions && group.salario === 0 && !isCoordenadora(group.profissionalId)) {
+                                          return (
+                                            <div className="p-4 text-center text-xs text-muted-foreground border border-dashed rounded-lg bg-background">
+                                              Nenhuma sessão correspondente e nenhum salário fixo configurado para este profissional no período.
+                                            </div>
+                                          );
+                                        }
+
+                                        return specs.map((spec) => {
+                                          const isApoio = isApoioSpec(spec);
+                                          const bd = getPatientBreakdownForSpecialty(group.profissionalId, spec, group.sessoes);
+                                          if (bd.length === 0) return null;
+
+                                          const totalSess = bd.reduce((sum, item) => sum + item.sessions, 0);
+                                          const totalFat = bd.reduce((sum, item) => sum + item.faturamento, 0);
+                                          const totalRep = bd.reduce((sum, item) => sum + item.repVal, 0);
+
+                                          return (
+                                            <div key={spec} className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
+                                              <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1 flex justify-between items-center">
+                                                <span>Resumo de Pacientes - {spec}</span>
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
+                                                    Taxa Padrão: {getRepasseRates(spec).label}
+                                                  </span>
+                                                  {bd.some((i) => i.isCustomized) && (
+                                                    <Button
+                                                      type="button"
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      onClick={() => handleResetSpecialtyDefaults(group.profissionalId, spec)}
+                                                      className="h-6 text-[10px] px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center gap-1 transition-colors cursor-pointer"
+                                                    >
+                                                      <RotateCcw className="h-3 w-3" />
+                                                      <span>Restaurar padrões ({spec})</span>
+                                                    </Button>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              <div className="overflow-x-auto">
+                                                <Table className="text-xs">
+                                                  <TableHeader className="bg-muted/30">
+                                                    <TableRow>
+                                                      <TableHead className="font-semibold text-foreground">Paciente</TableHead>
+                                                      {isApoio && (
+                                                        <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
+                                                      )}
+                                                      <TableHead className="font-semibold text-foreground w-[70px] text-center">Sessões</TableHead>
+                                                      <TableHead className="font-semibold text-foreground w-[150px] text-center">
+                                                        {isApoio ? "Valor do Plano" : "Valor da Sessão"}
+                                                      </TableHead>
+                                                      <TableHead className="font-semibold text-foreground w-[120px] text-center">% Repasse</TableHead>
+                                                      {!isApoio && (
+                                                        <TableHead className="font-semibold text-foreground w-[140px] text-center">Valor</TableHead>
+                                                      )}
+                                                      <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
+                                                      <TableHead className="w-[40px] text-center"></TableHead>
+                                                    </TableRow>
+                                                  </TableHeader>
+                                                  <TableBody>
+                                                    {bd.map((item) => {
+                                                      let defaultSessions = 0;
+                                                      let defaultFaturamento = 0;
+                                                      group.sessoes.forEach((a: any) => {
+                                                        const s = getAppointmentSpecialty(a);
+                                                        if (s === spec && a.paciente_id === item.pacienteId) {
+                                                          defaultSessions += 1;
+                                                          defaultFaturamento += getAppointmentValue(a);
+                                                        }
+                                                      });
+
+                                                      return (
+                                                        <TableRow key={item.key} className="hover:bg-muted/30">
+                                                          <TableCell className="font-medium text-foreground py-2">
+                                                            {item.pacienteNome}
+                                                          </TableCell>
+                                                          {isApoio && (
+                                                            <TableCell className="text-muted-foreground text-xs py-2">
+                                                              {item.freqLabel || "—"}
+                                                            </TableCell>
+                                                          )}
+                                                          <TableCell className="text-center py-2">
+                                                            <Input
+                                                              type="number"
+                                                              className="h-8 text-center text-xs border-muted-foreground/30 font-medium"
+                                                              value={item.sessions}
+                                                              onChange={(e) =>
+                                                                handleOverrideChange(
+                                                                  group.profissionalId,
+                                                                  item.key,
+                                                                  "sessions",
+                                                                  e.target.value,
+                                                                  defaultSessions,
+                                                                  item.defaultBaseValue,
+                                                                  item.defaultBaseRate,
+                                                                  item.value
+                                                                )
+                                                              }
+                                                            />
+                                                          </TableCell>
                                                            <TableCell className="text-center py-2">
                                                              <div className="flex items-center justify-center gap-1">
                                                                <div className="relative max-w-[110px] w-full">
