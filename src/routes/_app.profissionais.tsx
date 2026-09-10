@@ -28,7 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn, isProfissionalAdmin, isProfissionalClinico } from "@/lib/utils";
+import { cn, isProfissionalAdmin, isProfissionalClinico, isProfActiveInPeriod } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/profissionais")({
   component: ProfissionaisPage,
@@ -235,10 +235,15 @@ function ProfissionaisPage() {
 
   const [tabFilter, setTabFilter] = useState<"todos" | "clinicos" | "administrativo">("todos");
 
-  const orderedData = useMemo(() => {
+  const activeDataInMonth = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
-    if (!orderIds.length) return data;
-    return [...data].sort((a, b) => {
+    return data.filter((p) => isProfActiveInPeriod(p, selectedMonth, selectedMonth, true));
+  }, [data, selectedMonth]);
+
+  const orderedData = useMemo(() => {
+    if (!activeDataInMonth.length) return [];
+    if (!orderIds.length) return activeDataInMonth;
+    return [...activeDataInMonth].sort((a, b) => {
       const idxA = orderIds.indexOf(a.id);
       const idxB = orderIds.indexOf(b.id);
       if (idxA === -1 && idxB === -1) return 0;
@@ -246,7 +251,7 @@ function ProfissionaisPage() {
       if (idxB === -1) return -1;
       return idxA - idxB;
     });
-  }, [data, orderIds]);
+  }, [activeDataInMonth, orderIds]);
 
   const filteredOrderedData = useMemo(() => {
     if (!Array.isArray(orderedData)) return [];
@@ -269,11 +274,11 @@ function ProfissionaisPage() {
   );
 
   const aniversariantesDoMes = useMemo(() => {
-    if (!Array.isArray(data)) return [];
+    if (!Array.isArray(activeDataInMonth)) return [];
     const currentMonthNum = new Date().getMonth() + 1;
     const currentDayNum = new Date().getDate();
 
-    return data
+    return activeDataInMonth
       .map((p: any) => {
         const dateStr = p.data_nascimento || (p.valores_config as any)?.data_nascimento;
         if (!dateStr || typeof dateStr !== "string") return null;
@@ -296,7 +301,7 @@ function ProfissionaisPage() {
       })
       .filter(Boolean)
       .sort((a, b) => a!.dia - b!.dia);
-  }, [data]);
+  }, [activeDataInMonth]);
 
   if (isLoading) {
     return (
@@ -556,11 +561,11 @@ function ProfissionaisPage() {
                           </span>
                         )}
                         <Badge
-                          variant={p.ativo ? "default" : "secondary"}
+                          variant={isProfActiveInPeriod(p, selectedMonth, selectedMonth, true) ? "default" : "secondary"}
                           onDragStart={(e) => e.stopPropagation()}
                           className="shrink-0 text-[10px] h-5 px-1.5"
                         >
-                          {p.ativo ? "Ativo" : "Inativo"}
+                          {isProfActiveInPeriod(p, selectedMonth, selectedMonth, true) ? "Ativo" : "Inativo"}
                         </Badge>
                       </div>
                     </div>

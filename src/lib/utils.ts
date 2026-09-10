@@ -19,9 +19,14 @@ export function isProfissionalClinico(p: any): boolean {
   return !isProfissionalAdmin(p);
 }
 
-export function isProfActiveInPeriod(p: any, startDateStr?: string, endDateStr?: string): boolean {
+export function isProfActiveInPeriod(
+  p: any,
+  startDateStr?: string,
+  endDateStr?: string,
+  allowAdmin = false
+): boolean {
   if (!p) return false;
-  if (isProfissionalAdmin(p)) return false;
+  if (!allowAdmin && isProfissionalAdmin(p)) return false;
 
   const config = (p.valores_config || {}) as any;
   const ativoAte = config.ativo_ate || p.ativo_ate;
