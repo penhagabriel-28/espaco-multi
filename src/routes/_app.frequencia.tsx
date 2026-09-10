@@ -59,7 +59,7 @@ import {
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn, isProfissionalAdmin } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -249,7 +249,7 @@ function FrequenciaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valores_config, ativo")
+        .select("id, nome, especialidade, cor, valores_config, ativo, tipo")
         .order("nome");
       if (error) throw error;
       return data ?? [];
@@ -272,6 +272,7 @@ function FrequenciaPage() {
   const activeProfissionais = useMemo(() => {
     const EXCLUDED_FILTER_PROF_NAMES = ["dailson", "daniele", "danielle", "cristina"];
     return (profissionais || []).filter((p: any) => {
+      if (isProfissionalAdmin(p)) return false;
       const normalized = normalizeString(p.nome || "");
       if (EXCLUDED_FILTER_PROF_NAMES.some((ex) => normalized.includes(ex))) return false;
       if (selectedProfs.includes(p.id)) return true;

@@ -43,7 +43,7 @@ import { toast } from "sonner";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { cn } from "@/lib/utils";
+import { cn, isProfissionalAdmin } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -177,8 +177,9 @@ function Agenda() {
     
     const EXCLUDED_FILTER_PROF_NAMES = ["dailson", "daniele", "danielle", "cristina"];
     
-    // Filter active professionals in the selected week, excluding specified names from filters
+    // Filter active professionals in the selected week, excluding specified names from filters and excluding administrative staff
     const activeInWeek = profissionais.filter((p: any) => {
+      if (isProfissionalAdmin(p)) return false;
       const normalized = normalizeString(p.nome || "");
       if (EXCLUDED_FILTER_PROF_NAMES.some((ex) => normalized.includes(ex))) return false;
       if (selectedProfs.includes(p.id)) return true;
@@ -1188,6 +1189,7 @@ Fico à disposição para qualquer dúvida!`;
   const patientProfessionals = useMemo(() => {
     if (!form.paciente_id || !Array.isArray(profissionais)) return [];
     return profissionais.filter((prof: any) => {
+      if (isProfissionalAdmin(prof)) return false;
       const config = prof.valores_config as any;
       return (
         Array.isArray(config?.descontos) &&
@@ -1199,9 +1201,9 @@ Fico à disposição para qualquer dúvida!`;
   // Fallback to all active professionals if none are configured on the patient's card
   const displayedProfessionals = useMemo(() => {
     if (patientProfessionals.length > 0) {
-      return patientProfessionals;
+      return patientProfessionals.filter((p: any) => !isProfissionalAdmin(p));
     }
-    return Array.isArray(profissionais) ? profissionais : [];
+    return Array.isArray(profissionais) ? profissionais.filter((p: any) => !isProfissionalAdmin(p)) : [];
   }, [patientProfessionals, profissionais]);
 
   // 2. Parse specialties registered on selected professional's file

@@ -28,7 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+import { cn, isProfissionalAdmin, isProfissionalClinico } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/profissionais")({
   component: ProfissionaisPage,
@@ -233,6 +233,8 @@ function ProfissionaisPage() {
     }
   });
 
+  const [tabFilter, setTabFilter] = useState<"todos" | "clinicos" | "administrativo">("todos");
+
   const orderedData = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
     if (!orderIds.length) return data;
@@ -245,6 +247,26 @@ function ProfissionaisPage() {
       return idxA - idxB;
     });
   }, [data, orderIds]);
+
+  const filteredOrderedData = useMemo(() => {
+    if (!Array.isArray(orderedData)) return [];
+    if (tabFilter === "clinicos") {
+      return orderedData.filter((p) => isProfissionalClinico(p));
+    }
+    if (tabFilter === "administrativo") {
+      return orderedData.filter((p) => isProfissionalAdmin(p));
+    }
+    return orderedData;
+  }, [orderedData, tabFilter]);
+
+  const totalClinicos = useMemo(
+    () => (orderedData || []).filter((p) => isProfissionalClinico(p)).length,
+    [orderedData],
+  );
+  const totalAdmin = useMemo(
+    () => (orderedData || []).filter((p) => isProfissionalAdmin(p)).length,
+    [orderedData],
+  );
 
   const aniversariantesDoMes = useMemo(() => {
     if (!Array.isArray(data)) return [];
@@ -380,6 +402,34 @@ function ProfissionaisPage() {
         </Dialog>
       </div>
 
+      {/* Filter Tabs for Clinicos vs Administrativo */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-muted/60 rounded-lg w-fit border border-border/50 text-xs">
+        <Button
+          variant={tabFilter === "todos" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3"
+          onClick={() => setTabFilter("todos")}
+        >
+          Todos ({orderedData.length})
+        </Button>
+        <Button
+          variant={tabFilter === "clinicos" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3 gap-1.5"
+          onClick={() => setTabFilter("clinicos")}
+        >
+          <span>🩺</span> Clínicos / Terapeutas ({totalClinicos})
+        </Button>
+        <Button
+          variant={tabFilter === "administrativo" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3 gap-1.5"
+          onClick={() => setTabFilter("administrativo")}
+        >
+          <span>💼</span> Administrativo ({totalAdmin})
+        </Button>
+      </div>
+
       {aniversariantesDoMes.length > 0 && (
         <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-amber-500/10 to-orange-500/5 dark:from-amber-950/20 dark:to-orange-950/20 shadow-sm">
           <CardContent className="p-3.5">
@@ -429,230 +479,293 @@ function ProfissionaisPage() {
             Nenhum profissional cadastrado.
           </CardContent>
         </Card>
+      ) : filteredOrderedData.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-muted-foreground">
+            {tabFilter === "administrativo"
+              ? "Nenhum profissional administrativo cadastrado."
+              : "Nenhum profissional clínico cadastrado."}
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 items-stretch">
-          {orderedData.map((p, idx) => (
-            <Card
-              key={p.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, idx)}
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, idx)}
-              className="cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow relative group h-full flex flex-col"
-            >
-              <CardContent className="p-4 flex flex-col flex-1 justify-between">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab">
-                  <GripVertical className="h-4 w-4 text-muted-foreground" />
-                </div>
-                
-                {/* Upper block with all details */}
-                <div className="space-y-3 flex-1 flex flex-col justify-start">
-                  {/* Header (avatar + name + status) */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                      <div className="h-10 w-10 shrink-0 rounded-full border border-border/20 shadow-sm" style={{ background: p.cor }} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-semibold text-sm text-foreground">{p.nome}</div>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {p.especialidade ? (
-                            p.especialidade
-                              .split(",")
-                              .map((s: string) => s.trim())
-                              .filter(Boolean)
-                              .map((esp: string) => (
-                                <Badge
-                                  key={esp}
-                                  variant="outline"
-                                  className="text-[9px] px-1.5 py-0 font-medium bg-primary/5 border-primary/20 text-primary"
-                                >
-                                  {esp}
-                                </Badge>
-                              ))
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
+          {filteredOrderedData.map((p, idx) => {
+            const isAdm = isProfissionalAdmin(p);
+            return (
+              <Card
+                key={p.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, idx)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, idx)}
+                className={cn(
+                  "cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow relative group h-full flex flex-col",
+                  isAdm && "border-indigo-500/20 bg-gradient-to-b from-indigo-500/[0.03] to-transparent",
+                )}
+              >
+                <CardContent className="p-4 flex flex-col flex-1 justify-between">
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab">
+                    <GripVertical className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  
+                  {/* Upper block with all details */}
+                  <div className="space-y-3 flex-1 flex flex-col justify-start">
+                    {/* Header (avatar + name + status) */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div
+                          className="h-10 w-10 shrink-0 rounded-full border border-border/20 shadow-sm flex items-center justify-center text-white font-bold text-xs"
+                          style={{ background: p.cor || "var(--primary)" }}
+                        >
+                          {isAdm ? "💼" : (p.nome?.[0] || "P")}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-semibold text-sm text-foreground">{p.nome}</div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {isAdm ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-2 py-0.5 font-semibold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 gap-1"
+                              >
+                                <span>💼</span> {p.cargo || p.especialidade || "Administrativo"}
+                              </Badge>
+                            ) : p.especialidade ? (
+                              p.especialidade
+                                .split(",")
+                                .map((s: string) => s.trim())
+                                .filter(Boolean)
+                                .map((esp: string) => (
+                                  <Badge
+                                    key={esp}
+                                    variant="outline"
+                                    className="text-[9px] px-1.5 py-0 font-medium bg-primary/5 border-primary/20 text-primary"
+                                  >
+                                    {esp}
+                                  </Badge>
+                                ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {p.valores_config && (p.valores_config as any).ativo_ate && (
+                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border/40 font-medium">
+                            Ativo até: {String((p.valores_config as any).ativo_ate).split("-").reverse().join("/")}
+                          </span>
+                        )}
+                        <Badge
+                          variant={p.ativo ? "default" : "secondary"}
+                          onDragStart={(e) => e.stopPropagation()}
+                          className="shrink-0 text-[10px] h-5 px-1.5"
+                        >
+                          {p.ativo ? "Ativo" : "Inativo"}
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {p.valores_config && (p.valores_config as any).ativo_ate && (
-                        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded border border-border/40 font-medium">
-                          Ativo até: {String((p.valores_config as any).ativo_ate).split("-").reverse().join("/")}
-                        </span>
-                      )}
-                      <Badge
-                        variant={p.ativo ? "default" : "secondary"}
-                        onDragStart={(e) => e.stopPropagation()}
-                        className="shrink-0 text-[10px] h-5 px-1.5"
-                      >
-                        {p.ativo ? "Ativo" : "Inativo"}
-                      </Badge>
-                    </div>
-                  </div>
 
-                  {/* Pricing Details */}
-                  <div className="space-y-1 text-[11px] text-muted-foreground bg-muted/30 p-2.5 rounded border border-border/40 mt-1">
-                    {p.valores_config && Array.isArray((p.valores_config as any).especialidades) && (p.valores_config as any).especialidades.length > 0 ? (
-                      (p.valores_config as any).especialidades
-                        .filter((esp: any) => {
-                          if (!esp || !esp.nome) return false;
-                          const activeSpecs = p.especialidade
-                            ? p.especialidade
-                                .split(",")
-                                .map((s: string) => s.trim().toLowerCase())
-                            : [];
-                          return activeSpecs.includes(String(esp.nome).toLowerCase());
-                        })
-                        .slice(0, 2)
-                        .map((esp: any, espIdx: number) => {
-                          const espNomeUpper = String(esp?.nome || "").toUpperCase();
-                          if (espNomeUpper === "AP") {
-                            const plano = PLANOS_AP.find(
-                              (pl) => pl.value === String(esp.plano_mensal),
-                            );
-                            return (
-                              <div
-                                key={esp?.nome || `ap-${espIdx}`}
-                                className="flex justify-between gap-4"
-                              >
-                                <span className="font-medium text-foreground">AP:</span>
-                                <span className="font-semibold text-foreground">
-                                  {plano ? `R$ ${plano.value}` : "Não config."}
-                                </span>
-                              </div>
-                            );
-                          }
-                          const isSupervisorABA = String(esp?.nome || "").toLowerCase() === "supervisor aba";
-                          const isAtABA = String(esp?.nome || "").toLowerCase() === "at aba";
-                          let valStr = "";
-                          if (isSupervisorABA) {
-                            valStr = `Ana. R$ ${formatDisplayValue(esp?.valor_avaliacao)}`;
-                          } else if (isAtABA) {
-                            valStr = `Sess. R$ ${formatDisplayValue(esp?.valor_sessao)}`;
-                          } else {
-                            valStr = `Sess. R$ ${formatDisplayValue(esp?.valor_sessao)} | Ana. R$ ${formatDisplayValue(esp?.valor_avaliacao)}`;
-                          }
-                          return (
-                            <div
-                              key={esp?.nome || `esp-${espIdx}`}
-                              className="flex justify-between gap-4"
-                            >
-                              <span className="font-medium truncate">{esp?.nome || "Especialidade"}:</span>
-                              <span className="font-semibold text-foreground shrink-0">{valStr}</span>
-                            </div>
-                          );
-                        })
-                    ) : p.valor_sessao ? (
-                      <div className="flex justify-between gap-4">
-                        <span className="font-medium text-foreground">Geral:</span>
-                        <span className="font-semibold text-foreground">
-                          R$ {formatDisplayValue(p.valor_sessao)}/sessão
-                        </span>
+                    {/* Details Box */}
+                    {isAdm ? (
+                      <div className="space-y-2 text-[11px] text-muted-foreground bg-indigo-500/5 dark:bg-indigo-950/20 p-2.5 rounded border border-indigo-500/20 mt-1">
+                        <div className="flex items-center justify-between text-xs font-semibold text-foreground">
+                          <span className="truncate">Função: {p.cargo || p.especialidade || "Administrativo"}</span>
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal shrink-0">
+                            Equipe Interna
+                          </span>
+                        </div>
+                        <p className="text-[10.5px] text-muted-foreground">
+                          Membro administrativo • Não participa de agendamento de consultas.
+                        </p>
+                        {(p.email || p.telefone) && (
+                          <div className="pt-1.5 border-t border-indigo-500/10 space-y-0.5 text-[11px] text-foreground/80">
+                            {p.email && <div className="truncate">✉️ {p.email}</div>}
+                            {p.telefone && <div>📞 {p.telefone}</div>}
+                          </div>
+                        )}
                       </div>
                     ) : (
-                      <div className="italic text-muted-foreground text-center py-1">
-                        Valores não configurados
+                      <div className="space-y-1 text-[11px] text-muted-foreground bg-muted/30 p-2.5 rounded border border-border/40 mt-1">
+                        {p.valores_config && Array.isArray((p.valores_config as any).especialidades) && (p.valores_config as any).especialidades.length > 0 ? (
+                          (p.valores_config as any).especialidades
+                            .filter((esp: any) => {
+                              if (!esp || !esp.nome) return false;
+                              const activeSpecs = p.especialidade
+                                ? p.especialidade
+                                    .split(",")
+                                    .map((s: string) => s.trim().toLowerCase())
+                                : [];
+                              return activeSpecs.includes(String(esp.nome).toLowerCase());
+                            })
+                            .slice(0, 2)
+                            .map((esp: any, espIdx: number) => {
+                              const espNomeUpper = String(esp?.nome || "").toUpperCase();
+                              if (espNomeUpper === "AP") {
+                                const plano = PLANOS_AP.find(
+                                  (pl) => pl.value === String(esp.plano_mensal),
+                                );
+                                return (
+                                  <div
+                                    key={esp?.nome || `ap-${espIdx}`}
+                                    className="flex justify-between gap-4"
+                                  >
+                                    <span className="font-medium text-foreground">AP:</span>
+                                    <span className="font-semibold text-foreground">
+                                      {plano ? `R$ ${plano.value}` : "Não config."}
+                                    </span>
+                                  </div>
+                                );
+                              }
+                              const isSupervisorABA = String(esp?.nome || "").toLowerCase() === "supervisor aba";
+                              const isAtABA = String(esp?.nome || "").toLowerCase() === "at aba";
+                              let valStr = "";
+                              if (isSupervisorABA) {
+                                valStr = `Ana. R$ ${formatDisplayValue(esp?.valor_avaliacao)}`;
+                              } else if (isAtABA) {
+                                valStr = `Sess. R$ ${formatDisplayValue(esp?.valor_sessao)}`;
+                              } else {
+                                valStr = `Sess. R$ ${formatDisplayValue(esp?.valor_sessao)} | Ana. R$ ${formatDisplayValue(esp?.valor_avaliacao)}`;
+                              }
+                              return (
+                                <div
+                                  key={esp?.nome || `esp-${espIdx}`}
+                                  className="flex justify-between gap-4"
+                                >
+                                  <span className="font-medium truncate">{esp?.nome || "Especialidade"}:</span>
+                                  <span className="font-semibold text-foreground shrink-0">{valStr}</span>
+                                </div>
+                              );
+                            })
+                        ) : p.valor_sessao ? (
+                          <div className="flex justify-between gap-4">
+                            <span className="font-medium text-foreground">Geral:</span>
+                            <span className="font-semibold text-foreground">
+                              R$ {formatDisplayValue(p.valor_sessao)}/sessão
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="italic text-muted-foreground text-center py-1">
+                            Valores não configurados
+                          </div>
+                        )}
+                        {p.valores_config && Array.isArray((p.valores_config as any).especialidades) && (p.valores_config as any).especialidades.length > 2 && (
+                          <div className="text-[10px] text-muted-foreground/80 italic text-right pt-0.5">
+                            + {(p.valores_config as any).especialidades.length - 2} especialidade(s)
+                          </div>
+                        )}
                       </div>
                     )}
-                    {p.valores_config && Array.isArray((p.valores_config as any).especialidades) && (p.valores_config as any).especialidades.length > 2 && (
-                      <div className="text-[10px] text-muted-foreground/80 italic text-right pt-0.5">
-                        + {(p.valores_config as any).especialidades.length - 2} especialidade(s)
-                      </div>
-                    )}
-                  </div>
 
-                  {/* Summary Badges (Pacientes & Descontos & Sessões) */}
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {(() => {
-                      const acompanhados = (pacienteProfissional || []).filter(
-                        (m: any) => m && m.profissional_id === p.id,
-                      );
-                      const descontosCount = p.valores_config && Array.isArray((p.valores_config as any).descontos)
-                        ? (p.valores_config as any).descontos.length
-                        : 0;
-                      const sessionsCount = (agendamentos || []).filter(
-                        (a: any) => a && a.profissional_id === p.id && a.status !== "cancelado"
-                      ).length;
-                      
-                      const birthDateStr = (p as any).data_nascimento || (p.valores_config as any)?.data_nascimento;
-                      let formattedBirth = null;
-                      if (birthDateStr && typeof birthDateStr === "string" && birthDateStr.includes("-")) {
-                        const parts = birthDateStr.split("-");
-                        if (parts.length === 3) {
-                          formattedBirth = `${parts[2]}/${parts[1]}`;
+                    {/* Summary Badges (Pacientes & Descontos & Sessões / Contatos) */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {(() => {
+                        const acompanhados = (pacienteProfissional || []).filter(
+                          (m: any) => m && m.profissional_id === p.id,
+                        );
+                        const descontosCount = p.valores_config && Array.isArray((p.valores_config as any).descontos)
+                          ? (p.valores_config as any).descontos.length
+                          : 0;
+                        const sessionsCount = (agendamentos || []).filter(
+                          (a: any) => a && a.profissional_id === p.id && a.status !== "cancelado"
+                        ).length;
+                        
+                        const birthDateStr = (p as any).data_nascimento || (p.valores_config as any)?.data_nascimento;
+                        let formattedBirth = null;
+                        if (birthDateStr && typeof birthDateStr === "string" && birthDateStr.includes("-")) {
+                          const parts = birthDateStr.split("-");
+                          if (parts.length === 3) {
+                            formattedBirth = `${parts[2]}/${parts[1]}`;
+                          }
                         }
-                      }
 
-                      return (
-                        <>
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-muted/60 text-muted-foreground hover:bg-muted/60 shrink-0">
-                            👥 {acompanhados.length} {acompanhados.length === 1 ? "Paciente" : "Pacientes"}
-                          </Badge>
-                          {descontosCount > 0 && (
+                        if (isAdm) {
+                          return (
+                            <>
+                              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 shrink-0 border border-indigo-500/20">
+                                💼 Administrativo
+                              </Badge>
+                              {formattedBirth && (
+                                <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 shrink-0 border border-amber-500/20">
+                                  🎂 Nasc. {formattedBirth}
+                                </Badge>
+                              )}
+                            </>
+                          );
+                        }
+
+                        return (
+                          <>
                             <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-muted/60 text-muted-foreground hover:bg-muted/60 shrink-0">
-                              🏷️ {descontosCount} {descontosCount === 1 ? "Desconto" : "Descontos"}
+                              👥 {acompanhados.length} {acompanhados.length === 1 ? "Paciente" : "Pacientes"}
                             </Badge>
-                          )}
-                          <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-primary/10 text-primary hover:bg-primary/10 shrink-0 border border-primary/10">
-                            📅 {sessionsCount} {sessionsCount === 1 ? "Sessão" : "Sessões"}
-                          </Badge>
-                          {formattedBirth && (
-                            <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 shrink-0 border border-amber-500/20">
-                              🎂 Nasc. {formattedBirth}
+                            {descontosCount > 0 && (
+                              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-muted/60 text-muted-foreground hover:bg-muted/60 shrink-0">
+                                🏷️ {descontosCount} {descontosCount === 1 ? "Desconto" : "Descontos"}
+                              </Badge>
+                            )}
+                            <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-primary/10 text-primary hover:bg-primary/10 shrink-0 border border-primary/10">
+                              📅 {sessionsCount} {sessionsCount === 1 ? "Sessão" : "Sessões"}
                             </Badge>
-                          )}
-                        </>
-                      );
-                    })()}
+                            {formattedBirth && (
+                              <Badge variant="secondary" className="text-[10px] px-2 py-0.5 font-normal bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 shrink-0 border border-amber-500/20">
+                                🎂 Nasc. {formattedBirth}
+                              </Badge>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
-                </div>
 
-                {/* Footer with Edit/Delete Buttons */}
-                <div
-                  className="mt-4 pt-2 border-t border-border/30 flex justify-end items-center gap-2"
-                  onDragStart={(e) => e.stopPropagation()}
-                >
-                  <div className="flex gap-1">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/20"
-                      onClick={() => {
-                        setSelectedProfForFerias(p);
-                        setFeriasStart(format(new Date(), "yyyy-MM-dd"));
-                        setFeriasEnd(format(new Date(), "yyyy-MM-dd"));
-                        setFeriasOpen(true);
-                      }}
-                      title="Lançar Férias para o Profissional"
-                    >
-                      <Calendar className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        setEditing(p);
-                        setOpen(true);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => {
-                        if (confirm(`Remover ${p.nome}?`)) del.mutate(p.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  {/* Footer with Edit/Delete Buttons */}
+                  <div
+                    className="mt-4 pt-2 border-t border-border/30 flex justify-end items-center gap-2"
+                    onDragStart={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex gap-1">
+                      {!isAdm && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-sky-600 hover:text-sky-700 hover:bg-sky-50 dark:hover:bg-sky-950/20"
+                          onClick={() => {
+                            setSelectedProfForFerias(p);
+                            setFeriasStart(format(new Date(), "yyyy-MM-dd"));
+                            setFeriasEnd(format(new Date(), "yyyy-MM-dd"));
+                            setFeriasOpen(true);
+                          }}
+                          title="Lançar Férias para o Profissional"
+                        >
+                          <Calendar className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setEditing(p);
+                          setOpen(true);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => {
+                          if (confirm(`Remover ${p.nome}?`)) del.mutate(p.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -742,35 +855,43 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     data_nascimento: prof?.data_nascimento ?? ((prof?.valores_config as any)?.data_nascimento || ""),
   };
 
+  const initialTipo = prof?.tipo ?? ((prof?.valores_config as any)?.tipo || "clinico");
+  const initialCargo =
+    prof?.cargo ??
+    ((prof?.valores_config as any)?.cargo || (initialTipo === "administrativo" ? prof?.especialidade : "") || "");
+
   const [form, setForm] = useState(() => {
-    const initialSpecs = prof?.especialidade
-      ? prof.especialidade
-          .split(", ")
-          .filter(Boolean)
-          .map((s: string) => {
-            const existing = config.especialidades?.find(
-              (e: any) => e && e.nome && e.nome.toLowerCase() === s.toLowerCase(),
-            );
-            return {
-              nome: s,
-              valor_sessao:
-                existing?.valor_sessao !== undefined && existing?.valor_sessao !== null
-                  ? String(existing.valor_sessao)
-                  : "",
-              valor_avaliacao:
-                existing?.valor_avaliacao !== undefined && existing?.valor_avaliacao !== null
-                  ? String(existing.valor_avaliacao)
-                  : "",
-              plano_mensal:
-                existing?.plano_mensal !== undefined && existing?.plano_mensal !== null
-                  ? String(existing.plano_mensal)
-                  : "",
-            };
-          })
-      : [{ nome: "", valor_sessao: "", valor_avaliacao: "", plano_mensal: "" }];
+    const initialSpecs =
+      prof?.especialidade && initialTipo !== "administrativo"
+        ? prof.especialidade
+            .split(", ")
+            .filter(Boolean)
+            .map((s: string) => {
+              const existing = config.especialidades?.find(
+                (e: any) => e && e.nome && e.nome.toLowerCase() === s.toLowerCase(),
+              );
+              return {
+                nome: s,
+                valor_sessao:
+                  existing?.valor_sessao !== undefined && existing?.valor_sessao !== null
+                    ? String(existing.valor_sessao)
+                    : "",
+                valor_avaliacao:
+                  existing?.valor_avaliacao !== undefined && existing?.valor_avaliacao !== null
+                    ? String(existing.valor_avaliacao)
+                    : "",
+                plano_mensal:
+                  existing?.plano_mensal !== undefined && existing?.plano_mensal !== null
+                    ? String(existing.plano_mensal)
+                    : "",
+              };
+            })
+        : [{ nome: "", valor_sessao: "", valor_avaliacao: "", plano_mensal: "" }];
 
     return {
       nome: prof?.nome ?? "",
+      tipo: initialTipo as "clinico" | "administrativo",
+      cargo: initialCargo ?? "",
       especialidades: initialSpecs,
       email: prof?.email ?? "",
       telefone: prof?.telefone ?? "",
@@ -801,9 +922,14 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
 
   const m = useMutation({
     mutationFn: async () => {
-      const activeSpecs = form.especialidades.filter((e: any) => e && e.nome && e.nome.trim());
+      const isAdm = form.tipo === "administrativo";
+      const activeSpecs = isAdm
+        ? []
+        : form.especialidades.filter((e: any) => e && e.nome && e.nome.trim());
 
       const payloadConfig = {
+        tipo: form.tipo,
+        cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
         especialidades: activeSpecs.map((v: any) => {
           const nomeLower = v.nome?.trim().toLowerCase() || "";
           const isAP = nomeLower === "ap";
@@ -816,26 +942,32 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
             plano_mensal: isAP ? v.plano_mensal || null : null,
           };
         }),
-        descontos: (descontos || [])
-          .filter((d: any) => d && d.paciente_id)
-          .map((d: any) => {
-            const specLower = d.especialidade?.toLowerCase() || "";
-            const isSupervisorABA = specLower === "supervisor aba";
-            const isAtABA = specLower === "at aba";
-            return {
-              paciente_id: d.paciente_id,
-              especialidade: d.especialidade,
-              valor_sessao: isSupervisorABA ? null : parseMoneyValue(d.valor_sessao),
-              valor_avaliacao: isAtABA ? null : parseMoneyValue(d.valor_avaliacao),
-            };
-          }),
+        descontos: isAdm
+          ? []
+          : (descontos || [])
+              .filter((d: any) => d && d.paciente_id)
+              .map((d: any) => {
+                const specLower = d.especialidade?.toLowerCase() || "";
+                const isSupervisorABA = specLower === "supervisor aba";
+                const isAtABA = specLower === "at aba";
+                return {
+                  paciente_id: d.paciente_id,
+                  especialidade: d.especialidade,
+                  valor_sessao: isSupervisorABA ? null : parseMoneyValue(d.valor_sessao),
+                  valor_avaliacao: isAtABA ? null : parseMoneyValue(d.valor_avaliacao),
+                };
+              }),
         ativo_ate: form.ativo_ate || null,
         data_nascimento: form.data_nascimento || null,
       };
 
       const payload: any = {
         nome: form.nome,
-        especialidade: activeSpecs.map((e: any) => e.nome?.trim() || "").filter(Boolean).join(", ") || null,
+        tipo: form.tipo,
+        cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
+        especialidade: isAdm
+          ? form.cargo?.trim() || "Administrativo"
+          : activeSpecs.map((e: any) => e.nome?.trim() || "").filter(Boolean).join(", ") || null,
         email: form.email || null,
         telefone: form.telefone || null,
         data_nascimento: form.data_nascimento || null,
@@ -860,155 +992,211 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const isAdm = form.tipo === "administrativo";
+
   const renderGeralForm = () => (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="space-y-1.5">
-        <Label>Nome *</Label>
+        <Label className="text-xs font-semibold">Tipo de Profissional *</Label>
+        <div className="grid grid-cols-2 gap-2 p-1 bg-muted/60 rounded-lg border border-border/50">
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, tipo: "clinico" })}
+            className={cn(
+              "flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all",
+              form.tipo === "clinico"
+                ? "bg-background text-primary shadow-xs border border-border/50"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <span>🩺</span> Clínico / Terapeuta
+          </button>
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, tipo: "administrativo" })}
+            className={cn(
+              "flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all",
+              form.tipo === "administrativo"
+                ? "bg-background text-indigo-600 dark:text-indigo-400 shadow-xs border border-border/50"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <span>💼</span> Equipe Administrativa
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Nome Completo *</Label>
         <Input
           required
+          placeholder="Ex.: Maria Eduarda Santos"
           value={form.nome}
           onChange={(e) => setForm({ ...form, nome: e.target.value })}
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label>Especialidades & Valores</Label>
-        <div className="space-y-3">
-          {form.especialidades.map((esp: any, index: number) => (
-            <div
-              key={index}
-              className="border p-3.5 rounded-lg bg-accent/10 space-y-2.5 relative group"
-            >
-              <div className="flex gap-2 items-center">
-                <Input
-                  required
-                  value={esp.nome}
-                  onChange={(e) => {
-                    const next = [...form.especialidades];
-                    next[index].nome = e.target.value;
-                    setForm({ ...form, especialidades: next });
-                  }}
-                  placeholder={`Especialidade ${index + 1}`}
-                  className="font-semibold text-sm"
-                />
-                {form.especialidades.length > 1 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => {
-                      setForm({
-                        ...form,
-                        especialidades: form.especialidades.filter(
-                          (_: any, i: number) => i !== index,
-                        ),
-                      });
+      {isAdm ? (
+        <div className="space-y-3 p-3.5 rounded-lg border border-indigo-500/30 bg-indigo-500/5 dark:bg-indigo-950/20 animate-in fade-in duration-200">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+              <span>💼</span> Cargo / Função Administrativa *
+            </Label>
+            <Input
+              required={isAdm}
+              placeholder="Ex.: Recepcionista, Secretária, Gerente Financeiro, Apoio Geral"
+              value={form.cargo}
+              onChange={(e) => setForm({ ...form, cargo: e.target.value })}
+            />
+          </div>
+          <div className="text-[11px] text-muted-foreground bg-background/80 p-2.5 rounded border border-indigo-500/20 leading-relaxed">
+            💡 <strong>Aviso:</strong> Profissionais administrativos são registrados para a equipe interna e <strong>não</strong> aparecerão na grade de marcação de consultas ou relatórios clínicos.
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label>Especialidades & Valores</Label>
+          <div className="space-y-3">
+            {form.especialidades.map((esp: any, index: number) => (
+              <div
+                key={index}
+                className="border p-3.5 rounded-lg bg-accent/10 space-y-2.5 relative group"
+              >
+                <div className="flex gap-2 items-center">
+                  <Input
+                    required={!isAdm}
+                    value={esp.nome}
+                    onChange={(e) => {
+                      const next = [...form.especialidades];
+                      next[index].nome = e.target.value;
+                      setForm({ ...form, especialidades: next });
                     }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-
-              {esp.nome.trim() && (
-                <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
-                  {esp.nome.toUpperCase() === "AP" ? (
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-[11px] text-muted-foreground">Plano Mensal (AP)</Label>
-                      <Select
-                        value={esp.plano_mensal}
-                        onValueChange={(val) => {
-                          const next = [...form.especialidades];
-                          next[index].plano_mensal = val;
-                          setForm({ ...form, especialidades: next });
-                        }}
-                      >
-                        <SelectTrigger className="w-full h-8 text-xs">
-                          <SelectValue placeholder="Selecione um plano..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {PLANOS_AP.map((plano) => (
-                            <SelectItem key={plano.value} value={plano.value}>
-                              {plano.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : (
-                    <>
-                      {esp.nome.toLowerCase() !== "supervisor aba" && (
-                        <div
-                          className={`space-y-1 ${esp.nome.toLowerCase() === "at aba" ? "col-span-2" : ""}`}
-                        >
-                          <Label className="text-[11px] text-muted-foreground">
-                            Sessão Padrão (R$)
-                          </Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="Ex.: 150.00"
-                            value={esp.valor_sessao}
-                            onChange={(e) => {
-                              const next = [...form.especialidades];
-                              next[index].valor_sessao = e.target.value;
-                              setForm({ ...form, especialidades: next });
-                            }}
-                            className="h-8 text-xs"
-                          />
-                        </div>
-                      )}
-                      {esp.nome.toLowerCase() !== "at aba" && (
-                        <div
-                          className={`space-y-1 ${esp.nome.toLowerCase() === "supervisor aba" ? "col-span-2" : ""}`}
-                        >
-                          <Label className="text-[11px] text-muted-foreground">Anamnese (R$)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="Ex.: 200.00"
-                            value={esp.valor_avaliacao}
-                            onChange={(e) => {
-                              const next = [...form.especialidades];
-                              next[index].valor_avaliacao = e.target.value;
-                              setForm({ ...form, especialidades: next });
-                            }}
-                            className="h-8 text-xs"
-                          />
-                        </div>
-                      )}
-                    </>
+                    placeholder={`Especialidade ${index + 1}`}
+                    className="font-semibold text-sm"
+                  />
+                  {form.especialidades.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                      onClick={() => {
+                        setForm({
+                          ...form,
+                          especialidades: form.especialidades.filter(
+                            (_: any, i: number) => i !== index,
+                          ),
+                        });
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   )}
                 </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="mt-1"
-          onClick={() =>
-            setForm({
-              ...form,
-              especialidades: [
-                ...form.especialidades,
-                { nome: "", valor_sessao: "", valor_avaliacao: "", plano_mensal: "" },
-              ],
-            })
-          }
-        >
-          <Plus className="h-4 w-4 mr-1.5" /> Adicionar especialidade
-        </Button>
-      </div>
 
+                {esp.nome.trim() && (
+                  <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
+                    {esp.nome.toUpperCase() === "AP" ? (
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">Plano Mensal (AP)</Label>
+                        <Select
+                          value={esp.plano_mensal}
+                          onValueChange={(val) => {
+                            const next = [...form.especialidades];
+                            next[index].plano_mensal = val;
+                            setForm({ ...form, especialidades: next });
+                          }}
+                        >
+                          <SelectTrigger className="w-full h-8 text-xs">
+                            <SelectValue placeholder="Selecione um plano..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PLANOS_AP.map((plano) => (
+                              <SelectItem key={plano.value} value={plano.value}>
+                                {plano.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <>
+                        {esp.nome.toLowerCase() !== "supervisor aba" && (
+                          <div
+                            className={`space-y-1 ${esp.nome.toLowerCase() === "at aba" ? "col-span-2" : ""}`}
+                          >
+                            <Label className="text-[11px] text-muted-foreground">
+                              Sessão Padrão (R$)
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="Ex.: 100.00"
+                              value={esp.valor_sessao}
+                              onChange={(e) => {
+                                const next = [...form.especialidades];
+                                next[index].valor_sessao = e.target.value;
+                                setForm({ ...form, especialidades: next });
+                              }}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                        )}
+                        {esp.nome.toLowerCase() !== "at aba" && (
+                          <div
+                            className={`space-y-1 ${esp.nome.toLowerCase() === "supervisor aba" ? "col-span-2" : ""}`}
+                          >
+                            <Label className="text-[11px] text-muted-foreground">
+                              Anamnese Padrão (R$)
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="Ex.: 200.00"
+                              value={esp.valor_avaliacao}
+                              onChange={(e) => {
+                                const next = [...form.especialidades];
+                                next[index].valor_avaliacao = e.target.value;
+                                setForm({ ...form, especialidades: next });
+                              }}
+                              className="h-8 text-xs"
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-1"
+            onClick={() =>
+              setForm({
+                ...form,
+                especialidades: [
+                  ...form.especialidades,
+                  { nome: "", valor_sessao: "", valor_avaliacao: "", plano_mensal: "" },
+                ],
+              })
+            }
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Adicionar especialidade
+          </Button>
+        </div>
+      )}
+
+      {/* Contact & Agenda Color */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="space-y-1.5">
           <Label>E-mail</Label>
           <Input
             type="email"
+            placeholder="email@espacomulti.com"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
           />
@@ -1016,6 +1204,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         <div className="space-y-1.5">
           <Label>Telefone</Label>
           <Input
+            placeholder="(00) 00000-0000"
             value={form.telefone}
             onChange={(e) => setForm({ ...form, telefone: e.target.value })}
           />
@@ -1031,7 +1220,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
       </div>
 
       <div className="space-y-1.5">
-        <Label>Cor da agenda</Label>
+        <Label>Cor de Identificação</Label>
         <div className="flex flex-wrap gap-2">
           {CORES.map((c) => (
             <button
@@ -1068,7 +1257,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
           className="w-full"
         />
         <p className="text-[11px] text-muted-foreground">
-          Se definido, o profissional aparecerá como ativo nas agendas, relatórios e cobranças até o mês selecionado. A partir do mês seguinte, ele será tratado como inativo.
+          Se definido, o profissional aparecerá como ativo no sistema até o mês selecionado. A partir do mês seguinte, ele será tratado como inativo.
         </p>
       </div>
     </div>
@@ -1332,7 +1521,7 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         }}
         className="flex-1 flex flex-col overflow-hidden space-y-3"
       >
-        {prof ? (
+        {prof && form.tipo !== "administrativo" ? (
           <Tabs defaultValue="geral" className="flex-1 flex flex-col overflow-hidden">
             <TabsList className="grid grid-cols-3 shrink-0">
               <TabsTrigger value="geral">Dados Gerais & Valores</TabsTrigger>

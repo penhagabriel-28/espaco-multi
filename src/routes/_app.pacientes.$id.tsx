@@ -19,6 +19,7 @@ import { ArrowLeft, Plus, Pencil, Trash2, Calendar, CalendarOff } from "lucide-r
 import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
 import { PacienteFormDialog } from "@/components/PacienteFormDialog";
+import { isProfissionalAdmin } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/pacientes/$id")({
   component: PacienteDetail,
@@ -115,7 +116,7 @@ function PacienteDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, cor, especialidade, valores_config, ativo")
+        .select("id, nome, cor, especialidade, valores_config, ativo, tipo")
         .order("nome");
       if (error) throw error;
       return data ?? [];
@@ -124,6 +125,7 @@ function PacienteDetail() {
 
   const targetMonth = new Date().toISOString().substring(0, 7);
   const activeProfs = (profissionaisList || []).filter((p: any) => {
+    if (isProfissionalAdmin(p)) return false;
     if (p.ativo) return true;
     const config = p.valores_config as any;
     return config?.ativo_ate && targetMonth <= config.ativo_ate;

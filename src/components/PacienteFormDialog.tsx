@@ -15,6 +15,7 @@ import {
 import { DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
+import { isProfissionalAdmin } from "@/lib/utils";
 
 export const formatBirthDate = (value: string) => {
   const nums = value.replace(/\D/g, "");
@@ -96,9 +97,9 @@ export function PacienteFormDialog({
   const { data: profissionais = EMPTY_ARRAY } = useQuery({
     queryKey: ["profissionais"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("profissionais").select("especialidade");
+      const { data, error } = await supabase.from("profissionais").select("especialidade, tipo, valores_config");
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []).filter((p: any) => !isProfissionalAdmin(p));
     },
   });
 
@@ -107,7 +108,7 @@ export function PacienteFormDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, cor, especialidade, valores_config, ativo")
+        .select("id, nome, cor, especialidade, valores_config, ativo, tipo")
         .order("nome");
       if (error) throw error;
       return data ?? [];
@@ -130,6 +131,7 @@ export function PacienteFormDialog({
 
   const displayedProfissionaisList = useMemo(() => {
     return (profissionaisList || []).filter((prof: any) => {
+      if (isProfissionalAdmin(prof)) return false;
       if (prof.ativo) return true;
       if (currentProfs.includes(prof.id)) return true;
       const config = prof.valores_config as any;

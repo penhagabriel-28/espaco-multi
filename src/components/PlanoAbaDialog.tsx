@@ -28,11 +28,12 @@ import {
   Info,
   Calendar,
   User,
-  Activity,
-  CheckCircle,
-  Star,
-  FileText,
+  AlertCircle,
+  FileCheck2,
+  Sparkles,
+  Search,
 } from "lucide-react";
+import { isProfissionalAdmin } from "@/lib/utils";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -144,7 +145,7 @@ export function PlanoAbaDialog({
     queryFn: async () => {
       const { data } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, valores_config, ativo")
+        .select("id, nome, especialidade, valores_config, ativo, tipo")
         .order("nome");
       return data ?? [];
     },
@@ -154,6 +155,7 @@ export function PlanoAbaDialog({
   const activeProfissionais = useMemo(() => {
     if (!Array.isArray(profissionais)) return [];
     return profissionais.filter((p: any) => {
+      if (isProfissionalAdmin(p)) return false;
       if (p.id === supervisorId) return true;
       if (p.ativo) return true;
       const config = p.valores_config as any;

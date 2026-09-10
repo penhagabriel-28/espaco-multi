@@ -58,7 +58,7 @@ import {
 import { toast } from "sonner";
 import { formatCPF } from "@/components/PacienteFormDialog";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
-import { cn } from "@/lib/utils";
+import { cn, isProfissionalAdmin } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/relatorios")({
   component: RelatoriosPage,
@@ -190,10 +190,10 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, telefone, valores_config, ativo")
+        .select("id, nome, telefone, valores_config, ativo, tipo")
         .order("nome");
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []).filter((p: any) => !isProfissionalAdmin(p));
     },
   });
 

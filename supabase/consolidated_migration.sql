@@ -4414,9 +4414,14 @@ BEGIN
       PERFORM public.fn_recalculate_apoio_package(r.pac_id, r.comp);
     END IF;
   END LOOP;
-END;
-$$;
 
 
+-- ==========================================
+-- Migration: 20260910130000_add_tipo_cargo_to_profissionais.sql
+-- ==========================================
+ALTER TABLE public.profissionais 
+  ADD COLUMN IF NOT EXISTS tipo TEXT DEFAULT 'clinico',
+  ADD COLUMN IF NOT EXISTS cargo TEXT;
 
-
+COMMENT ON COLUMN public.profissionais.tipo IS 'clinico ou administrativo';
+COMMENT ON COLUMN public.profissionais.cargo IS 'Cargo ou funcao administrativa (ex: Recepcionista, Financeiro)';

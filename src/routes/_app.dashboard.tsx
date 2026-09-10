@@ -136,7 +136,7 @@ function Dashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valores_config, ativo")
+        .select("id, nome, especialidade, cor, valores_config, ativo, tipo, cargo")
         .eq("ativo", true)
         .order("nome");
       if (error) throw error;
@@ -160,10 +160,13 @@ function Dashboard() {
         if (month !== currentMonthNum) return null;
 
         const isToday = day === currentDayNum;
+        const cargoDesc = p.cargo || (p.valores_config as any)?.cargo;
+        const roleLabel = p.especialidade || (p.tipo === "administrativo" || (p.valores_config as any)?.tipo === "administrativo" ? (cargoDesc ? `💼 ${cargoDesc}` : "💼 Administrativo") : "Profissional");
+
         return {
           id: p.id,
           nome: p.nome,
-          especialidade: p.especialidade,
+          especialidade: roleLabel,
           cor: p.cor,
           dia: day,
           dataNascimento: dateStr,
