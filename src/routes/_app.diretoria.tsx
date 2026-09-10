@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -2073,9 +2075,35 @@ function DiretoriaPageContent() {
   // Billing Filters
   const [searchPatient, setSearchPatient] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [profFilter, setProfFilter] = useState("all");
+  const [selectedBillingProfs, setSelectedBillingProfs] = useState<string[]>([]);
+  const [billingProfSearch, setBillingProfSearch] = useState("");
+  const [billingProfsPopoverOpen, setBillingProfsPopoverOpen] = useState(false);
   const [paymentTypeFilter, setPaymentTypeFilter] = useState<"all" | "mensal" | "sessao">("all");
   const [subTab, setSubTab] = useState<"consolidado" | "historico">("consolidado");
+
+  const filteredBillingProfList = useMemo(() => {
+    return (profissionais || [])
+      .filter((p: any) => {
+        if (selectedBillingProfs.includes(p.id)) return true;
+        if (p.ativo) return true;
+        const config = p.valores_config as any;
+        if (config?.ativo_ate) {
+          const targetMonth = inicio.substring(0, 7);
+          return targetMonth <= config.ativo_ate;
+        }
+        return false;
+      })
+      .filter((p: any) =>
+        normalizeString(p.nome).includes(normalizeString(billingProfSearch))
+      )
+      .sort((a: any, b: any) => {
+        const aSel = selectedBillingProfs.includes(a.id);
+        const bSel = selectedBillingProfs.includes(b.id);
+        if (aSel && !bSel) return -1;
+        if (!aSel && bSel) return 1;
+        return a.nome.localeCompare(b.nome);
+      });
+  }, [profissionais, inicio, selectedBillingProfs, billingProfSearch]);
 
   // Patient Faturas Modal state
   const [patientFaturasDialog, setPatientFaturasDialog] = useState<{
@@ -2111,9 +2139,10 @@ function DiretoriaPageContent() {
     >();
 
     for (const f of faturas || []) {
-      if (profFilter !== "all") {
+      if (selectedBillingProfs.length > 0) {
         const profIds = faturaProfIdsMap.get(f.id);
-        if (!profIds || !profIds.has(profFilter)) continue;
+        const matchesProf = profIds ? selectedBillingProfs.some((pId) => profIds.has(pId)) : false;
+        if (!matchesProf) continue;
       }
 
       const pId = f.paciente_id;
@@ -2171,7 +2200,7 @@ function DiretoriaPageContent() {
     }
 
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [faturas, patientMap, profFilter, faturaProfIdsMap, patientDetailsMap, faturaItens]);
+  }, [faturas, patientMap, selectedBillingProfs, faturaProfIdsMap, patientDetailsMap, faturaItens]);
 
   const filteredConsolidated = useMemo(() => {
     return consolidatedPatients.filter((c) => {
@@ -2195,14 +2224,14 @@ function DiretoriaPageContent() {
       .filter((f) => {
         const matchesPatient = f.paciente_id === patientFaturasDialog.pacienteId;
         let matchesProf = true;
-        if (profFilter !== "all") {
+        if (selectedBillingProfs.length > 0) {
           const profIds = faturaProfIdsMap.get(f.id);
-          matchesProf = profIds ? profIds.has(profFilter) : false;
+          matchesProf = profIds ? selectedBillingProfs.some((pId) => profIds.has(pId)) : false;
         }
         return matchesPatient && matchesProf;
       })
       .sort((a, b) => new Date(b.competencia).getTime() - new Date(a.competencia).getTime());
-  }, [faturas, patientFaturasDialog.pacienteId, profFilter, faturaProfIdsMap]);
+  }, [faturas, patientFaturasDialog.pacienteId, selectedBillingProfs, faturaProfIdsMap]);
 
   const patientDetailedRows = useMemo(() => {
     const rows: any[] = [];
@@ -2269,14 +2298,21 @@ function DiretoriaPageContent() {
       } else {
         // Session items
         items.forEach((item: any) => {
-          const isApoioMatch = isApoio && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
-          const rowProfId = isApoioMatch 
-            ? profFilter 
-            : (item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id);
-          if (profFilter !== "all" && rowProfId !== profFilter) return;
+          const itemProfId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
+          const isApoioMatch = isApoio && selectedBillingProfs.length > 0 && faturaProfIdsMap.get(f.id);
+          const matchedApoioProf = isApoioMatch ? selectedBillingProfs.find((pId) => faturaProfIdsMap.get(f.id)?.has(pId)) : null;
 
-          const profName = isApoioMatch 
-            ? (professionalMap.get(profFilter) || "—") 
+          if (selectedBillingProfs.length > 0) {
+            if (isApoio) {
+              const matchesApoio = faturaProfIdsMap.get(f.id) ? selectedBillingProfs.some((pId) => faturaProfIdsMap.get(f.id)?.has(pId)) : false;
+              if (!matchesApoio && (!itemProfId || !selectedBillingProfs.includes(itemProfId))) return;
+            } else {
+              if (!itemProfId || !selectedBillingProfs.includes(itemProfId)) return;
+            }
+          }
+
+          const profName = matchedApoioProf
+            ? (professionalMap.get(matchedApoioProf) || "—")
             : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
           let finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
           if (isApoio && finalProfName === "—") {
@@ -2355,7 +2391,7 @@ function DiretoriaPageContent() {
 
       return dateA - dateB;
     });
-  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, profFilter, patientDetailsMap, faturaProfIdsMap]);
+  }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, selectedBillingProfs, patientDetailsMap, faturaProfIdsMap]);
 
   const handlePrintAllBilling = () => {
     if (filteredConsolidated.length === 0) {
@@ -2389,9 +2425,9 @@ function DiretoriaPageContent() {
 
       const pFats = c.faturas.filter((f: any) => {
         let matchesProf = true;
-        if (profFilter !== "all") {
+        if (selectedBillingProfs.length > 0) {
           const profIds = faturaProfIdsMap.get(f.id);
-          matchesProf = profIds ? profIds.has(profFilter) : false;
+          matchesProf = profIds ? selectedBillingProfs.some((pId) => profIds.has(pId)) : false;
         }
         return matchesProf;
       });
@@ -2405,7 +2441,15 @@ function DiretoriaPageContent() {
         }
         if (items.length === 0) {
           const rowProfId = f.profissional_id;
-          if (profFilter !== "all" && rowProfId !== profFilter) return;
+          if (selectedBillingProfs.length > 0) {
+            if (isApoio) {
+              const fatProfs = faturaProfIdsMap.get(f.id);
+              const matchesApoio = fatProfs ? selectedBillingProfs.some((pId) => fatProfs.has(pId)) : false;
+              if (!matchesApoio && (!rowProfId || !selectedBillingProfs.includes(rowProfId))) return;
+            } else {
+              if (!rowProfId || !selectedBillingProfs.includes(rowProfId)) return;
+            }
+          }
 
           let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual");
           if (isApoio) {
@@ -2458,14 +2502,21 @@ function DiretoriaPageContent() {
           });
         } else {
           items.forEach((item: any) => {
-            const isApoioMatch = isApoio && profFilter !== "all" && faturaProfIdsMap.get(f.id)?.has(profFilter);
-            const rowProfId = isApoioMatch 
-              ? profFilter 
-              : (item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id);
-            if (profFilter !== "all" && rowProfId !== profFilter) return;
+            const itemProfId = item.agendamento_id ? agendamentoProfIdMap.get(item.agendamento_id) : f.profissional_id;
+            const isApoioMatch = isApoio && selectedBillingProfs.length > 0 && faturaProfIdsMap.get(f.id);
+            const matchedApoioProf = isApoioMatch ? selectedBillingProfs.find((pId) => faturaProfIdsMap.get(f.id)?.has(pId)) : null;
 
-            const profName = isApoioMatch 
-              ? (professionalMap.get(profFilter) || "—") 
+            if (selectedBillingProfs.length > 0) {
+              if (isApoio) {
+                const matchesApoio = faturaProfIdsMap.get(f.id) ? selectedBillingProfs.some((pId) => faturaProfIdsMap.get(f.id)?.has(pId)) : false;
+                if (!matchesApoio && (!itemProfId || !selectedBillingProfs.includes(itemProfId))) return;
+              } else {
+                if (!itemProfId || !selectedBillingProfs.includes(itemProfId)) return;
+              }
+            }
+
+            const profName = matchedApoioProf
+              ? (professionalMap.get(matchedApoioProf) || "—")
               : (item.agendamento_id ? (agendamentoProfIdMap.get(item.agendamento_id) ? professionalMap.get(agendamentoProfIdMap.get(item.agendamento_id)!) : null) : null);
             let finalProfName = profName || (f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—");
             if (isApoio && finalProfName === "—") {
@@ -2613,7 +2664,9 @@ function DiretoriaPageContent() {
     }).join("");
 
     const statusLabel = statusFilter === "all" ? "Todos os Status" : statusFilter;
-    const profLabel = profFilter === "all" ? "Todos os Profissionais" : (professionalMap.get(profFilter) || profFilter);
+    const profLabel = selectedBillingProfs.length === 0
+      ? "Todos os Profissionais"
+      : selectedBillingProfs.map((pId) => professionalMap.get(pId) || pId).join(", ");
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -3340,15 +3393,15 @@ Nosso pix: 54.747.611/0001-27
         const matchesStatus = statusFilter === "all" || f.status === statusFilter;
 
         let matchesProf = true;
-        if (profFilter !== "all") {
+        if (selectedBillingProfs.length > 0) {
           const profIds = faturaProfIdsMap.get(f.id);
-          matchesProf = profIds ? profIds.has(profFilter) : false;
+          matchesProf = profIds ? selectedBillingProfs.some((pId) => profIds.has(pId)) : false;
         }
 
         return matchesSearch && matchesStatus && matchesProf;
       })
       .sort((a, b) => new Date(a.competencia).getTime() - new Date(b.competencia).getTime());
-  }, [faturas, searchPatient, statusFilter, profFilter, faturaProfIdsMap, patientMap]);
+  }, [faturas, searchPatient, statusFilter, selectedBillingProfs, faturaProfIdsMap, patientMap]);
   const mensalPatients = useMemo(() => {
     return filteredConsolidated.filter((c) => c.billingType === "mensal");
   }, [filteredConsolidated]);
@@ -4180,31 +4233,93 @@ Nosso pix: 54.747.611/0001-27
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="w-[190px]">
-                  <Select value={profFilter} onValueChange={setProfFilter}>
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="Todos os Profissionais" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos os Profissionais</SelectItem>
-                      {(profissionais || [])
-                        .filter((p: any) => {
-                          if (p.id === profFilter) return true;
-                          if (p.ativo) return true;
-                          const config = p.valores_config as any;
-                          if (config?.ativo_ate) {
-                            const targetMonth = inicio.substring(0, 7);
-                            return targetMonth <= config.ativo_ate;
-                          }
-                          return false;
-                        })
-                        .map((p: any) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.nome}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                <div className="min-w-[200px] max-w-[240px]">
+                  <Popover open={billingProfsPopoverOpen} onOpenChange={setBillingProfsPopoverOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full h-10 px-3 gap-2 text-xs font-normal justify-between transition-all hover:bg-accent border-input",
+                          selectedBillingProfs.length > 0 && "border-primary/50 bg-primary/5 text-primary font-medium",
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate">
+                            {selectedBillingProfs.length === 0
+                              ? "Todos os Profissionais"
+                              : selectedBillingProfs.length === 1
+                              ? (profissionais || []).find((p: any) => p.id === selectedBillingProfs[0])?.nome || "1 Profissional"
+                              : `${selectedBillingProfs.length} Profissionais`}
+                          </span>
+                          {selectedBillingProfs.length > 0 && (
+                            <>
+                              <div className="h-3.5 w-[1px] bg-border mx-0.5 shrink-0" />
+                              <Badge variant="secondary" className="rounded-sm px-1 font-semibold h-4 text-[10px] min-w-[16px] justify-center bg-primary text-primary-foreground">
+                                {selectedBillingProfs.length}
+                              </Badge>
+                            </>
+                          )}
+                        </div>
+                        <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-1" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[240px] p-2 z-50" align="start">
+                      <div className="space-y-2">
+                        <div className="flex items-center border-b pb-2 px-1 gap-2 border-border/80">
+                          <Search className="h-4 w-4 shrink-0 opacity-50" />
+                          <input
+                            placeholder="Buscar profissional..."
+                            className="flex h-7 w-full rounded-md bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                            value={billingProfSearch}
+                            onChange={(e) => setBillingProfSearch(e.target.value)}
+                          />
+                        </div>
+                        <div className="max-h-[260px] overflow-y-auto space-y-0.5 pr-1 scrollbar-thin">
+                          {filteredBillingProfList.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-muted-foreground">Nenhum profissional encontrado.</div>
+                          ) : (
+                            filteredBillingProfList.map((p: any) => {
+                              const isSelected = selectedBillingProfs.includes(p.id);
+                              return (
+                                <div
+                                  key={p.id}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      setSelectedBillingProfs(selectedBillingProfs.filter((id) => id !== p.id));
+                                    } else {
+                                      setSelectedBillingProfs([...selectedBillingProfs, p.id]);
+                                    }
+                                  }}
+                                  className={cn(
+                                    "flex items-center gap-2 rounded-sm px-2 py-1.5 cursor-pointer text-xs transition-colors hover:bg-accent hover:text-accent-foreground select-none",
+                                    isSelected && "bg-primary/5 font-semibold text-primary"
+                                  )}
+                                >
+                                  <Checkbox checked={isSelected} className="h-3.5 w-3.5 pointer-events-none" />
+                                  <div
+                                    className="h-2 w-2 rounded-full shrink-0"
+                                    style={{ backgroundColor: p.cor || "var(--primary)" }}
+                                  />
+                                  <span className="truncate">{p.nome}</span>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                        
+                        {selectedBillingProfs.length > 0 && (
+                          <div className="border-t border-border pt-1.5 mt-1 flex items-center justify-between">
+                            <button
+                              onClick={() => setSelectedBillingProfs([])}
+                              className="w-full text-center text-xs text-muted-foreground font-medium hover:text-foreground py-1 rounded-sm hover:bg-accent transition-colors cursor-pointer"
+                            >
+                              Limpar filtros
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="w-[190px]">
                   <Select
