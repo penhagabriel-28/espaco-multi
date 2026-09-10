@@ -77,7 +77,14 @@ import {
   Printer,
   CornerDownRight,
   FileCheck,
+  BookmarkCheck,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ComprovantesPagamentoDialog } from "@/components/ComprovantesPagamentoDialog";
 
 function parseDateFromDescription(desc: string): number | null {
@@ -1531,15 +1538,38 @@ function DiretoriaPageContent() {
     }
   };
 
-  const getRepasseRates = (specialty: string) => {
+  const [customDefaults, setCustomDefaults] = useState<Record<string, { rate?: number; value?: number }>>(() => {
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem("multi_repasse_custom_defaults") : null;
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const getRepasseRates = (specialty: string, profId?: string) => {
+    if (profId) {
+      const customDef = customDefaults[`${profId}_${specialty}`];
+      if (customDef?.rate !== undefined) {
+        const profPct = customDef.rate / 100;
+        const clinicPct = Math.max(0, 1 - profPct);
+        return {
+          profPct,
+          clinicPct,
+          label: `${Number((profPct * 100).toFixed(1))}% / ${Number((clinicPct * 100).toFixed(1))}%`,
+          isCustom: true,
+        };
+      }
+    }
+
     const specNorm = String(specialty || "").trim().toUpperCase();
     if (specNorm === "AT ABA") {
-      return { profPct: 0.5, clinicPct: 0.5, label: "50% / 50%" };
+      return { profPct: 0.5, clinicPct: 0.5, label: "50% / 50%", isCustom: false };
     }
     if (specNorm === "APOIO" || specNorm === "AP") {
-      return { profPct: 0.6, clinicPct: 0.4, label: "60% / 40%" };
+      return { profPct: 0.6, clinicPct: 0.4, label: "60% / 40%", isCustom: false };
     }
-    return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%" };
+    return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%", isCustom: false };
   };
 
   const getProfessionalBreakdown = (sessoes: any[]) => {
@@ -1562,7 +1592,7 @@ function DiretoriaPageContent() {
     sessoes.forEach((a: any) => {
       const val = getAppointmentValue(a);
       const spec = getAppointmentSpecialty(a);
-      const { profPct } = getRepasseRates(spec);
+      const { profPct } = getRepasseRates(spec, a.profissional_id);
       const repVal = val * profPct;
 
       const isAnamnese = a.observacoes?.includes("[Tipo: Anamnese]");
@@ -1652,7 +1682,7 @@ function DiretoriaPageContent() {
       if (s !== spec) return; // Only process sessions for this specialty
 
       const val = getAppointmentValue(a);
-      const { profPct } = getRepasseRates(spec);
+      const { profPct } = getRepasseRates(spec, profId);
       const pacId = a.paciente_id;
       if (!pacId) return;
       const pacName = a.pacientes?.nome || "Paciente Sem Nome";
@@ -1685,6 +1715,8 @@ function DiretoriaPageContent() {
       groups[pacId].totalVal += val;
     });
 
+    const customDefVal = customDefaults[`${profId}_${spec}`]?.value;
+
     const list = Object.entries(groups).map(([pacId, data]) => {
       const key = isApoio ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
       const override = customRepasses[profId]?.[key];
@@ -1697,11 +1729,12 @@ function DiretoriaPageContent() {
       let value = 0;
 
       if (isApoio) {
-        faturamento = override?.value !== undefined ? override.value : data.totalVal;
+        const defaultVal = customDefVal !== undefined ? customDefVal : data.totalVal;
+        faturamento = override?.value !== undefined ? override.value : defaultVal;
         repVal = faturamento * (rate / 100);
         value = faturamento;
       } else {
-        const defaultAvg = data.sessions > 0 ? data.totalVal / data.sessions : 0;
+        const defaultAvg = customDefVal !== undefined ? customDefVal : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
         value = override?.value !== undefined ? override.value : defaultAvg;
         faturamento = sessions * value;
         repVal = faturamento * (rate / 100);
@@ -1724,6 +1757,54 @@ function DiretoriaPageContent() {
     });
 
     return list;
+  };
+
+  const handleMakeDefault = (
+    profId: string,
+    spec: string,
+    field: "rate" | "value",
+    val: number,
+    sessoesProf: any[]
+  ) => {
+    const defKey = `${profId}_${spec}`;
+    const newDefaults = {
+      ...customDefaults,
+      [defKey]: {
+        ...(customDefaults[defKey] || {}),
+        [field]: val,
+      },
+    };
+    setCustomDefaults(newDefaults);
+    try {
+      localStorage.setItem("multi_repasse_custom_defaults", JSON.stringify(newDefaults));
+    } catch (e) {
+      console.error("Failed to save repasse defaults to localStorage", e);
+    }
+
+    setCustomRepasses((prev) => {
+      const next = { ...prev };
+      if (!next[profId]) next[profId] = {};
+
+      const bd = getPatientBreakdownForSpecialty(profId, spec, sessoesProf);
+      bd.forEach((item) => {
+        const current = next[profId][item.key] ? { ...next[profId][item.key] } : {
+          sessions: item.sessions,
+          value: item.value,
+          rate: item.rate,
+        };
+        if (field === "rate") {
+          current.rate = val;
+        } else if (field === "value") {
+          current.value = val;
+        }
+        next[profId][item.key] = current;
+      });
+
+      return next;
+    });
+
+    const fieldLabel = field === "rate" ? `% Repasse (${Number(val.toFixed(2))}%)` : `Valor (R$ ${Number(val.toFixed(2))})`;
+    toast.success(`${fieldLabel} definido como padrão para todos os pacientes em ${spec}!`);
   };
 
   const handleOverrideChange = (
@@ -1925,7 +2006,7 @@ function DiretoriaPageContent() {
       const profCor = a.profissionais?.cor || "#000000";
       const spec = getAppointmentSpecialty(a);
       const val = getAppointmentValue(a);
-      const { profPct, clinicPct } = getRepasseRates(spec);
+      const { profPct, clinicPct } = getRepasseRates(spec, profId);
 
       let group = groups.get(profId);
       if (!group) {
@@ -1972,7 +2053,7 @@ function DiretoriaPageContent() {
         if (!pacId) return;
 
         const val = getAppointmentValue(a);
-        const { profPct } = getRepasseRates(spec);
+        const { profPct } = getRepasseRates(spec, profId);
         const defaultRate = profPct * 100;
         const key = isApoioSpec(spec) ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
         const groupKey = `${spec}_${pacId}`;
@@ -1996,20 +2077,22 @@ function DiretoriaPageContent() {
       let totalRep = 0;
 
       Object.values(patientSpecGroups).forEach((data) => {
+        const customDefVal = customDefaults[`${profId}_${data.spec}`]?.value;
         const override = customRepasses[profId]?.[data.key];
         const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
         const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
 
         if (isApoioSpec(data.spec)) {
-          const totalVal = override?.value !== undefined ? override.value : data.totalVal;
+          const defaultVal = customDefVal !== undefined ? customDefVal : data.totalVal;
+          const totalVal = override?.value !== undefined ? override.value : defaultVal;
           const repVal = totalVal * (rate / 100);
 
           totalSess += sessions;
           totalFat += totalVal;
           totalRep += repVal;
         } else {
-          const avgValue = data.sessions > 0 ? data.totalVal / data.sessions : 0;
-          const value = override?.value !== undefined ? override.value : avgValue;
+          const defaultAvg = customDefVal !== undefined ? customDefVal : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
+          const value = override?.value !== undefined ? override.value : defaultAvg;
           const totalVal = sessions * value;
           const repVal = totalVal * (rate / 100);
 
@@ -2033,7 +2116,7 @@ function DiretoriaPageContent() {
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, profissionais, customRepasses]);
+  }, [filteredRepasses, profissionais, customRepasses, customDefaults]);
 
   const repasseStats = useMemo(() => {
     let totalSessões = 0;
@@ -4558,9 +4641,43 @@ Nosso pix: 54.747.611/0001-27
                                              <div key={spec} className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
                                                <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1 flex justify-between items-center">
                                                  <span>Resumo de Pacientes - {spec}</span>
-                                                 <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
-                                                   Taxa Padrão: {getRepasseRates(spec).label}
-                                                 </span>
+                                                 <div className="flex items-center gap-1.5">
+                                                   <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
+                                                     Taxa Padrão: {getRepasseRates(spec, group.profissionalId).label}
+                                                     {getRepasseRates(spec, group.profissionalId).isCustom && " (Personalizada)"}
+                                                   </span>
+                                                   {getRepasseRates(spec, group.profissionalId).isCustom && (
+                                                     <button
+                                                       type="button"
+                                                       onClick={() => {
+                                                         const defKey = `${group.profissionalId}_${spec}`;
+                                                         const newDef = { ...customDefaults };
+                                                         delete newDef[defKey];
+                                                         setCustomDefaults(newDef);
+                                                         try {
+                                                           localStorage.setItem("multi_repasse_custom_defaults", JSON.stringify(newDef));
+                                                         } catch (e) {
+                                                           console.error("Failed to update localStorage", e);
+                                                         }
+                                                         setCustomRepasses((prev) => {
+                                                           const next = { ...prev };
+                                                           if (next[group.profissionalId]) {
+                                                             Object.keys(next[group.profissionalId]).forEach((k) => {
+                                                               if (k.startsWith(spec) || (isApoio && k.startsWith("apoio"))) {
+                                                                 delete next[group.profissionalId][k];
+                                                               }
+                                                             });
+                                                           }
+                                                           return next;
+                                                         });
+                                                         toast.info(`Taxa padrão original restaurada para ${spec}`);
+                                                       }}
+                                                       className="text-[9px] text-muted-foreground hover:text-destructive underline cursor-pointer"
+                                                     >
+                                                       Restaurar padrão
+                                                     </button>
+                                                   )}
+                                                 </div>
                                                </div>
                                                <div className="overflow-x-auto">
                                                  <Table className="text-xs">
@@ -4570,13 +4687,13 @@ Nosso pix: 54.747.611/0001-27
                                                        {isApoio && (
                                                          <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
                                                        )}
-                                                       <TableHead className="font-semibold text-foreground w-[90px] text-center">Sessões</TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[130px] text-center">
+                                                       <TableHead className="font-semibold text-foreground w-[80px] text-center">Sessões</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[150px] text-center">
                                                          {isApoio ? "Valor do Plano" : "Valor da Sessão"}
                                                        </TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[90px] text-center">% Repasse</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[120px] text-center">% Repasse</TableHead>
                                                        {!isApoio && (
-                                                         <TableHead className="font-semibold text-foreground w-[120px] text-center">Valor</TableHead>
+                                                         <TableHead className="font-semibold text-foreground w-[140px] text-center">Valor</TableHead>
                                                        )}
                                                        <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
                                                      </TableRow>
@@ -4593,7 +4710,11 @@ Nosso pix: 54.747.611/0001-27
                                                          }
                                                        });
                                                        const defaultAvgValue = defaultSessions > 0 ? defaultFaturamento / defaultSessions : 0;
-                                                       const defaultRate = getRepasseRates(spec).profPct * 100;
+                                                       const defaultRate = getRepasseRates(spec, group.profissionalId).profPct * 100;
+                                                       const defaultBaseValue = isApoio ? defaultFaturamento : defaultAvgValue;
+
+                                                       const isValueModified = Math.abs(item.value - defaultBaseValue) > 0.01;
+                                                       const isRateModified = Math.abs(item.rate - defaultRate) > 0.01;
 
                                                        return (
                                                          <TableRow key={item.pacienteId} className="hover:bg-transparent">
@@ -4610,73 +4731,148 @@ Nosso pix: 54.747.611/0001-27
                                                              />
                                                            </TableCell>
                                                            <TableCell className="text-center py-2">
-                                                             <div className="relative max-w-[120px] mx-auto">
-                                                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
-                                                               <Input
-                                                                 type="number"
-                                                                 step="any"
-                                                                 className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
-                                                                 value={Number(item.value.toFixed(2))}
-                                                                 onChange={(e) =>
-                                                                   handleOverrideChange(
-                                                                     group.profissionalId,
-                                                                     item.key,
-                                                                     "value",
-                                                                     e.target.value,
-                                                                     defaultSessions,
-                                                                     isApoio ? defaultFaturamento : defaultAvgValue,
-                                                                     defaultRate,
-                                                                     item.value
-                                                                   )
-                                                                 }
-                                                               />
-                                                             </div>
-                                                           </TableCell>
-                                                           <TableCell className="text-center py-2">
-                                                             <div className="relative max-w-[80px] mx-auto">
-                                                               <Input
-                                                                 type="number"
-                                                                 step="any"
-                                                                 className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
-                                                                 value={Number(item.rate.toFixed(2))}
-                                                                 onChange={(e) =>
-                                                                   handleOverrideChange(
-                                                                     group.profissionalId,
-                                                                     item.key,
-                                                                     "rate",
-                                                                     e.target.value,
-                                                                     defaultSessions,
-                                                                     isApoio ? defaultFaturamento : defaultAvgValue,
-                                                                     defaultRate,
-                                                                     item.value
-                                                                   )
-                                                                 }
-                                                               />
-                                                               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
-                                                             </div>
-                                                           </TableCell>
-                                                           {!isApoio && (
-                                                             <TableCell className="text-center py-2">
-                                                               <div className="relative max-w-[110px] mx-auto">
-                                                                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
+                                                             <div className="flex items-center justify-center gap-1">
+                                                               <div className="relative max-w-[110px] w-full">
+                                                                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
                                                                  <Input
                                                                    type="number"
                                                                    step="any"
-                                                                   className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium"
-                                                                   value={Number(item.unitRepVal.toFixed(2))}
+                                                                   className={cn(
+                                                                     "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30",
+                                                                     isValueModified && "border-primary/60 bg-primary/5 font-medium"
+                                                                   )}
+                                                                   value={Number(item.value.toFixed(2))}
                                                                    onChange={(e) =>
                                                                      handleOverrideChange(
                                                                        group.profissionalId,
                                                                        item.key,
-                                                                       "unitRepVal",
+                                                                       "value",
                                                                        e.target.value,
                                                                        defaultSessions,
-                                                                       isApoio ? defaultFaturamento : defaultAvgValue,
+                                                                       defaultBaseValue,
                                                                        defaultRate,
                                                                        item.value
                                                                      )
                                                                    }
                                                                  />
+                                                               </div>
+                                                               {isValueModified && (
+                                                                 <TooltipProvider>
+                                                                   <Tooltip>
+                                                                     <TooltipTrigger asChild>
+                                                                       <Button
+                                                                         type="button"
+                                                                         variant="outline"
+                                                                         size="icon"
+                                                                         className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in"
+                                                                         onClick={() => handleMakeDefault(group.profissionalId, spec, "value", item.value, group.sessoes)}
+                                                                       >
+                                                                         <BookmarkCheck className="h-3.5 w-3.5" />
+                                                                       </Button>
+                                                                     </TooltipTrigger>
+                                                                     <TooltipContent side="top">
+                                                                       <p className="text-xs">Tornar R$ {Number(item.value.toFixed(2))} padrão para {spec}</p>
+                                                                     </TooltipContent>
+                                                                   </Tooltip>
+                                                                 </TooltipProvider>
+                                                               )}
+                                                             </div>
+                                                           </TableCell>
+                                                           <TableCell className="text-center py-2">
+                                                             <div className="flex items-center justify-center gap-1">
+                                                               <div className="relative max-w-[75px] w-full">
+                                                                 <Input
+                                                                   type="number"
+                                                                   step="any"
+                                                                   className={cn(
+                                                                     "h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30",
+                                                                     isRateModified && "border-primary/60 bg-primary/5 font-medium"
+                                                                   )}
+                                                                   value={Number(item.rate.toFixed(2))}
+                                                                   onChange={(e) =>
+                                                                     handleOverrideChange(
+                                                                       group.profissionalId,
+                                                                       item.key,
+                                                                       "rate",
+                                                                       e.target.value,
+                                                                       defaultSessions,
+                                                                       defaultBaseValue,
+                                                                       defaultRate,
+                                                                       item.value
+                                                                     )
+                                                                   }
+                                                                 />
+                                                                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
+                                                               </div>
+                                                               {isRateModified && (
+                                                                 <TooltipProvider>
+                                                                   <Tooltip>
+                                                                     <TooltipTrigger asChild>
+                                                                       <Button
+                                                                         type="button"
+                                                                         variant="outline"
+                                                                         size="icon"
+                                                                         className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in"
+                                                                         onClick={() => handleMakeDefault(group.profissionalId, spec, "rate", item.rate, group.sessoes)}
+                                                                       >
+                                                                         <BookmarkCheck className="h-3.5 w-3.5" />
+                                                                       </Button>
+                                                                     </TooltipTrigger>
+                                                                     <TooltipContent side="top">
+                                                                       <p className="text-xs">Tornar {Number(item.rate.toFixed(2))}% padrão para {spec}</p>
+                                                                     </TooltipContent>
+                                                                   </Tooltip>
+                                                                 </TooltipProvider>
+                                                               )}
+                                                             </div>
+                                                           </TableCell>
+                                                           {!isApoio && (
+                                                             <TableCell className="text-center py-2">
+                                                               <div className="flex items-center justify-center gap-1">
+                                                                 <div className="relative max-w-[95px] w-full">
+                                                                   <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
+                                                                   <Input
+                                                                     type="number"
+                                                                     step="any"
+                                                                     className={cn(
+                                                                       "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium",
+                                                                       isRateModified && "border-primary/60 bg-primary/5"
+                                                                     )}
+                                                                     value={Number(item.unitRepVal.toFixed(2))}
+                                                                     onChange={(e) =>
+                                                                       handleOverrideChange(
+                                                                         group.profissionalId,
+                                                                         item.key,
+                                                                         "unitRepVal",
+                                                                         e.target.value,
+                                                                         defaultSessions,
+                                                                         defaultBaseValue,
+                                                                         defaultRate,
+                                                                         item.value
+                                                                       )
+                                                                     }
+                                                                   />
+                                                                 </div>
+                                                                 {isRateModified && (
+                                                                   <TooltipProvider>
+                                                                     <Tooltip>
+                                                                       <TooltipTrigger asChild>
+                                                                         <Button
+                                                                           type="button"
+                                                                           variant="outline"
+                                                                           size="icon"
+                                                                           className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in"
+                                                                           onClick={() => handleMakeDefault(group.profissionalId, spec, "rate", item.rate, group.sessoes)}
+                                                                         >
+                                                                           <BookmarkCheck className="h-3.5 w-3.5" />
+                                                                         </Button>
+                                                                       </TooltipTrigger>
+                                                                       <TooltipContent side="top">
+                                                                         <p className="text-xs">Tornar R$ {Number(item.unitRepVal.toFixed(2))}/sessão ({Number(item.rate.toFixed(2))}%) padrão para {spec}</p>
+                                                                       </TooltipContent>
+                                                                     </Tooltip>
+                                                                   </TooltipProvider>
+                                                                 )}
                                                                </div>
                                                              </TableCell>
                                                            )}
