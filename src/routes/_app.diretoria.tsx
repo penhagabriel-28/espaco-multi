@@ -1707,6 +1707,8 @@ function DiretoriaPageContent() {
         repVal = faturamento * (rate / 100);
       }
 
+      const unitRepVal = value * (rate / 100);
+
       return {
         pacienteId: pacId,
         key,
@@ -1715,6 +1717,7 @@ function DiretoriaPageContent() {
         sessions,
         value,
         rate,
+        unitRepVal,
         faturamento,
         repVal,
       };
@@ -1726,12 +1729,12 @@ function DiretoriaPageContent() {
   const handleOverrideChange = (
     profId: string,
     key: string,
-    field: "sessions" | "value" | "rate" | "repVal",
+    field: "sessions" | "value" | "rate" | "unitRepVal",
     valStr: string,
     defaultSess: number,
     defaultValue: number,
     defaultRate: number,
-    currentFaturamento: number
+    sessionValue: number
   ) => {
     setCustomRepasses((prev) => {
       const next = { ...prev };
@@ -1754,10 +1757,10 @@ function DiretoriaPageContent() {
         current.value = valStr === "" ? 0 : Number(valStr);
       } else if (field === "rate") {
         current.rate = valStr === "" ? 0 : Number(valStr);
-      } else if (field === "repVal") {
-        const repValNum = valStr === "" ? 0 : Number(valStr);
-        if (currentFaturamento > 0) {
-          current.rate = Number(((repValNum / currentFaturamento) * 100).toFixed(4));
+      } else if (field === "unitRepVal") {
+        const unitValNum = valStr === "" ? 0 : Number(valStr);
+        if (sessionValue > 0) {
+          current.rate = Number(((unitValNum / sessionValue) * 100).toFixed(4));
         } else {
           current.rate = 0;
         }
@@ -4621,7 +4624,7 @@ Nosso pix: 54.747.611/0001-27
                                                                      defaultSessions,
                                                                      isApoio ? defaultFaturamento : defaultAvgValue,
                                                                      defaultRate,
-                                                                     item.faturamento
+                                                                     item.value
                                                                    )
                                                                  }
                                                                />
@@ -4643,7 +4646,7 @@ Nosso pix: 54.747.611/0001-27
                                                                      defaultSessions,
                                                                      isApoio ? defaultFaturamento : defaultAvgValue,
                                                                      defaultRate,
-                                                                     item.faturamento
+                                                                     item.value
                                                                    )
                                                                  }
                                                                />
@@ -4657,17 +4660,17 @@ Nosso pix: 54.747.611/0001-27
                                                                  type="number"
                                                                  step="any"
                                                                  className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium"
-                                                                 value={Number(item.repVal.toFixed(2))}
+                                                                 value={Number(item.unitRepVal.toFixed(2))}
                                                                  onChange={(e) =>
                                                                    handleOverrideChange(
                                                                      group.profissionalId,
                                                                      item.key,
-                                                                     "repVal",
+                                                                     "unitRepVal",
                                                                      e.target.value,
                                                                      defaultSessions,
                                                                      isApoio ? defaultFaturamento : defaultAvgValue,
                                                                      defaultRate,
-                                                                     item.faturamento
+                                                                     item.value
                                                                    )
                                                                  }
                                                                />
@@ -4691,9 +4694,7 @@ Nosso pix: 54.747.611/0001-27
                                                          {brl(totalFat)}
                                                        </TableCell>
                                                        <TableCell className="py-2" />
-                                                       <TableCell className="text-center font-bold text-emerald-600 dark:text-emerald-400 py-2">
-                                                         {brl(totalRep)}
-                                                       </TableCell>
+                                                       <TableCell className="py-2" />
                                                        <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                          {brl(totalRep)}
                                                        </TableCell>
