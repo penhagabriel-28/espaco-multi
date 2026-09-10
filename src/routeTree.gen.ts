@@ -19,6 +19,7 @@ import { Route as AppDiretoriaRouteImport } from './routes/_app.diretoria'
 import { Route as AppDespesasRouteImport } from './routes/_app.despesas'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppAgendaRouteImport } from './routes/_app.agenda'
+import { Route as AppPacientesIndexRouteImport } from './routes/_app.pacientes.index'
 import { Route as AppPacientesIdRouteImport } from './routes/_app.pacientes.$id'
 
 const AppRoute = AppRouteImport.update({
@@ -70,6 +71,11 @@ const AppAgendaRoute = AppAgendaRouteImport.update({
   path: '/agenda',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPacientesIndexRoute = AppPacientesIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppPacientesRoute,
+} as any)
 const AppPacientesIdRoute = AppPacientesIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/profissionais': typeof AppProfissionaisRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/pacientes/$id': typeof AppPacientesIdRoute
+  '/pacientes/': typeof AppPacientesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -95,10 +102,10 @@ export interface FileRoutesByTo {
   '/despesas': typeof AppDespesasRoute
   '/diretoria': typeof AppDiretoriaRoute
   '/frequencia': typeof AppFrequenciaRoute
-  '/pacientes': typeof AppPacientesRouteWithChildren
   '/profissionais': typeof AppProfissionaisRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/pacientes/$id': typeof AppPacientesIdRoute
+  '/pacientes': typeof AppPacientesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -113,6 +120,7 @@ export interface FileRoutesById {
   '/_app/profissionais': typeof AppProfissionaisRoute
   '/_app/relatorios': typeof AppRelatoriosRoute
   '/_app/pacientes/$id': typeof AppPacientesIdRoute
+  '/_app/pacientes/': typeof AppPacientesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -127,6 +135,7 @@ export interface FileRouteTypes {
     | '/profissionais'
     | '/relatorios'
     | '/pacientes/$id'
+    | '/pacientes/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -135,10 +144,10 @@ export interface FileRouteTypes {
     | '/despesas'
     | '/diretoria'
     | '/frequencia'
-    | '/pacientes'
     | '/profissionais'
     | '/relatorios'
     | '/pacientes/$id'
+    | '/pacientes'
   id:
     | '__root__'
     | '/'
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/_app/profissionais'
     | '/_app/relatorios'
     | '/_app/pacientes/$id'
+    | '/_app/pacientes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -231,6 +241,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgendaRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/pacientes/': {
+      id: '/_app/pacientes/'
+      path: '/'
+      fullPath: '/pacientes/'
+      preLoaderRoute: typeof AppPacientesIndexRouteImport
+      parentRoute: typeof AppPacientesRoute
+    }
     '/_app/pacientes/$id': {
       id: '/_app/pacientes/$id'
       path: '/$id'
@@ -243,10 +260,12 @@ declare module '@tanstack/react-router' {
 
 interface AppPacientesRouteChildren {
   AppPacientesIdRoute: typeof AppPacientesIdRoute
+  AppPacientesIndexRoute: typeof AppPacientesIndexRoute
 }
 
 const AppPacientesRouteChildren: AppPacientesRouteChildren = {
   AppPacientesIdRoute: AppPacientesIdRoute,
+  AppPacientesIndexRoute: AppPacientesIndexRoute,
 }
 
 const AppPacientesRouteWithChildren = AppPacientesRoute._addFileChildren(

@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Plus, Pencil, Trash2, Calendar, CalendarOff } from "lucide-react";
 import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
-import { PacienteFormDialog } from "@/components/PacienteFormDialog";
+import { PacienteFormDialog, formatBirthDateForDisplay } from "@/components/PacienteFormDialog";
 import { isProfissionalAdmin } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/pacientes/$id")({
@@ -170,10 +170,7 @@ function PacienteDetail() {
             <CardTitle className="text-xl">{paciente.nome}</CardTitle>
             <div className="mt-1 text-sm text-muted-foreground">
               {paciente.data_nascimento
-                ? `Nasc. ${(() => {
-                    const parts = paciente.data_nascimento.split("-");
-                    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-                  })()}`
+                ? `Nasc. ${formatBirthDateForDisplay(paciente.data_nascimento)}`
                 : "Data de nascimento não informada"}
             </div>
           </div>
@@ -245,7 +242,16 @@ function PacienteDetail() {
             }
           />
 
-          <Info label="Cadastrado em" value={format(new Date(paciente.created_at), "dd/MM/yyyy")} />
+          <Info
+            label="Cadastrado em"
+            value={(() => {
+              try {
+                return paciente.created_at ? format(new Date(paciente.created_at), "dd/MM/yyyy") : "—";
+              } catch {
+                return "—";
+              }
+            })()}
+          />
           {getCleanObservacoes(paciente.observacoes) && (
             <div className="sm:col-span-2">
               <div className="text-xs text-muted-foreground">Observações</div>
@@ -431,7 +437,13 @@ function PacienteDetail() {
                     style={{ background: a.profissionais?.cor }}
                   />
                   <div className="min-w-[140px] font-medium">
-                    {format(new Date(a.data_inicio), "dd/MM/yyyy HH:mm")}
+                    {(() => {
+                      try {
+                        return a.data_inicio ? format(new Date(a.data_inicio), "dd/MM/yyyy HH:mm") : "—";
+                      } catch {
+                        return "—";
+                      }
+                    })()}
                   </div>
                   <div className="flex-1 text-muted-foreground">
                     {a.servicos?.nome} • {a.profissionais?.nome}
