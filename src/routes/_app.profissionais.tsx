@@ -527,7 +527,7 @@ function ProfissionaisPage() {
                                 variant="outline"
                                 className="text-[9px] px-2 py-0.5 font-semibold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 gap-1"
                               >
-                                <span>💼</span> {p.cargo || p.especialidade || "Administrativo"}
+                                <span>💼</span> {(p as any).cargo || (p.valores_config as any)?.cargo || p.especialidade || "Administrativo"}
                               </Badge>
                             ) : p.especialidade ? (
                               p.especialidade
@@ -535,7 +535,7 @@ function ProfissionaisPage() {
                                 .map((s: string) => s.trim())
                                 .filter(Boolean)
                                 .map((esp: string) => (
-                                  <Badge
+                                   <Badge
                                     key={esp}
                                     variant="outline"
                                     className="text-[9px] px-1.5 py-0 font-medium bg-primary/5 border-primary/20 text-primary"
@@ -569,7 +569,7 @@ function ProfissionaisPage() {
                     {isAdm ? (
                       <div className="space-y-2 text-[11px] text-muted-foreground bg-indigo-500/5 dark:bg-indigo-950/20 p-2.5 rounded border border-indigo-500/20 mt-1">
                         <div className="flex items-center justify-between text-xs font-semibold text-foreground">
-                          <span className="truncate">Função: {p.cargo || p.especialidade || "Administrativo"}</span>
+                          <span className="truncate">Função: {(p as any).cargo || (p.valores_config as any)?.cargo || p.especialidade || "Administrativo"}</span>
                           <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal shrink-0">
                             Equipe Interna
                           </span>

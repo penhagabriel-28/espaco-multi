@@ -32,6 +32,10 @@ import {
   FileCheck2,
   Sparkles,
   Search,
+  Activity,
+  CheckCircle,
+  Star,
+  FileText,
 } from "lucide-react";
 import { isProfissionalAdmin } from "@/lib/utils";
 import { toast } from "sonner";
