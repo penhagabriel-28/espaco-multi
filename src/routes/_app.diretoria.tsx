@@ -78,6 +78,7 @@ import {
   CornerDownRight,
   FileCheck,
   BookmarkCheck,
+  RotateCcw,
 } from "lucide-react";
 import {
   Tooltip,
@@ -1538,38 +1539,26 @@ function DiretoriaPageContent() {
     }
   };
 
-  const [customDefaults, setCustomDefaults] = useState<Record<string, { rate?: number; value?: number }>>(() => {
+  const [customPatientDefaults, setCustomPatientDefaults] = useState<
+    Record<string, Record<string, { value?: number; rate?: number }>>
+  >(() => {
     try {
-      const saved = typeof window !== "undefined" ? localStorage.getItem("multi_repasse_custom_defaults") : null;
+      const saved = typeof window !== "undefined" ? localStorage.getItem("multi_repasse_patient_defaults") : null;
       return saved ? JSON.parse(saved) : {};
     } catch {
       return {};
     }
   });
 
-  const getRepasseRates = (specialty: string, profId?: string) => {
-    if (profId) {
-      const customDef = customDefaults[`${profId}_${specialty}`];
-      if (customDef?.rate !== undefined) {
-        const profPct = customDef.rate / 100;
-        const clinicPct = Math.max(0, 1 - profPct);
-        return {
-          profPct,
-          clinicPct,
-          label: `${Number((profPct * 100).toFixed(1))}% / ${Number((clinicPct * 100).toFixed(1))}%`,
-          isCustom: true,
-        };
-      }
-    }
-
+  const getRepasseRates = (specialty: string) => {
     const specNorm = String(specialty || "").trim().toUpperCase();
     if (specNorm === "AT ABA") {
-      return { profPct: 0.5, clinicPct: 0.5, label: "50% / 50%", isCustom: false };
+      return { profPct: 0.5, clinicPct: 0.5, label: "50% / 50%" };
     }
     if (specNorm === "APOIO" || specNorm === "AP") {
-      return { profPct: 0.6, clinicPct: 0.4, label: "60% / 40%", isCustom: false };
+      return { profPct: 0.6, clinicPct: 0.4, label: "60% / 40%" };
     }
-    return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%", isCustom: false };
+    return { profPct: 0.7, clinicPct: 0.3, label: "70% / 30%" };
   };
 
   const getProfessionalBreakdown = (sessoes: any[]) => {
@@ -1592,7 +1581,7 @@ function DiretoriaPageContent() {
     sessoes.forEach((a: any) => {
       const val = getAppointmentValue(a);
       const spec = getAppointmentSpecialty(a);
-      const { profPct } = getRepasseRates(spec, a.profissional_id);
+      const { profPct } = getRepasseRates(spec);
       const repVal = val * profPct;
 
       const isAnamnese = a.observacoes?.includes("[Tipo: Anamnese]");
@@ -1682,7 +1671,7 @@ function DiretoriaPageContent() {
       if (s !== spec) return; // Only process sessions for this specialty
 
       const val = getAppointmentValue(a);
-      const { profPct } = getRepasseRates(spec, profId);
+      const { profPct } = getRepasseRates(spec);
       const pacId = a.paciente_id;
       if (!pacId) return;
       const pacName = a.pacientes?.nome || "Paciente Sem Nome";
@@ -1715,32 +1704,42 @@ function DiretoriaPageContent() {
       groups[pacId].totalVal += val;
     });
 
-    const customDefVal = customDefaults[`${profId}_${spec}`]?.value;
-
     const list = Object.entries(groups).map(([pacId, data]) => {
       const key = isApoio ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
       const override = customRepasses[profId]?.[key];
+      const patientDefault = customPatientDefaults[profId]?.[key];
+
+      const defaultBaseValue = isApoio ? data.totalVal : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
+      const defaultBaseRate = data.defaultRate;
+
+      const currentDefaultValue = patientDefault?.value !== undefined ? patientDefault.value : defaultBaseValue;
+      const currentDefaultRate = patientDefault?.rate !== undefined ? patientDefault.rate : defaultBaseRate;
       
       const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
-      const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
+      const rate = override?.rate !== undefined ? override.rate : currentDefaultRate;
       
       let faturamento = 0;
       let repVal = 0;
       let value = 0;
 
       if (isApoio) {
-        const defaultVal = customDefVal !== undefined ? customDefVal : data.totalVal;
-        faturamento = override?.value !== undefined ? override.value : defaultVal;
+        value = override?.value !== undefined ? override.value : currentDefaultValue;
+        faturamento = value;
         repVal = faturamento * (rate / 100);
-        value = faturamento;
       } else {
-        const defaultAvg = customDefVal !== undefined ? customDefVal : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
-        value = override?.value !== undefined ? override.value : defaultAvg;
+        value = override?.value !== undefined ? override.value : currentDefaultValue;
         faturamento = sessions * value;
         repVal = faturamento * (rate / 100);
       }
 
       const unitRepVal = value * (rate / 100);
+
+      const isValueModified = Math.abs(value - currentDefaultValue) > 0.01;
+      const isRateModified = Math.abs(rate - currentDefaultRate) > 0.01;
+      const isCustomized =
+        Math.abs(value - defaultBaseValue) > 0.01 ||
+        Math.abs(rate - defaultBaseRate) > 0.01 ||
+        (patientDefault !== undefined && (patientDefault.value !== undefined || patientDefault.rate !== undefined));
 
       return {
         pacienteId: pacId,
@@ -1753,58 +1752,118 @@ function DiretoriaPageContent() {
         unitRepVal,
         faturamento,
         repVal,
+        defaultBaseValue,
+        defaultBaseRate,
+        currentDefaultValue,
+        currentDefaultRate,
+        isValueModified,
+        isRateModified,
+        isCustomized,
+        hasCustomDefault: patientDefault !== undefined,
       };
     });
 
     return list;
   };
 
-  const handleMakeDefault = (
+  const handleMakePatientDefault = (
     profId: string,
-    spec: string,
+    key: string,
+    patientName: string,
     field: "rate" | "value",
-    val: number,
-    sessoesProf: any[]
+    val: number
   ) => {
-    const defKey = `${profId}_${spec}`;
-    const newDefaults = {
-      ...customDefaults,
-      [defKey]: {
-        ...(customDefaults[defKey] || {}),
-        [field]: val,
+    const newPatientDefaults = {
+      ...customPatientDefaults,
+      [profId]: {
+        ...(customPatientDefaults[profId] || {}),
+        [key]: {
+          ...(customPatientDefaults[profId]?.[key] || {}),
+          [field]: val,
+        },
       },
     };
-    setCustomDefaults(newDefaults);
+    setCustomPatientDefaults(newPatientDefaults);
     try {
-      localStorage.setItem("multi_repasse_custom_defaults", JSON.stringify(newDefaults));
+      localStorage.setItem("multi_repasse_patient_defaults", JSON.stringify(newPatientDefaults));
     } catch (e) {
-      console.error("Failed to save repasse defaults to localStorage", e);
+      console.error("Failed to save patient defaults to localStorage", e);
+    }
+
+    const fieldLabel = field === "rate" ? `% Repasse (${Number(val.toFixed(2))}%)` : `Valor (R$ ${Number(val.toFixed(2))})`;
+    toast.success(`${fieldLabel} salvo como padrão para ${patientName}!`);
+  };
+
+  const handleResetPatientDefault = (
+    profId: string,
+    key: string,
+    patientName: string
+  ) => {
+    const newPatientDefaults = { ...customPatientDefaults };
+    if (newPatientDefaults[profId]) {
+      const nextProf = { ...newPatientDefaults[profId] };
+      delete nextProf[key];
+      newPatientDefaults[profId] = nextProf;
+      setCustomPatientDefaults(newPatientDefaults);
+      try {
+        localStorage.setItem("multi_repasse_patient_defaults", JSON.stringify(newPatientDefaults));
+      } catch (e) {
+        console.error("Failed to update localStorage", e);
+      }
     }
 
     setCustomRepasses((prev) => {
       const next = { ...prev };
-      if (!next[profId]) next[profId] = {};
-
-      const bd = getPatientBreakdownForSpecialty(profId, spec, sessoesProf);
-      bd.forEach((item) => {
-        const current = next[profId][item.key] ? { ...next[profId][item.key] } : {
-          sessions: item.sessions,
-          value: item.value,
-          rate: item.rate,
-        };
-        if (field === "rate") {
-          current.rate = val;
-        } else if (field === "value") {
-          current.value = val;
-        }
-        next[profId][item.key] = current;
-      });
-
+      if (next[profId]) {
+        const nextProf = { ...next[profId] };
+        delete nextProf[key];
+        next[profId] = nextProf;
+      }
       return next;
     });
 
-    const fieldLabel = field === "rate" ? `% Repasse (${Number(val.toFixed(2))}%)` : `Valor (R$ ${Number(val.toFixed(2))})`;
-    toast.success(`${fieldLabel} definido como padrão para todos os pacientes em ${spec}!`);
+    toast.info(`Padrão original restaurado para ${patientName}.`);
+  };
+
+  const handleResetSpecialtyDefaults = (
+    profId: string,
+    spec: string
+  ) => {
+    const isApoio = isApoioSpec(spec);
+    const prefix = isApoio ? "apoio_paciente_" : `${spec}_paciente_`;
+
+    const newPatientDefaults = { ...customPatientDefaults };
+    if (newPatientDefaults[profId]) {
+      const nextProf = { ...newPatientDefaults[profId] };
+      Object.keys(nextProf).forEach((k) => {
+        if (k.startsWith(prefix)) {
+          delete nextProf[k];
+        }
+      });
+      newPatientDefaults[profId] = nextProf;
+      setCustomPatientDefaults(newPatientDefaults);
+      try {
+        localStorage.setItem("multi_repasse_patient_defaults", JSON.stringify(newPatientDefaults));
+      } catch (e) {
+        console.error("Failed to update localStorage", e);
+      }
+    }
+
+    setCustomRepasses((prev) => {
+      const next = { ...prev };
+      if (next[profId]) {
+        const nextProf = { ...next[profId] };
+        Object.keys(nextProf).forEach((k) => {
+          if (k.startsWith(prefix)) {
+            delete nextProf[k];
+          }
+        });
+        next[profId] = nextProf;
+      }
+      return next;
+    });
+
+    toast.info(`Padrões originais restaurados para todos os pacientes de ${spec}.`);
   };
 
   const handleOverrideChange = (
@@ -2006,7 +2065,7 @@ function DiretoriaPageContent() {
       const profCor = a.profissionais?.cor || "#000000";
       const spec = getAppointmentSpecialty(a);
       const val = getAppointmentValue(a);
-      const { profPct, clinicPct } = getRepasseRates(spec, profId);
+      const { profPct, clinicPct } = getRepasseRates(spec);
 
       let group = groups.get(profId);
       if (!group) {
@@ -2053,7 +2112,7 @@ function DiretoriaPageContent() {
         if (!pacId) return;
 
         const val = getAppointmentValue(a);
-        const { profPct } = getRepasseRates(spec, profId);
+        const { profPct } = getRepasseRates(spec);
         const defaultRate = profPct * 100;
         const key = isApoioSpec(spec) ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
         const groupKey = `${spec}_${pacId}`;
@@ -2077,13 +2136,14 @@ function DiretoriaPageContent() {
       let totalRep = 0;
 
       Object.values(patientSpecGroups).forEach((data) => {
-        const customDefVal = customDefaults[`${profId}_${data.spec}`]?.value;
+        const patientDefault = customPatientDefaults[profId]?.[data.key];
         const override = customRepasses[profId]?.[data.key];
-        const rate = override?.rate !== undefined ? override.rate : data.defaultRate;
+        const defaultRate = patientDefault?.rate !== undefined ? patientDefault.rate : data.defaultRate;
+        const rate = override?.rate !== undefined ? override.rate : defaultRate;
         const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
 
         if (isApoioSpec(data.spec)) {
-          const defaultVal = customDefVal !== undefined ? customDefVal : data.totalVal;
+          const defaultVal = patientDefault?.value !== undefined ? patientDefault.value : data.totalVal;
           const totalVal = override?.value !== undefined ? override.value : defaultVal;
           const repVal = totalVal * (rate / 100);
 
@@ -2091,7 +2151,7 @@ function DiretoriaPageContent() {
           totalFat += totalVal;
           totalRep += repVal;
         } else {
-          const defaultAvg = customDefVal !== undefined ? customDefVal : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
+          const defaultAvg = patientDefault?.value !== undefined ? patientDefault.value : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
           const value = override?.value !== undefined ? override.value : defaultAvg;
           const totalVal = sessions * value;
           const repVal = totalVal * (rate / 100);
@@ -2116,7 +2176,7 @@ function DiretoriaPageContent() {
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, profissionais, customRepasses, customDefaults]);
+  }, [filteredRepasses, profissionais, customRepasses, customPatientDefaults]);
 
   const repasseStats = useMemo(() => {
     let totalSessões = 0;
@@ -4641,41 +4701,21 @@ Nosso pix: 54.747.611/0001-27
                                              <div key={spec} className="space-y-4 p-4 bg-background border border-border/60 rounded-lg shadow-sm w-full">
                                                <div className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] border-b pb-1 flex justify-between items-center">
                                                  <span>Resumo de Pacientes - {spec}</span>
-                                                 <div className="flex items-center gap-1.5">
+                                                 <div className="flex items-center gap-2">
                                                    <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
-                                                     Taxa Padrão: {getRepasseRates(spec, group.profissionalId).label}
-                                                     {getRepasseRates(spec, group.profissionalId).isCustom && " (Personalizada)"}
+                                                     Taxa Padrão: {getRepasseRates(spec).label}
                                                    </span>
-                                                   {getRepasseRates(spec, group.profissionalId).isCustom && (
-                                                     <button
+                                                   {bd.some((i) => i.isCustomized) && (
+                                                     <Button
                                                        type="button"
-                                                       onClick={() => {
-                                                         const defKey = `${group.profissionalId}_${spec}`;
-                                                         const newDef = { ...customDefaults };
-                                                         delete newDef[defKey];
-                                                         setCustomDefaults(newDef);
-                                                         try {
-                                                           localStorage.setItem("multi_repasse_custom_defaults", JSON.stringify(newDef));
-                                                         } catch (e) {
-                                                           console.error("Failed to update localStorage", e);
-                                                         }
-                                                         setCustomRepasses((prev) => {
-                                                           const next = { ...prev };
-                                                           if (next[group.profissionalId]) {
-                                                             Object.keys(next[group.profissionalId]).forEach((k) => {
-                                                               if (k.startsWith(spec) || (isApoio && k.startsWith("apoio"))) {
-                                                                 delete next[group.profissionalId][k];
-                                                               }
-                                                             });
-                                                           }
-                                                           return next;
-                                                         });
-                                                         toast.info(`Taxa padrão original restaurada para ${spec}`);
-                                                       }}
-                                                       className="text-[9px] text-muted-foreground hover:text-destructive underline cursor-pointer"
+                                                       variant="ghost"
+                                                       size="sm"
+                                                       onClick={() => handleResetSpecialtyDefaults(group.profissionalId, spec)}
+                                                       className="h-6 text-[10px] px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center gap-1 transition-colors cursor-pointer"
                                                      >
-                                                       Restaurar padrão
-                                                     </button>
+                                                       <RotateCcw className="h-3 w-3" />
+                                                       <span>Restaurar padrões ({spec})</span>
+                                                     </Button>
                                                    )}
                                                  </div>
                                                </div>
@@ -4687,7 +4727,7 @@ Nosso pix: 54.747.611/0001-27
                                                        {isApoio && (
                                                          <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
                                                        )}
-                                                       <TableHead className="font-semibold text-foreground w-[80px] text-center">Sessões</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[70px] text-center">Sessões</TableHead>
                                                        <TableHead className="font-semibold text-foreground w-[150px] text-center">
                                                          {isApoio ? "Valor do Plano" : "Valor da Sessão"}
                                                        </TableHead>
@@ -4696,6 +4736,7 @@ Nosso pix: 54.747.611/0001-27
                                                          <TableHead className="font-semibold text-foreground w-[140px] text-center">Valor</TableHead>
                                                        )}
                                                        <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
+                                                       <TableHead className="w-[40px] text-center"></TableHead>
                                                      </TableRow>
                                                    </TableHeader>
                                                    <TableBody>
@@ -4709,12 +4750,6 @@ Nosso pix: 54.747.611/0001-27
                                                            defaultFaturamento += getAppointmentValue(a);
                                                          }
                                                        });
-                                                       const defaultAvgValue = defaultSessions > 0 ? defaultFaturamento / defaultSessions : 0;
-                                                       const defaultRate = getRepasseRates(spec, group.profissionalId).profPct * 100;
-                                                       const defaultBaseValue = isApoio ? defaultFaturamento : defaultAvgValue;
-
-                                                       const isValueModified = Math.abs(item.value - defaultBaseValue) > 0.01;
-                                                       const isRateModified = Math.abs(item.rate - defaultRate) > 0.01;
 
                                                        return (
                                                          <TableRow key={item.pacienteId} className="hover:bg-transparent">
@@ -4739,7 +4774,7 @@ Nosso pix: 54.747.611/0001-27
                                                                    step="any"
                                                                    className={cn(
                                                                      "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30",
-                                                                     isValueModified && "border-primary/60 bg-primary/5 font-medium"
+                                                                     item.isValueModified && "border-primary/60 bg-primary/5 font-medium"
                                                                    )}
                                                                    value={Number(item.value.toFixed(2))}
                                                                    onChange={(e) =>
@@ -4749,14 +4784,14 @@ Nosso pix: 54.747.611/0001-27
                                                                        "value",
                                                                        e.target.value,
                                                                        defaultSessions,
-                                                                       defaultBaseValue,
-                                                                       defaultRate,
+                                                                       item.defaultBaseValue,
+                                                                       item.defaultBaseRate,
                                                                        item.value
                                                                      )
                                                                    }
                                                                  />
                                                                </div>
-                                                               {isValueModified && (
+                                                               {item.isValueModified && (
                                                                  <TooltipProvider>
                                                                    <Tooltip>
                                                                      <TooltipTrigger asChild>
@@ -4764,14 +4799,14 @@ Nosso pix: 54.747.611/0001-27
                                                                          type="button"
                                                                          variant="outline"
                                                                          size="icon"
-                                                                         className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in"
-                                                                         onClick={() => handleMakeDefault(group.profissionalId, spec, "value", item.value, group.sessoes)}
+                                                                         className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
+                                                                         onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "value", item.value)}
                                                                        >
                                                                          <BookmarkCheck className="h-3.5 w-3.5" />
                                                                        </Button>
                                                                      </TooltipTrigger>
                                                                      <TooltipContent side="top">
-                                                                       <p className="text-xs">Tornar R$ {Number(item.value.toFixed(2))} padrão para {spec}</p>
+                                                                       <p className="text-xs">Tornar R$ {Number(item.value.toFixed(2))} padrão para {item.pacienteNome}</p>
                                                                      </TooltipContent>
                                                                    </Tooltip>
                                                                  </TooltipProvider>
@@ -4786,7 +4821,7 @@ Nosso pix: 54.747.611/0001-27
                                                                    step="any"
                                                                    className={cn(
                                                                      "h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30",
-                                                                     isRateModified && "border-primary/60 bg-primary/5 font-medium"
+                                                                     item.isRateModified && "border-primary/60 bg-primary/5 font-medium"
                                                                    )}
                                                                    value={Number(item.rate.toFixed(2))}
                                                                    onChange={(e) =>
@@ -4796,15 +4831,15 @@ Nosso pix: 54.747.611/0001-27
                                                                        "rate",
                                                                        e.target.value,
                                                                        defaultSessions,
-                                                                       defaultBaseValue,
-                                                                       defaultRate,
+                                                                       item.defaultBaseValue,
+                                                                       item.defaultBaseRate,
                                                                        item.value
                                                                      )
                                                                    }
                                                                  />
                                                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
                                                                </div>
-                                                               {isRateModified && (
+                                                               {item.isRateModified && (
                                                                  <TooltipProvider>
                                                                    <Tooltip>
                                                                      <TooltipTrigger asChild>
@@ -4812,14 +4847,14 @@ Nosso pix: 54.747.611/0001-27
                                                                          type="button"
                                                                          variant="outline"
                                                                          size="icon"
-                                                                         className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in"
-                                                                         onClick={() => handleMakeDefault(group.profissionalId, spec, "rate", item.rate, group.sessoes)}
+                                                                         className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
+                                                                         onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
                                                                        >
                                                                          <BookmarkCheck className="h-3.5 w-3.5" />
                                                                        </Button>
                                                                      </TooltipTrigger>
                                                                      <TooltipContent side="top">
-                                                                       <p className="text-xs">Tornar {Number(item.rate.toFixed(2))}% padrão para {spec}</p>
+                                                                       <p className="text-xs">Tornar {Number(item.rate.toFixed(2))}% padrão para {item.pacienteNome}</p>
                                                                      </TooltipContent>
                                                                    </Tooltip>
                                                                  </TooltipProvider>
@@ -4836,7 +4871,7 @@ Nosso pix: 54.747.611/0001-27
                                                                      step="any"
                                                                      className={cn(
                                                                        "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium",
-                                                                       isRateModified && "border-primary/60 bg-primary/5"
+                                                                       item.isRateModified && "border-primary/60 bg-primary/5"
                                                                      )}
                                                                      value={Number(item.unitRepVal.toFixed(2))}
                                                                      onChange={(e) =>
@@ -4846,14 +4881,14 @@ Nosso pix: 54.747.611/0001-27
                                                                          "unitRepVal",
                                                                          e.target.value,
                                                                          defaultSessions,
-                                                                         defaultBaseValue,
-                                                                         defaultRate,
+                                                                         item.defaultBaseValue,
+                                                                         item.defaultBaseRate,
                                                                          item.value
                                                                        )
                                                                      }
                                                                    />
                                                                  </div>
-                                                                 {isRateModified && (
+                                                                 {item.isRateModified && (
                                                                    <TooltipProvider>
                                                                      <Tooltip>
                                                                        <TooltipTrigger asChild>
@@ -4861,14 +4896,14 @@ Nosso pix: 54.747.611/0001-27
                                                                            type="button"
                                                                            variant="outline"
                                                                            size="icon"
-                                                                           className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in"
-                                                                           onClick={() => handleMakeDefault(group.profissionalId, spec, "rate", item.rate, group.sessoes)}
+                                                                           className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
+                                                                           onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
                                                                          >
                                                                            <BookmarkCheck className="h-3.5 w-3.5" />
                                                                          </Button>
                                                                        </TooltipTrigger>
                                                                        <TooltipContent side="top">
-                                                                         <p className="text-xs">Tornar R$ {Number(item.unitRepVal.toFixed(2))}/sessão ({Number(item.rate.toFixed(2))}%) padrão para {spec}</p>
+                                                                         <p className="text-xs">Tornar R$ {Number(item.unitRepVal.toFixed(2))}/sessão ({Number(item.rate.toFixed(2))}%) padrão para {item.pacienteNome}</p>
                                                                        </TooltipContent>
                                                                      </Tooltip>
                                                                    </TooltipProvider>
@@ -4878,6 +4913,28 @@ Nosso pix: 54.747.611/0001-27
                                                            )}
                                                            <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                              {brl(item.repVal)}
+                                                           </TableCell>
+                                                           <TableCell className="text-center py-2">
+                                                             {item.isCustomized && (
+                                                               <TooltipProvider>
+                                                                 <Tooltip>
+                                                                   <TooltipTrigger asChild>
+                                                                     <Button
+                                                                       type="button"
+                                                                       variant="ghost"
+                                                                       size="icon"
+                                                                       className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
+                                                                       onClick={() => handleResetPatientDefault(group.profissionalId, item.key, item.pacienteNome)}
+                                                                     >
+                                                                       <RotateCcw className="h-3.5 w-3.5" />
+                                                                     </Button>
+                                                                   </TooltipTrigger>
+                                                                   <TooltipContent side="top">
+                                                                     <p className="text-xs">Restaurar padrão original para {item.pacienteNome}</p>
+                                                                   </TooltipContent>
+                                                                 </Tooltip>
+                                                               </TooltipProvider>
+                                                             )}
                                                            </TableCell>
                                                          </TableRow>
                                                        );
@@ -4898,6 +4955,7 @@ Nosso pix: 54.747.611/0001-27
                                                        <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                          {brl(totalRep)}
                                                        </TableCell>
+                                                       <TableCell className="py-2" />
                                                      </TableRow>
                                                    </TableBody>
                                                  </Table>
