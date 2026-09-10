@@ -1726,11 +1726,12 @@ function DiretoriaPageContent() {
   const handleOverrideChange = (
     profId: string,
     key: string,
-    field: "sessions" | "value" | "rate",
+    field: "sessions" | "value" | "rate" | "repVal",
     valStr: string,
     defaultSess: number,
     defaultValue: number,
-    defaultRate: number
+    defaultRate: number,
+    currentFaturamento: number
   ) => {
     setCustomRepasses((prev) => {
       const next = { ...prev };
@@ -1753,6 +1754,13 @@ function DiretoriaPageContent() {
         current.value = valStr === "" ? 0 : Number(valStr);
       } else if (field === "rate") {
         current.rate = valStr === "" ? 0 : Number(valStr);
+      } else if (field === "repVal") {
+        const repValNum = valStr === "" ? 0 : Number(valStr);
+        if (currentFaturamento > 0) {
+          current.rate = Number(((repValNum / currentFaturamento) * 100).toFixed(4));
+        } else {
+          current.rate = 0;
+        }
       }
 
       next[profId][key] = current;
@@ -4532,7 +4540,7 @@ Nosso pix: 54.747.611/0001-27
                                   <TableCell colSpan={6} className="p-4">
                                     <div className="space-y-4 w-full">
                                        {/* Patient Calculator Tables grouped by Specialty */}
-                                       {(() => {
+{(() => {
                                          const specs = Array.from(group.especialidades).sort();
                                          return specs.map((spec) => {
                                            const isApoio = isApoioSpec(spec);
@@ -4559,11 +4567,12 @@ Nosso pix: 54.747.611/0001-27
                                                        {isApoio && (
                                                          <TableHead className="font-semibold text-foreground">Frequência/Pacote</TableHead>
                                                        )}
-                                                       <TableHead className="font-semibold text-foreground w-[100px] text-center">Sessões</TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[140px] text-center">
+                                                       <TableHead className="font-semibold text-foreground w-[90px] text-center">Sessões</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[130px] text-center">
                                                          {isApoio ? "Valor do Plano" : "Valor da Sessão"}
                                                        </TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[100px] text-center">% Repasse</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[90px] text-center">% Repasse</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[120px] text-center">Valor</TableHead>
                                                        <TableHead className="font-semibold text-foreground text-right">Repasse</TableHead>
                                                      </TableRow>
                                                    </TableHeader>
@@ -4600,6 +4609,7 @@ Nosso pix: 54.747.611/0001-27
                                                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
                                                                <Input
                                                                  type="number"
+                                                                 step="any"
                                                                  className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30"
                                                                  value={Number(item.value.toFixed(2))}
                                                                  onChange={(e) =>
@@ -4610,7 +4620,8 @@ Nosso pix: 54.747.611/0001-27
                                                                      e.target.value,
                                                                      defaultSessions,
                                                                      isApoio ? defaultFaturamento : defaultAvgValue,
-                                                                     defaultRate
+                                                                     defaultRate,
+                                                                     item.faturamento
                                                                    )
                                                                  }
                                                                />
@@ -4620,8 +4631,9 @@ Nosso pix: 54.747.611/0001-27
                                                              <div className="relative max-w-[80px] mx-auto">
                                                                <Input
                                                                  type="number"
+                                                                 step="any"
                                                                  className="h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30"
-                                                                 value={item.rate}
+                                                                 value={Number(item.rate.toFixed(2))}
                                                                  onChange={(e) =>
                                                                    handleOverrideChange(
                                                                      group.profissionalId,
@@ -4630,14 +4642,38 @@ Nosso pix: 54.747.611/0001-27
                                                                      e.target.value,
                                                                      defaultSessions,
                                                                      isApoio ? defaultFaturamento : defaultAvgValue,
-                                                                     defaultRate
+                                                                     defaultRate,
+                                                                     item.faturamento
                                                                    )
                                                                  }
                                                                />
                                                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
                                                              </div>
                                                            </TableCell>
-                                                           <TableCell className="text-right font-semibold text-emerald-600 dark:text-emerald-400 py-2">
+                                                           <TableCell className="text-center py-2">
+                                                             <div className="relative max-w-[110px] mx-auto">
+                                                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
+                                                               <Input
+                                                                 type="number"
+                                                                 step="any"
+                                                                 className="h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium"
+                                                                 value={Number(item.repVal.toFixed(2))}
+                                                                 onChange={(e) =>
+                                                                   handleOverrideChange(
+                                                                     group.profissionalId,
+                                                                     item.key,
+                                                                     "repVal",
+                                                                     e.target.value,
+                                                                     defaultSessions,
+                                                                     isApoio ? defaultFaturamento : defaultAvgValue,
+                                                                     defaultRate,
+                                                                     item.faturamento
+                                                                   )
+                                                                 }
+                                                               />
+                                                             </div>
+                                                           </TableCell>
+                                                           <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                              {brl(item.repVal)}
                                                            </TableCell>
                                                          </TableRow>
@@ -4655,6 +4691,9 @@ Nosso pix: 54.747.611/0001-27
                                                          {brl(totalFat)}
                                                        </TableCell>
                                                        <TableCell className="py-2" />
+                                                       <TableCell className="text-center font-bold text-emerald-600 dark:text-emerald-400 py-2">
+                                                         {brl(totalRep)}
+                                                       </TableCell>
                                                        <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2">
                                                          {brl(totalRep)}
                                                        </TableCell>
