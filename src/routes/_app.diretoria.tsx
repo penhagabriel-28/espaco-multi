@@ -944,7 +944,7 @@ function DiretoriaPageContent() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profissionais")
-        .select("id, nome, especialidade, cor, valor_sessao, valores_config, ativo, tipo, cargo, salario")
+        .select("id, nome, especialidade, cor, valor_sessao, valores_config, ativo")
         .order("nome");
       if (error) throw error;
       return data || [];
@@ -1550,6 +1550,17 @@ function DiretoriaPageContent() {
     }
   });
 
+  const [customProfSalariesDefaults, setCustomProfSalariesDefaults] = useState<Record<string, number>>(() => {
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem("multi_repasse_prof_salarios") : null;
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [customProfSalariesOverrides, setCustomProfSalariesOverrides] = useState<Record<string, number>>({});
+
   const getRepasseRates = (specialty: string) => {
     const specNorm = String(specialty || "").trim().toUpperCase();
     if (specNorm === "AT ABA") {
@@ -1866,6 +1877,42 @@ function DiretoriaPageContent() {
     toast.info(`Padrões originais restaurados para todos os pacientes de ${spec}.`);
   };
 
+  const handleMakeProfSalaryDefault = (profId: string, profName: string, amount: number) => {
+    const next = { ...customProfSalariesDefaults, [profId]: amount };
+    setCustomProfSalariesDefaults(next);
+    try {
+      localStorage.setItem("multi_repasse_prof_salarios", JSON.stringify(next));
+    } catch (e) {
+      console.error("Failed to save to localStorage", e);
+    }
+    toast.success(`Salário fixo de ${brl(amount)} salvo como padrão para ${profName}!`);
+  };
+
+  const handleResetProfSalary = (profId: string, profName: string) => {
+    const next = { ...customProfSalariesDefaults };
+    delete next[profId];
+    setCustomProfSalariesDefaults(next);
+    try {
+      localStorage.setItem("multi_repasse_prof_salarios", JSON.stringify(next));
+    } catch (e) {
+      console.error("Failed to save to localStorage", e);
+    }
+    setCustomProfSalariesOverrides((prev) => {
+      const copy = { ...prev };
+      delete copy[profId];
+      return copy;
+    });
+    toast.info(`Salário fixo restaurado para R$ 0,00 para ${profName}.`);
+  };
+
+  const handleProfSalaryChange = (profId: string, valStr: string) => {
+    const num = valStr === "" ? 0 : Number(valStr);
+    setCustomProfSalariesOverrides((prev) => ({
+      ...prev,
+      [profId]: num,
+    }));
+  };
+
   const handleOverrideChange = (
     profId: string,
     key: string,
@@ -2067,7 +2114,11 @@ function DiretoriaPageContent() {
 
       const isAdm = isProfissionalAdmin(p);
       const cargo = (p as any).cargo || (p.valores_config as any)?.cargo || (isAdm ? p.especialidade : null);
-      const salario = Number((p as any).salario ?? (p.valores_config as any)?.salario ?? 0);
+      
+      const defaultSalary = customProfSalariesDefaults[p.id] ?? 0;
+      const currentSalary = customProfSalariesOverrides[p.id] !== undefined ? customProfSalariesOverrides[p.id] : defaultSalary;
+      const isSalaryModified = Math.abs(currentSalary - defaultSalary) > 0.01;
+      const isSalaryCustomized = defaultSalary > 0 || (customProfSalariesOverrides[p.id] !== undefined && customProfSalariesOverrides[p.id] > 0);
 
       const specSet = new Set<string>();
       if (isAdm) {
@@ -2085,14 +2136,17 @@ function DiretoriaPageContent() {
         especialidades: specSet,
         totalSessões: 0,
         faturamentoBruto: 0,
-        repasseProfissional: salario,
+        repasseProfissional: currentSalary,
         comissaoClinica: 0,
-        repasseApto: salario,
+        repasseApto: currentSalary,
         repasseBloqueado: 0,
         comissaoRecebida: 0,
         comissaoPendente: 0,
         sessoes: [],
-        salario,
+        salario: currentSalary,
+        defaultSalary,
+        isSalaryModified,
+        isSalaryCustomized,
         isAdm,
         cargo,
       });
@@ -2217,7 +2271,7 @@ function DiretoriaPageContent() {
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, profissionais, customRepasses, customPatientDefaults, inicio, fim, selectedProfId]);
+  }, [filteredRepasses, profissionais, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, inicio, fim, selectedProfId]);
 
   const repasseStats = useMemo(() => {
     let totalSessões = 0;
@@ -4726,7 +4780,68 @@ Nosso pix: 54.747.611/0001-27
                                   {brl(group.faturamentoBruto)}
                                 </TableCell>
                                 <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                  {brl(group.repasseProfissional)}
+                                  {group.sessoes.length === 0 ? (
+                                    <div className="flex items-center justify-end gap-1">
+                                      <div className="relative max-w-[120px] w-full">
+                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
+                                          R$
+                                        </span>
+                                        <Input
+                                          type="number"
+                                          step="any"
+                                          className={cn(
+                                            "h-8 text-center text-xs pl-6 pr-1 font-semibold border-muted-foreground/30 text-emerald-600 dark:text-emerald-400",
+                                            group.isSalaryModified && "border-primary/60 bg-primary/5"
+                                          )}
+                                          value={group.salario === 0 ? "" : group.salario}
+                                          placeholder="0.00"
+                                          onChange={(e) => handleProfSalaryChange(group.profissionalId, e.target.value)}
+                                        />
+                                      </div>
+                                      {group.isSalaryModified && (
+                                        <TooltipProvider>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
+                                                onClick={() => handleMakeProfSalaryDefault(group.profissionalId, group.nome, group.salario)}
+                                              >
+                                                <BookmarkCheck className="h-3.5 w-3.5" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                              <p className="text-xs">Tornar R$ {Number(group.salario.toFixed(2))} padrão para {group.nome}</p>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        </TooltipProvider>
+                                      )}
+                                      {group.isSalaryCustomized && (
+                                        <TooltipProvider>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
+                                                onClick={() => handleResetProfSalary(group.profissionalId, group.nome)}
+                                              >
+                                                <RotateCcw className="h-3.5 w-3.5" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                              <p className="text-xs">Restaurar para R$ 0,00</p>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        </TooltipProvider>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    brl(group.repasseProfissional)
+                                  )}
                                 </TableCell>
                                 <TableCell className="font-semibold text-purple-600 dark:text-purple-400">
                                   {brl(group.comissaoClinica)}
@@ -4736,32 +4851,82 @@ Nosso pix: 54.747.611/0001-27
                                 <TableRow className="bg-muted/10 border-t-0">
                                   <TableCell colSpan={6} className="p-4">
                                     <div className="space-y-4 w-full">
-                                      {/* Fixed Salary Card if configured */}
-                                      {group.salario > 0 && (
-                                        <div className="flex items-center justify-between p-3.5 bg-background rounded-lg border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-xs">
-                                          <div className="flex items-center gap-2.5">
-                                            <div className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm">
-                                              💵
-                                            </div>
-                                            <div>
-                                              <div className="font-semibold text-xs text-foreground">
-                                                Salário Fixo / Base Mensal
-                                              </div>
-                                              <div className="text-[11px] text-muted-foreground">
-                                                {group.isAdm
-                                                  ? `Equipe Administrativa • ${group.cargo || "Administrativo"}`
-                                                  : "Valor fixo mensal configurado no cadastro do profissional"}
-                                              </div>
-                                            </div>
+                                      {/* Fixed Salary / Base Mensal Card */}
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-background rounded-lg border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-xs">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
+                                            💵
                                           </div>
-                                          <div className="text-right">
-                                            <div className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                                              {brl(group.salario)}
+                                          <div>
+                                            <div className="font-semibold text-xs text-foreground">
+                                              Salário Fixo / Base Mensal
                                             </div>
-                                            <div className="text-[10px] text-muted-foreground">Repasse Mensal</div>
+                                            <div className="text-[11px] text-muted-foreground">
+                                              {group.isAdm
+                                                ? `Equipe Administrativa • ${group.cargo || "Administrativo"}`
+                                                : "Valor fixo mensal a ser repassado ao profissional além das sessões"}
+                                            </div>
                                           </div>
                                         </div>
-                                      )}
+                                        <div className="flex items-center gap-2 self-end sm:self-auto">
+                                          <div className="relative max-w-[130px] w-full">
+                                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
+                                              R$
+                                            </span>
+                                            <Input
+                                              type="number"
+                                              step="any"
+                                              className={cn(
+                                                "h-8 text-center text-xs pl-7 pr-2 font-semibold border-muted-foreground/30 text-emerald-600 dark:text-emerald-400",
+                                                group.isSalaryModified && "border-primary/60 bg-primary/5"
+                                              )}
+                                              value={group.salario === 0 ? "" : group.salario}
+                                              placeholder="0.00"
+                                              onChange={(e) => handleProfSalaryChange(group.profissionalId, e.target.value)}
+                                            />
+                                          </div>
+                                          {group.isSalaryModified && (
+                                            <TooltipProvider>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
+                                                    onClick={() => handleMakeProfSalaryDefault(group.profissionalId, group.nome, group.salario)}
+                                                  >
+                                                    <BookmarkCheck className="h-4 w-4" />
+                                                  </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top">
+                                                  <p className="text-xs">Tornar R$ {Number(group.salario.toFixed(2))} padrão para {group.nome}</p>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            </TooltipProvider>
+                                          )}
+                                          {group.isSalaryCustomized && (
+                                            <TooltipProvider>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
+                                                    onClick={() => handleResetProfSalary(group.profissionalId, group.nome)}
+                                                  >
+                                                    <RotateCcw className="h-4 w-4" />
+                                                  </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top">
+                                                  <p className="text-xs">Restaurar para R$ 0,00</p>
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            </TooltipProvider>
+                                          )}
+                                        </div>
+                                      </div>
 
                                       {/* Coordination bonus card if applicable */}
                                       {isCoordenadora(group.profissionalId) && (

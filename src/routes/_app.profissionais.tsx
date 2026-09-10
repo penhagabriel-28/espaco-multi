@@ -897,12 +897,6 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
       nome: prof?.nome ?? "",
       tipo: initialTipo as "clinico" | "administrativo",
       cargo: initialCargo ?? "",
-      salario:
-        prof?.salario !== undefined && prof?.salario !== null
-          ? String(prof.salario)
-          : ((prof?.valores_config as any)?.salario !== undefined && (prof?.valores_config as any)?.salario !== null
-            ? String((prof?.valores_config as any).salario)
-            : ""),
       especialidades: initialSpecs,
       email: prof?.email ?? "",
       telefone: prof?.telefone ?? "",
@@ -938,12 +932,9 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
         ? []
         : form.especialidades.filter((e: any) => e && e.nome && e.nome.trim());
 
-      const salarioNum = parseMoneyValue(form.salario);
-
       const payloadConfig = {
         tipo: form.tipo,
         cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
-        salario: salarioNum,
         especialidades: activeSpecs.map((v: any) => {
           const nomeLower = v.nome?.trim().toLowerCase() || "";
           const isAP = nomeLower === "ap";
@@ -977,9 +968,6 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
 
       const payload: any = {
         nome: form.nome,
-        tipo: form.tipo,
-        cargo: isAdm ? form.cargo?.trim() || "Administrativo" : null,
-        salario: salarioNum,
         especialidade: isAdm
           ? form.cargo?.trim() || "Administrativo"
           : activeSpecs.map((e: any) => e.nome?.trim() || "").filter(Boolean).join(", ") || null,
@@ -1061,18 +1049,6 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
               placeholder="Ex.: Recepcionista, Secretária, Gerente Financeiro, Apoio Geral"
               value={form.cargo}
               onChange={(e) => setForm({ ...form, cargo: e.target.value })}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-              <span>💵</span> Salário Mensal / Fixo (R$)
-            </Label>
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="Ex.: 2500.00"
-              value={form.salario}
-              onChange={(e) => setForm({ ...form, salario: e.target.value })}
             />
           </div>
           <div className="text-[11px] text-muted-foreground bg-background/80 p-2.5 rounded border border-indigo-500/20 leading-relaxed">
@@ -1214,22 +1190,6 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
             >
               <Plus className="h-4 w-4 mr-1.5" /> Adicionar especialidade
             </Button>
-          </div>
-
-          <div className="space-y-1.5 pt-1 border-t border-border/50">
-            <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-              <span>💵</span> Salário Fixo / Base Mensal (R$) - Opcional
-            </Label>
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="Ex.: 2000.00 (Opcional caso receba valor fixo além dos repasses)"
-              value={form.salario}
-              onChange={(e) => setForm({ ...form, salario: e.target.value })}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Se preenchido, este valor fixo será incluído no repasse do profissional no módulo financeiro da diretoria.
-            </p>
           </div>
         </div>
       )}
