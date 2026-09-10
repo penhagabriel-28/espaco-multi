@@ -16,7 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cn, isProfActiveInPeriod } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -2085,13 +2085,7 @@ function DiretoriaPageContent() {
     return (profissionais || [])
       .filter((p: any) => {
         if (selectedBillingProfs.includes(p.id)) return true;
-        if (p.ativo) return true;
-        const config = p.valores_config as any;
-        if (config?.ativo_ate) {
-          const targetMonth = inicio.substring(0, 7);
-          return targetMonth <= config.ativo_ate;
-        }
-        return false;
+        return isProfActiveInPeriod(p, inicio, fim);
       })
       .filter((p: any) =>
         normalizeString(p.nome).includes(normalizeString(billingProfSearch))
@@ -2103,7 +2097,7 @@ function DiretoriaPageContent() {
         if (!aSel && bSel) return 1;
         return a.nome.localeCompare(b.nome);
       });
-  }, [profissionais, inicio, selectedBillingProfs, billingProfSearch]);
+  }, [profissionais, inicio, fim, selectedBillingProfs, billingProfSearch]);
 
   // Patient Faturas Modal state
   const [patientFaturasDialog, setPatientFaturasDialog] = useState<{
@@ -5143,13 +5137,8 @@ Nosso pix: 54.747.611/0001-27
                     {(profissionais || [])
                       .filter((p: any) => {
                         if (p.id === faturaForm.profissional_id) return true;
-                        if (p.ativo) return true;
-                        const config = p.valores_config as any;
-                        if (config?.ativo_ate) {
-                          const targetMonth = faturaForm.competencia ? faturaForm.competencia.substring(0, 7) : (inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM"));
-                          return targetMonth <= config.ativo_ate;
-                        }
-                        return false;
+                        const comp = faturaForm.competencia || inicio;
+                        return isProfActiveInPeriod(p, comp, comp);
                       })
                       .map((p: any) => (
                         <SelectItem key={p.id} value={p.id}>
@@ -5682,13 +5671,8 @@ Nosso pix: 54.747.611/0001-27
                           {(profissionais || [])
                             .filter((p: any) => {
                               if (p.id === detailsFaturaForm.profissional_id) return true;
-                              if (p.ativo) return true;
-                              const config = p.valores_config as any;
-                              if (config?.ativo_ate) {
-                                const targetMonth = detailsFaturaForm.competencia ? detailsFaturaForm.competencia.substring(0, 7) : (inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM"));
-                                return targetMonth <= config.ativo_ate;
-                              }
-                              return false;
+                              const comp = detailsFaturaForm.competencia || inicio;
+                              return isProfActiveInPeriod(p, comp, comp);
                             })
                             .map((p: any) => (
                               <SelectItem key={p.id} value={p.id}>

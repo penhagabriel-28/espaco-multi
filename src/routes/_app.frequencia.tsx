@@ -59,7 +59,7 @@ import {
   Users,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { cn, isProfissionalAdmin } from "@/lib/utils";
+import { cn, isProfissionalAdmin, isProfActiveInPeriod } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -270,21 +270,11 @@ function FrequenciaPage() {
   });
 
   const activeProfissionais = useMemo(() => {
-    const EXCLUDED_FILTER_PROF_NAMES = ["dailson", "daniele", "danielle", "cristina"];
     return (profissionais || []).filter((p: any) => {
-      if (isProfissionalAdmin(p)) return false;
-      const normalized = normalizeString(p.nome || "");
-      if (EXCLUDED_FILTER_PROF_NAMES.some((ex) => normalized.includes(ex))) return false;
       if (selectedProfs.includes(p.id)) return true;
-      if (p.ativo) return true;
-      const config = p.valores_config as any;
-      if (config?.ativo_ate) {
-        const targetMonth = inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM");
-        return targetMonth <= config.ativo_ate;
-      }
-      return false;
+      return isProfActiveInPeriod(p, inicio, fim);
     });
-  }, [profissionais, inicio, selectedProfs]);
+  }, [profissionais, inicio, fim, selectedProfs]);
 
   const sortedProfissionais = useMemo(() => {
     return [...activeProfissionais].sort((a, b) => {
