@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
-import { useState, useMemo, useEffect, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment, useRef } from "react";
 import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay, subMonths, addMonths } from "date-fns";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -1560,6 +1560,81 @@ function DiretoriaPageContent() {
   });
 
   const [customProfSalariesOverrides, setCustomProfSalariesOverrides] = useState<Record<string, number>>({});
+  const saveTimeoutRef = useRef<Record<string, any>>({});
+  const periodKey = `${inicio}_${fim}`;
+
+  // Synchronize database data from Supabase into customPatientDefaults, customProfSalariesDefaults, and customRepasses on load / period change
+  useEffect(() => {
+    if (!profissionais || profissionais.length === 0) return;
+
+    const profSalaries: Record<string, number> = {};
+    const patientDefs: Record<string, Record<string, { value?: number; rate?: number }>> = {};
+    const periodRepasses: Record<string, Record<string, { sessions: number; value: number; rate: number }>> = {};
+
+    profissionais.forEach((p: any) => {
+      const cfg = p.valores_config as any;
+      if (cfg) {
+        if (cfg.salarios_por_mes && typeof cfg.salarios_por_mes[periodKey] === "number") {
+          profSalaries[p.id] = cfg.salarios_por_mes[periodKey];
+        } else if (typeof cfg.salario_fixo === "number") {
+          profSalaries[p.id] = cfg.salario_fixo;
+        }
+
+        if (cfg.patient_defaults && typeof cfg.patient_defaults === "object") {
+          patientDefs[p.id] = { ...cfg.patient_defaults };
+        }
+
+        if (cfg.repasses_overrides && typeof cfg.repasses_overrides[periodKey] === "object") {
+          periodRepasses[p.id] = { ...cfg.repasses_overrides[periodKey] };
+        }
+      }
+    });
+
+    setCustomProfSalariesDefaults((prev) => ({ ...prev, ...profSalaries }));
+    setCustomPatientDefaults((prev) => {
+      const next = { ...prev };
+      Object.entries(patientDefs).forEach(([pId, defs]) => {
+        next[pId] = { ...(next[pId] || {}), ...defs };
+      });
+      return next;
+    });
+    setCustomRepasses((prev) => {
+      const next = { ...prev };
+      Object.entries(periodRepasses).forEach(([pId, overrides]) => {
+        next[pId] = { ...(next[pId] || {}), ...overrides };
+      });
+      return next;
+    });
+  }, [profissionais, inicio, fim]);
+
+  // Realtime subscription for pacientes and profissionais to keep all devices synchronized
+  useEffect(() => {
+    const channel = supabase
+      .channel("diretoria-realtime-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pacientes" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+          queryClient.invalidateQueries({ queryKey: ["pacientes"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profissionais" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+          queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   const getRepasseRates = (specialty: string) => {
     const specNorm = String(specialty || "").trim().toUpperCase();
@@ -1750,7 +1825,8 @@ function DiretoriaPageContent() {
       const isCustomized =
         Math.abs(value - defaultBaseValue) > 0.01 ||
         Math.abs(rate - defaultBaseRate) > 0.01 ||
-        (patientDefault !== undefined && (patientDefault.value !== undefined || patientDefault.rate !== undefined));
+        (patientDefault !== undefined && (patientDefault.value !== undefined || patientDefault.rate !== undefined)) ||
+        (override !== undefined && (override.sessions !== undefined || override.value !== undefined || override.rate !== undefined));
 
       return {
         pacienteId: pacId,
@@ -1777,7 +1853,7 @@ function DiretoriaPageContent() {
     return list;
   };
 
-  const handleMakePatientDefault = (
+  const handleMakePatientDefault = async (
     profId: string,
     key: string,
     patientName: string,
@@ -1801,11 +1877,72 @@ function DiretoriaPageContent() {
       console.error("Failed to save patient defaults to localStorage", e);
     }
 
+    // 1. If it's an Apoio patient plan value, save directly to `pacientes.apoio_valor_personalizado`
+    if (key.startsWith("apoio_paciente_") && field === "value") {
+      const pacId = key.replace("apoio_paciente_", "");
+      try {
+        const { error: pacErr } = await supabase
+          .from("pacientes")
+          .update({ apoio_valor_personalizado: val })
+          .eq("id", pacId);
+        if (pacErr) {
+          console.error("Erro ao atualizar apoio_valor_personalizado:", pacErr);
+        }
+      } catch (err) {
+        console.error("Falha ao salvar valor do paciente:", err);
+      }
+    }
+
+    // 2. Persist to profissionais.valores_config.patient_defaults in Supabase
+    try {
+      const prof = (profissionais || []).find((p: any) => p.id === profId);
+      const currentConfig = (prof?.valores_config as any) || {};
+      const currentDefs = currentConfig.patient_defaults || {};
+      const updatedDefs = {
+        ...currentDefs,
+        [key]: {
+          ...(currentDefs[key] || {}),
+          [field]: val,
+        },
+      };
+      const newConfig = {
+        ...currentConfig,
+        patient_defaults: updatedDefs,
+      };
+
+      const { error: profErr } = await supabase
+        .from("profissionais")
+        .update({ valores_config: newConfig })
+        .eq("id", profId);
+      if (profErr) {
+        console.error("Erro ao salvar patient_defaults no profissional:", profErr);
+      }
+    } catch (err) {
+      console.error("Falha ao atualizar config do profissional:", err);
+    }
+
+    // Clear active override for this field so it cleanly relies on the saved default
+    setCustomRepasses((prev) => {
+      const next = { ...prev };
+      if (next[profId] && next[profId][key]) {
+        const copyProf = { ...next[profId] };
+        delete copyProf[key];
+        next[profId] = copyProf;
+      }
+      return next;
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+    queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+    queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+    queryClient.invalidateQueries({ queryKey: ["pacientes"] });
+    queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+
     const fieldLabel = field === "rate" ? `% Repasse (${Number(val.toFixed(2))}%)` : `Valor (R$ ${Number(val.toFixed(2))})`;
-    toast.success(`${fieldLabel} salvo como padrão para ${patientName}!`);
+    toast.success(`${fieldLabel} sincronizado e salvo como padrão para ${patientName}!`);
   };
 
-  const handleResetPatientDefault = (
+  const handleResetPatientDefault = async (
     profId: string,
     key: string,
     patientName: string
@@ -1833,10 +1970,57 @@ function DiretoriaPageContent() {
       return next;
     });
 
+    // 1. If it's an Apoio patient, reset pacientes.apoio_valor_personalizado
+    if (key.startsWith("apoio_paciente_")) {
+      const pacId = key.replace("apoio_paciente_", "");
+      try {
+        await supabase
+          .from("pacientes")
+          .update({ apoio_valor_personalizado: null })
+          .eq("id", pacId);
+      } catch (err) {
+        console.error("Erro ao resetar apoio_valor_personalizado:", err);
+      }
+    }
+
+    // 2. Remove from profissionais.valores_config (patient_defaults and repasses_overrides) in Supabase
+    try {
+      const prof = (profissionais || []).find((p: any) => p.id === profId);
+      const currentConfig = (prof?.valores_config as any) || {};
+      const currentDefs = { ...(currentConfig.patient_defaults || {}) };
+      delete currentDefs[key];
+
+      const currentOverrides = { ...(currentConfig.repasses_overrides || {}) };
+      if (currentOverrides[periodKey]) {
+        const periodCopy = { ...currentOverrides[periodKey] };
+        delete periodCopy[key];
+        currentOverrides[periodKey] = periodCopy;
+      }
+
+      const newConfig = {
+        ...currentConfig,
+        patient_defaults: currentDefs,
+        repasses_overrides: currentOverrides,
+      };
+
+      await supabase
+        .from("profissionais")
+        .update({ valores_config: newConfig })
+        .eq("id", profId);
+    } catch (err) {
+      console.error("Erro ao remover patient_defaults do profissional:", err);
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+    queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+    queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+    queryClient.invalidateQueries({ queryKey: ["pacientes"] });
+    queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+
     toast.info(`Padrão original restaurado para ${patientName}.`);
   };
 
-  const handleResetSpecialtyDefaults = (
+  const handleResetSpecialtyDefaults = async (
     profId: string,
     spec: string
   ) => {
@@ -1874,10 +2058,51 @@ function DiretoriaPageContent() {
       return next;
     });
 
+    try {
+      const prof = (profissionais || []).find((p: any) => p.id === profId);
+      const currentConfig = (prof?.valores_config as any) || {};
+      const currentDefs = { ...(currentConfig.patient_defaults || {}) };
+      Object.keys(currentDefs).forEach((k) => {
+        if (k.startsWith(prefix)) {
+          delete currentDefs[k];
+        }
+      });
+
+      const currentOverrides = { ...(currentConfig.repasses_overrides || {}) };
+      if (currentOverrides[periodKey]) {
+        const periodCopy = { ...currentOverrides[periodKey] };
+        Object.keys(periodCopy).forEach((k) => {
+          if (k.startsWith(prefix)) {
+            delete periodCopy[k];
+          }
+        });
+        currentOverrides[periodKey] = periodCopy;
+      }
+
+      const newConfig = {
+        ...currentConfig,
+        patient_defaults: currentDefs,
+        repasses_overrides: currentOverrides,
+      };
+
+      await supabase
+        .from("profissionais")
+        .update({ valores_config: newConfig })
+        .eq("id", profId);
+    } catch (err) {
+      console.error("Erro ao resetar patient_defaults da especialidade:", err);
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+    queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+    queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+    queryClient.invalidateQueries({ queryKey: ["pacientes"] });
+    queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+
     toast.info(`Padrões originais restaurados para todos os pacientes de ${spec}.`);
   };
 
-  const handleMakeProfSalaryDefault = (profId: string, profName: string, amount: number) => {
+  const handleMakeProfSalaryDefault = async (profId: string, profName: string, amount: number) => {
     const next = { ...customProfSalariesDefaults, [profId]: amount };
     setCustomProfSalariesDefaults(next);
     try {
@@ -1885,10 +2110,46 @@ function DiretoriaPageContent() {
     } catch (e) {
       console.error("Failed to save to localStorage", e);
     }
-    toast.success(`Salário fixo de ${brl(amount)} salvo como padrão para ${profName}!`);
+
+    try {
+      const prof = (profissionais || []).find((p: any) => p.id === profId);
+      const currentConfig = (prof?.valores_config as any) || {};
+      const currentSalaries = currentConfig.salarios_por_mes || {};
+
+      const newConfig = {
+        ...currentConfig,
+        salarios_por_mes: {
+          ...currentSalaries,
+          [periodKey]: amount,
+        },
+        salario_fixo: amount,
+      };
+
+      const { error } = await supabase
+        .from("profissionais")
+        .update({ valores_config: newConfig })
+        .eq("id", profId);
+
+      if (error) {
+        console.error("Erro ao salvar salario_fixo no Supabase:", error);
+      }
+    } catch (err) {
+      console.error("Falha ao salvar salário fixo:", err);
+    }
+
+    setCustomProfSalariesOverrides((prev) => {
+      const copy = { ...prev };
+      delete copy[profId];
+      return copy;
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+    queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+
+    toast.success(`Salário fixo de ${brl(amount)} sincronizado e salvo como padrão para ${profName}!`);
   };
 
-  const handleResetProfSalary = (profId: string, profName: string) => {
+  const handleResetProfSalary = async (profId: string, profName: string) => {
     const next = { ...customProfSalariesDefaults };
     delete next[profId];
     setCustomProfSalariesDefaults(next);
@@ -1902,6 +2163,27 @@ function DiretoriaPageContent() {
       delete copy[profId];
       return copy;
     });
+
+    try {
+      const prof = (profissionais || []).find((p: any) => p.id === profId);
+      const currentConfig = (prof?.valores_config as any) || {};
+      const currentSalaries = { ...(currentConfig.salarios_por_mes || {}) };
+      delete currentSalaries[periodKey];
+
+      const newConfig = { ...currentConfig, salarios_por_mes: currentSalaries };
+      delete newConfig.salario_fixo;
+
+      await supabase
+        .from("profissionais")
+        .update({ valores_config: newConfig })
+        .eq("id", profId);
+    } catch (err) {
+      console.error("Erro ao resetar salário no Supabase:", err);
+    }
+
+    queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+    queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+
     toast.info(`Salário fixo restaurado para R$ 0,00 para ${profName}.`);
   };
 
@@ -1911,6 +2193,38 @@ function DiretoriaPageContent() {
       ...prev,
       [profId]: num,
     }));
+
+    // Auto-save to Supabase debounced so all devices stay in sync
+    const timerKey = `salary_${profId}`;
+    if (saveTimeoutRef.current[timerKey]) {
+      clearTimeout(saveTimeoutRef.current[timerKey]);
+    }
+    saveTimeoutRef.current[timerKey] = setTimeout(async () => {
+      try {
+        const prof = (profissionais || []).find((p: any) => p.id === profId);
+        const currentConfig = (prof?.valores_config as any) || {};
+        const currentSalaries = currentConfig.salarios_por_mes || {};
+
+        const newConfig = {
+          ...currentConfig,
+          salarios_por_mes: {
+            ...currentSalaries,
+            [periodKey]: num,
+          },
+          salario_fixo: num,
+        };
+
+        await supabase
+          .from("profissionais")
+          .update({ valores_config: newConfig })
+          .eq("id", profId);
+
+        queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+        queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+      } catch (err) {
+        console.error("Erro ao sincronizar salário fixo no Supabase:", err);
+      }
+    }, 400);
   };
 
   const handleOverrideChange = (
@@ -1923,13 +2237,16 @@ function DiretoriaPageContent() {
     defaultRate: number,
     sessionValue: number
   ) => {
+    let resolvedCurrent: { sessions: number; value: number; rate: number } = {
+      sessions: defaultSess,
+      value: defaultValue,
+      rate: defaultRate,
+    };
+
     setCustomRepasses((prev) => {
       const next = { ...prev };
       if (!next[profId]) {
         next[profId] = {};
-      }
-      if (!next[profId][key]) {
-        next[profId][key] = { sessions: defaultSess, value: defaultValue, rate: defaultRate };
       }
 
       const current = {
@@ -1953,9 +2270,57 @@ function DiretoriaPageContent() {
         }
       }
 
+      resolvedCurrent = current;
       next[profId][key] = current;
       return next;
     });
+
+    // Auto-save override to Supabase debounced so every device sees the change in real-time
+    const timerKey = `override_${profId}_${key}`;
+    if (saveTimeoutRef.current[timerKey]) {
+      clearTimeout(saveTimeoutRef.current[timerKey]);
+    }
+
+    saveTimeoutRef.current[timerKey] = setTimeout(async () => {
+      try {
+        // If it's an Apoio patient plan value, auto-save to pacientes.apoio_valor_personalizado
+        if (key.startsWith("apoio_paciente_") && field === "value") {
+          const pacId = key.replace("apoio_paciente_", "");
+          await supabase
+            .from("pacientes")
+            .update({ apoio_valor_personalizado: resolvedCurrent.value })
+            .eq("id", pacId);
+          queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+          queryClient.invalidateQueries({ queryKey: ["pacientes"] });
+        }
+
+        const prof = (profissionais || []).find((p: any) => p.id === profId);
+        const currentConfig = (prof?.valores_config as any) || {};
+        const currentOverrides = currentConfig.repasses_overrides || {};
+        const periodOverrides = currentOverrides[periodKey] || {};
+
+        const newConfig = {
+          ...currentConfig,
+          repasses_overrides: {
+            ...currentOverrides,
+            [periodKey]: {
+              ...periodOverrides,
+              [key]: resolvedCurrent,
+            },
+          },
+        };
+
+        await supabase
+          .from("profissionais")
+          .update({ valores_config: newConfig })
+          .eq("id", profId);
+
+        queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+        queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+      } catch (err) {
+        console.error("Erro ao sincronizar alteração no Supabase:", err);
+      }
+    }, 400);
   };
 
   const handleSelectProf = (val: string) => {
