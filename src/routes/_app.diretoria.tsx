@@ -5321,268 +5321,29 @@ Nosso pix: 54.747.611/0001-27
                                                       className="h-6 text-[10px] px-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 flex items-center gap-1 transition-colors cursor-pointer"
                                                     >
                                                       <RotateCcw className="h-3 w-3" />
-                                                      <span>Restaurar padrões ({spec})</span>
+                                                      Restaurar Padrão
                                                     </Button>
                                                   )}
                                                 </div>
                                               </div>
-                                               {/* Mobile View: Clean, readable Card list */}
-                                               <div className="block md:hidden space-y-3">
-                                                 {bd.map((item) => {
-                                                   let defaultSessions = 0;
-                                                   group.sessoes.forEach((a: any) => {
-                                                     const s = getAppointmentSpecialty(a);
-                                                     if (s === spec && a.paciente_id === item.pacienteId) {
-                                                       defaultSessions += 1;
-                                                     }
-                                                   });
-
-                                                   return (
-                                                     <div key={item.key} className="p-3 bg-card border border-border/80 rounded-xl space-y-2.5 shadow-xs">
-                                                       {/* Card Header */}
-                                                       <div className="flex items-start justify-between gap-2">
-                                                         <div className="space-y-0.5 min-w-0">
-                                                           <div className="font-semibold text-xs text-foreground truncate" title={item.pacienteNome}>
-                                                             {item.pacienteNome}
-                                                           </div>
-                                                           {isApoio && item.freqLabel && (
-                                                             <span className="inline-block text-[10px] px-1.5 py-0.5 bg-muted rounded text-muted-foreground font-normal">
-                                                               {item.freqLabel}
-                                                             </span>
-                                                           )}
-                                                         </div>
-                                                         <div className="text-right shrink-0">
-                                                           <div className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Repasse Final</div>
-                                                           <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                                                             {brl(item.repVal)}
-                                                           </div>
-                                                         </div>
-                                                       </div>
-
-                                                       {/* Card Form Grid */}
-                                                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40">
-                                                         {/* Field: Sessões */}
-                                                         <div className="space-y-1">
-                                                           <label className="text-[10px] font-semibold text-muted-foreground block">
-                                                             Qtd Sessões
-                                                           </label>
-                                                           <Input
-                                                             type="number"
-                                                             className="h-8 text-center text-xs font-semibold border-muted-foreground/30 bg-background"
-                                                             value={item.sessions}
-                                                             onChange={(e) =>
-                                                               handleOverrideChange(
-                                                                 group.profissionalId,
-                                                                 item.key,
-                                                                 "sessions",
-                                                                 e.target.value,
-                                                                 defaultSessions,
-                                                                 item.defaultBaseValue,
-                                                                 item.defaultBaseRate,
-                                                                 item.value
-                                                               )
-                                                             }
-                                                           />
-                                                         </div>
-
-                                                         {/* Field: Valor do Plano / Valor da Sessão */}
-                                                         <div className="space-y-1">
-                                                           <label className="text-[10px] font-semibold text-muted-foreground block truncate">
-                                                             {isApoio ? "Valor do Plano" : "Valor da Sessão"}
-                                                           </label>
-                                                           <div className="flex items-center gap-1">
-                                                             <div className="relative flex-1">
-                                                               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-medium">R$</span>
-                                                               <Input
-                                                                 type="number"
-                                                                 step="any"
-                                                                 className={cn(
-                                                                   "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 bg-background font-medium",
-                                                                   item.isValueModified && "border-primary/60 bg-primary/5 font-semibold"
-                                                                 )}
-                                                                 value={Number(item.value.toFixed(2))}
-                                                                 onChange={(e) =>
-                                                                   handleOverrideChange(
-                                                                     group.profissionalId,
-                                                                     item.key,
-                                                                     "value",
-                                                                     e.target.value,
-                                                                     defaultSessions,
-                                                                     item.defaultBaseValue,
-                                                                     item.defaultBaseRate,
-                                                                     item.value
-                                                                   )
-                                                                 }
-                                                               />
-                                                             </div>
-                                                             {item.isValueModified && (
-                                                               <Button
-                                                                 type="button"
-                                                                 variant="outline"
-                                                                 size="icon"
-                                                                 className="h-8 w-8 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded cursor-pointer"
-                                                                 onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "value", item.value)}
-                                                                 title={`Tornar R$ ${Number(item.value.toFixed(2))} padrão`}
-                                                               >
-                                                                 <BookmarkCheck className="h-3.5 w-3.5" />
-                                                               </Button>
-                                                             )}
-                                                           </div>
-                                                         </div>
-
-                                                         {/* Field: % Repasse */}
-                                                         <div className="space-y-1">
-                                                           <label className="text-[10px] font-semibold text-muted-foreground block">
-                                                             % Repasse
-                                                           </label>
-                                                           <div className="flex items-center gap-1">
-                                                             <div className="relative flex-1">
-                                                               <Input
-                                                                 type="number"
-                                                                 step="any"
-                                                                 className={cn(
-                                                                   "h-8 text-center text-xs pr-5 pl-1 border-muted-foreground/30 bg-background font-medium",
-                                                                   item.isRateModified && "border-primary/60 bg-primary/5 font-semibold"
-                                                                 )}
-                                                                 value={Number(item.rate.toFixed(2))}
-                                                                 onChange={(e) =>
-                                                                   handleOverrideChange(
-                                                                     group.profissionalId,
-                                                                     item.key,
-                                                                     "rate",
-                                                                     e.target.value,
-                                                                     defaultSessions,
-                                                                     item.defaultBaseValue,
-                                                                     item.defaultBaseRate,
-                                                                     item.value
-                                                                   )
-                                                                 }
-                                                               />
-                                                               <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">%</span>
-                                                             </div>
-                                                             {item.isRateModified && (
-                                                               <Button
-                                                                 type="button"
-                                                                 variant="outline"
-                                                                 size="icon"
-                                                                 className="h-8 w-8 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded cursor-pointer"
-                                                                 onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
-                                                                 title={`Tornar ${Number(item.rate.toFixed(2))}% padrão`}
-                                                               >
-                                                                 <BookmarkCheck className="h-3.5 w-3.5" />
-                                                               </Button>
-                                                             )}
-                                                           </div>
-                                                         </div>
-
-                                                         {/* Field: Repasse por Sessão OU Faturamento Total */}
-                                                         {!isApoio ? (
-                                                           <div className="space-y-1">
-                                                             <label className="text-[10px] font-semibold text-muted-foreground block truncate">
-                                                               Repasse / Sessão
-                                                             </label>
-                                                             <div className="flex items-center gap-1">
-                                                               <div className="relative flex-1">
-                                                                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
-                                                                 <Input
-                                                                   type="number"
-                                                                   step="any"
-                                                                   className={cn(
-                                                                     "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 bg-background font-medium",
-                                                                     item.isRateModified && "border-primary/60 bg-primary/5"
-                                                                   )}
-                                                                   value={Number(item.unitRepVal.toFixed(2))}
-                                                                   onChange={(e) =>
-                                                                     handleOverrideChange(
-                                                                       group.profissionalId,
-                                                                       item.key,
-                                                                       "unitRepVal",
-                                                                       e.target.value,
-                                                                       defaultSessions,
-                                                                       item.defaultBaseValue,
-                                                                       item.defaultBaseRate,
-                                                                       item.value
-                                                                     )
-                                                                   }
-                                                                 />
-                                                               </div>
-                                                               {item.isRateModified && (
-                                                                 <Button
-                                                                   type="button"
-                                                                   variant="outline"
-                                                                   size="icon"
-                                                                   className="h-8 w-8 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded cursor-pointer"
-                                                                   onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
-                                                                   title={`Tornar R$ ${Number(item.unitRepVal.toFixed(2))}/sessão padrão`}
-                                                                 >
-                                                                   <BookmarkCheck className="h-3.5 w-3.5" />
-                                                                 </Button>
-                                                               )}
-                                                             </div>
-                                                           </div>
-                                                         ) : (
-                                                           <div className="space-y-1">
-                                                             <label className="text-[10px] font-semibold text-muted-foreground block truncate">
-                                                               Fat. Bruto
-                                                             </label>
-                                                             <div className="h-8 flex items-center justify-center px-2 rounded-md bg-muted/40 border border-border/50 text-xs font-semibold text-foreground">
-                                                               {brl(item.faturamento)}
-                                                             </div>
-                                                           </div>
-                                                         )}
-                                                       </div>
-
-                                                       {/* Card Footer if Customized */}
-                                                       {item.isCustomized && (
-                                                         <div className="pt-1.5 flex justify-end border-t border-border/30">
-                                                           <Button
-                                                             type="button"
-                                                             variant="ghost"
-                                                             size="sm"
-                                                             className="h-6 text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1 px-2"
-                                                             onClick={() => handleResetPatientDefault(group.profissionalId, item.key, item.pacienteNome)}
-                                                           >
-                                                             <RotateCcw className="h-3 w-3" />
-                                                             <span>Restaurar padrão</span>
-                                                           </Button>
-                                                         </div>
-                                                       )}
-                                                     </div>
-                                                   );
-                                                 })}
-
-                                                 {/* Mobile Partial Sum Banner */}
-                                                 <div className="p-3 bg-muted/30 rounded-xl border border-border space-y-1 text-xs">
-                                                   <div className="font-semibold text-foreground flex items-center justify-between">
-                                                     <span>Total Parcial ({spec})</span>
-                                                     <span className="text-emerald-600 dark:text-emerald-400 font-bold text-sm">{brl(totalRep)}</span>
-                                                   </div>
-                                                   <div className="flex items-center justify-between text-muted-foreground text-[10px]">
-                                                     <span>{totalSess} sessões</span>
-                                                     <span>Faturamento: {brl(totalFat)}</span>
-                                                   </div>
-                                                 </div>
-                                               </div>
-
-                                               {/* Desktop View: Full-width table */}
-                                               <div className="hidden md:block overflow-x-auto">
-                                                 <Table className="text-xs min-w-[720px]">
-                                                   <TableHeader className="bg-muted/30">
-                                                     <TableRow>
-                                                       <TableHead className="font-semibold text-foreground whitespace-nowrap">Paciente</TableHead>
+                                              <div className="overflow-x-auto rounded-lg border border-border/70 bg-card/50">
+                                                 <Table className="text-xs">
+                                                   <TableHeader className="bg-muted/40">
+                                                     <TableRow className="h-8 text-[11px]">
+                                                       <TableHead className="font-semibold text-foreground whitespace-nowrap py-1 px-2">Paciente</TableHead>
                                                        {isApoio && (
-                                                         <TableHead className="font-semibold text-foreground whitespace-nowrap">Frequência/Pacote</TableHead>
+                                                         <TableHead className="font-semibold text-foreground whitespace-nowrap py-1 px-1.5">Freq/Pct</TableHead>
                                                        )}
-                                                       <TableHead className="font-semibold text-foreground w-[70px] text-center whitespace-nowrap">Sessões</TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[150px] text-center whitespace-nowrap">
-                                                         {isApoio ? "Valor do Plano" : "Valor da Sessão"}
+                                                       <TableHead className="font-semibold text-foreground w-[52px] text-center whitespace-nowrap py-1 px-1">Sessões</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[78px] text-center whitespace-nowrap py-1 px-1">
+                                                         {isApoio ? "Plano" : "Sessão"}
                                                        </TableHead>
-                                                       <TableHead className="font-semibold text-foreground w-[120px] text-center whitespace-nowrap">% Repasse</TableHead>
+                                                       <TableHead className="font-semibold text-foreground w-[58px] text-center whitespace-nowrap py-1 px-1">% Rep</TableHead>
                                                        {!isApoio && (
-                                                         <TableHead className="font-semibold text-foreground w-[140px] text-center whitespace-nowrap">Valor</TableHead>
+                                                         <TableHead className="font-semibold text-foreground w-[78px] text-center whitespace-nowrap py-1 px-1">Rep/Sess</TableHead>
                                                        )}
-                                                       <TableHead className="font-semibold text-foreground text-right whitespace-nowrap">Repasse</TableHead>
-                                                       <TableHead className="w-[40px] text-center"></TableHead>
+                                                       <TableHead className="font-semibold text-foreground text-right whitespace-nowrap py-1 px-2">Repasse</TableHead>
+                                                       <TableHead className="w-[32px] text-center py-1 px-0.5"></TableHead>
                                                      </TableRow>
                                                    </TableHeader>
                                                    <TableBody>
@@ -5599,18 +5360,19 @@ Nosso pix: 54.747.611/0001-27
 
                                                        return (
                                                          <TableRow key={item.key} className="hover:bg-muted/30">
-                                                           <TableCell className="font-medium text-foreground py-2">
+                                                           <TableCell className="font-medium text-foreground py-1.5 px-2 max-w-[130px] truncate" title={item.pacienteNome}>
                                                              {item.pacienteNome}
                                                            </TableCell>
                                                            {isApoio && (
-                                                             <TableCell className="text-muted-foreground text-xs py-2">
+                                                             <TableCell className="text-muted-foreground text-[10px] py-1.5 px-1.5 whitespace-nowrap">
                                                                {item.freqLabel || "—"}
                                                              </TableCell>
                                                            )}
-                                                           <TableCell className="text-center py-2">
+                                                           {/* Sessões: bounded to ~3 digits */}
+                                                           <TableCell className="text-center py-1.5 px-1">
                                                              <Input
                                                                type="number"
-                                                               className="h-8 text-center text-xs border-muted-foreground/30 font-medium"
+                                                               className="h-7 w-[46px] text-center text-xs px-1 border-muted-foreground/30 bg-background font-semibold mx-auto"
                                                                value={item.sessions}
                                                                onChange={(e) =>
                                                                  handleOverrideChange(
@@ -5626,201 +5388,204 @@ Nosso pix: 54.747.611/0001-27
                                                                }
                                                              />
                                                            </TableCell>
-                                                            <TableCell className="text-center py-2">
-                                                              <div className="flex items-center justify-center gap-1">
-                                                                <div className="relative max-w-[110px] w-full">
-                                                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">R$</span>
-                                                                  <Input
-                                                                    type="number"
-                                                                    step="any"
-                                                                    className={cn(
-                                                                      "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30",
-                                                                      item.isValueModified && "border-primary/60 bg-primary/5 font-medium"
-                                                                    )}
-                                                                    value={Number(item.value.toFixed(2))}
-                                                                    onChange={(e) =>
-                                                                      handleOverrideChange(
-                                                                        group.profissionalId,
-                                                                        item.key,
-                                                                        "value",
-                                                                        e.target.value,
-                                                                        defaultSessions,
-                                                                        item.defaultBaseValue,
-                                                                        item.defaultBaseRate,
-                                                                        item.value
-                                                                      )
-                                                                    }
-                                                                  />
-                                                                </div>
-                                                                {item.isValueModified && (
-                                                                  <TooltipProvider>
-                                                                    <Tooltip>
-                                                                      <TooltipTrigger asChild>
-                                                                        <Button
-                                                                          type="button"
-                                                                          variant="outline"
-                                                                          size="icon"
-                                                                          className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
-                                                                          onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "value", item.value)}
-                                                                        >
-                                                                          <BookmarkCheck className="h-3.5 w-3.5" />
-                                                                        </Button>
-                                                                      </TooltipTrigger>
-                                                                      <TooltipContent side="top">
-                                                                        <p className="text-xs">Tornar R$ {Number(item.value.toFixed(2))} padrão para {item.pacienteNome}</p>
-                                                                      </TooltipContent>
-                                                                    </Tooltip>
-                                                                  </TooltipProvider>
-                                                                )}
-                                                              </div>
-                                                            </TableCell>
-                                                            <TableCell className="text-center py-2">
-                                                              <div className="flex items-center justify-center gap-1">
-                                                                <div className="relative max-w-[75px] w-full">
-                                                                  <Input
-                                                                    type="number"
-                                                                    step="any"
-                                                                    className={cn(
-                                                                      "h-8 text-center text-xs pr-4 pl-1 border-muted-foreground/30",
-                                                                      item.isRateModified && "border-primary/60 bg-primary/5 font-medium"
-                                                                    )}
-                                                                    value={Number(item.rate.toFixed(2))}
-                                                                    onChange={(e) =>
-                                                                      handleOverrideChange(
-                                                                        group.profissionalId,
-                                                                        item.key,
-                                                                        "rate",
-                                                                        e.target.value,
-                                                                        defaultSessions,
-                                                                        item.defaultBaseValue,
-                                                                        item.defaultBaseRate,
-                                                                        item.value
-                                                                      )
-                                                                    }
-                                                                  />
-                                                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">%</span>
-                                                                </div>
-                                                                {item.isRateModified && (
-                                                                  <TooltipProvider>
-                                                                    <Tooltip>
-                                                                      <TooltipTrigger asChild>
-                                                                        <Button
-                                                                          type="button"
-                                                                          variant="outline"
-                                                                          size="icon"
-                                                                          className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
-                                                                          onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
-                                                                        >
-                                                                          <BookmarkCheck className="h-3.5 w-3.5" />
-                                                                        </Button>
-                                                                      </TooltipTrigger>
-                                                                      <TooltipContent side="top">
-                                                                        <p className="text-xs">Tornar {Number(item.rate.toFixed(2))}% padrão para {item.pacienteNome}</p>
-                                                                      </TooltipContent>
-                                                                    </Tooltip>
-                                                                  </TooltipProvider>
-                                                                )}
-                                                              </div>
-                                                            </TableCell>
-                                                            {!isApoio && (
-                                                              <TableCell className="text-center py-2">
-                                                                <div className="flex items-center justify-center gap-1">
-                                                                  <div className="relative max-w-[95px] w-full">
-                                                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">R$</span>
-                                                                    <Input
-                                                                      type="number"
-                                                                      step="any"
-                                                                      className={cn(
-                                                                        "h-8 text-center text-xs pl-6 pr-1 border-muted-foreground/30 font-medium",
-                                                                        item.isRateModified && "border-primary/60 bg-primary/5"
-                                                                      )}
-                                                                      value={Number(item.unitRepVal.toFixed(2))}
-                                                                      onChange={(e) =>
-                                                                        handleOverrideChange(
-                                                                          group.profissionalId,
-                                                                          item.key,
-                                                                          "unitRepVal",
-                                                                          e.target.value,
-                                                                          defaultSessions,
-                                                                          item.defaultBaseValue,
-                                                                          item.defaultBaseRate,
-                                                                          item.value
-                                                                        )
-                                                                      }
-                                                                    />
-                                                                  </div>
-                                                                  {item.isRateModified && (
-                                                                    <TooltipProvider>
-                                                                      <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                          <Button
-                                                                            type="button"
-                                                                            variant="outline"
-                                                                            size="icon"
-                                                                            className="h-7 w-7 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
-                                                                            onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
-                                                                          >
-                                                                            <BookmarkCheck className="h-3.5 w-3.5" />
-                                                                          </Button>
-                                                                        </TooltipTrigger>
-                                                                        <TooltipContent side="top">
-                                                                          <p className="text-xs">Tornar R$ {Number(item.unitRepVal.toFixed(2))}/sessão ({Number(item.rate.toFixed(2))}%) padrão para {item.pacienteNome}</p>
-                                                                        </TooltipContent>
-                                                                      </Tooltip>
-                                                                    </TooltipProvider>
-                                                                  )}
-                                                                </div>
-                                                              </TableCell>
-                                                            )}
-                                                            <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2 whitespace-nowrap">
-                                                              {brl(item.repVal)}
-                                                            </TableCell>
-                                                            <TableCell className="text-center py-2">
-                                                              {item.isCustomized && (
-                                                                <TooltipProvider>
-                                                                  <Tooltip>
-                                                                    <TooltipTrigger asChild>
-                                                                      <Button
-                                                                        type="button"
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
-                                                                        onClick={() => handleResetPatientDefault(group.profissionalId, item.key, item.pacienteNome)}
-                                                                      >
-                                                                        <RotateCcw className="h-3.5 w-3.5" />
-                                                                      </Button>
-                                                                    </TooltipTrigger>
-                                                                    <TooltipContent side="top">
-                                                                      <p className="text-xs">Restaurar padrão original para {item.pacienteNome}</p>
-                                                                    </TooltipContent>
-                                                                  </Tooltip>
-                                                                </TooltipProvider>
-                                                              )}
-                                                            </TableCell>
-                                                          </TableRow>
-                                                        );
-                                                      })}
-                                                      {/* Partial Sum Row */}
-                                                      <TableRow className="bg-muted/20 border-t border-muted font-semibold">
-                                                        <TableCell colSpan={isApoio ? 2 : 1} className="font-bold text-foreground py-2 whitespace-nowrap">
-                                                          Total Parcial ({spec})
-                                                        </TableCell>
-                                                        <TableCell className="text-center py-2">
-                                                          {totalSess}
-                                                        </TableCell>
-                                                        <TableCell className="text-center py-2 whitespace-nowrap">
-                                                          {brl(totalFat)}
-                                                        </TableCell>
-                                                        <TableCell className="py-2" />
-                                                        {!isApoio && <TableCell className="py-2" />}
-                                                        <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-2 whitespace-nowrap">
-                                                          {brl(totalRep)}
-                                                        </TableCell>
-                                                        <TableCell className="py-2" />
-                                                      </TableRow>
-                                                    </TableBody>
-                                                  </Table>
-                                                </div>
+                                                           {/* Valor: bounded to ~3-4 digits */}
+                                                           <TableCell className="text-center py-1.5 px-1">
+                                                             <div className="flex items-center justify-center gap-0.5">
+                                                               <div className="relative w-[68px]">
+                                                                 <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-medium">R$</span>
+                                                                 <Input
+                                                                   type="number"
+                                                                   step="any"
+                                                                   className={cn(
+                                                                     "h-7 w-[68px] text-center text-xs pl-4 pr-1 border-muted-foreground/30 bg-background font-medium",
+                                                                     item.isValueModified && "border-primary/60 bg-primary/5 font-semibold"
+                                                                   )}
+                                                                   value={Number(item.value.toFixed(2))}
+                                                                   onChange={(e) =>
+                                                                     handleOverrideChange(
+                                                                       group.profissionalId,
+                                                                       item.key,
+                                                                       "value",
+                                                                       e.target.value,
+                                                                       defaultSessions,
+                                                                       item.defaultBaseValue,
+                                                                       item.defaultBaseRate,
+                                                                       item.value
+                                                                     )
+                                                                   }
+                                                                 />
+                                                               </div>
+                                                               {item.isValueModified && (
+                                                                 <TooltipProvider>
+                                                                   <Tooltip>
+                                                                     <TooltipTrigger asChild>
+                                                                       <Button
+                                                                         type="button"
+                                                                         variant="outline"
+                                                                         size="icon"
+                                                                         className="h-6 w-6 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded cursor-pointer p-0"
+                                                                         onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "value", item.value)}
+                                                                       >
+                                                                         <BookmarkCheck className="h-3 w-3" />
+                                                                       </Button>
+                                                                     </TooltipTrigger>
+                                                                     <TooltipContent side="top">
+                                                                       <p className="text-xs">Tornar R$ {Number(item.value.toFixed(2))} padrão</p>
+                                                                     </TooltipContent>
+                                                                   </Tooltip>
+                                                                 </TooltipProvider>
+                                                               )}
+                                                             </div>
+                                                           </TableCell>
+                                                           {/* % Repasse: bounded to ~3 digits */}
+                                                           <TableCell className="text-center py-1.5 px-1">
+                                                             <div className="flex items-center justify-center gap-0.5">
+                                                               <div className="relative w-[52px]">
+                                                                 <Input
+                                                                   type="number"
+                                                                   step="any"
+                                                                   className={cn(
+                                                                     "h-7 w-[52px] text-center text-xs pr-3.5 pl-1 border-muted-foreground/30 bg-background font-medium",
+                                                                     item.isRateModified && "border-primary/60 bg-primary/5 font-semibold"
+                                                                   )}
+                                                                   value={Number(item.rate.toFixed(2))}
+                                                                   onChange={(e) =>
+                                                                     handleOverrideChange(
+                                                                       group.profissionalId,
+                                                                       item.key,
+                                                                       "rate",
+                                                                       e.target.value,
+                                                                       defaultSessions,
+                                                                       item.defaultBaseValue,
+                                                                       item.defaultBaseRate,
+                                                                       item.value
+                                                                     )
+                                                                   }
+                                                                 />
+                                                                 <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-semibold">%</span>
+                                                               </div>
+                                                               {item.isRateModified && (
+                                                                 <TooltipProvider>
+                                                                   <Tooltip>
+                                                                     <TooltipTrigger asChild>
+                                                                       <Button
+                                                                         type="button"
+                                                                         variant="outline"
+                                                                         size="icon"
+                                                                         className="h-6 w-6 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded cursor-pointer p-0"
+                                                                         onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
+                                                                       >
+                                                                         <BookmarkCheck className="h-3 w-3" />
+                                                                       </Button>
+                                                                     </TooltipTrigger>
+                                                                     <TooltipContent side="top">
+                                                                       <p className="text-xs">Tornar {Number(item.rate.toFixed(2))}% padrão</p>
+                                                                     </TooltipContent>
+                                                                   </Tooltip>
+                                                                 </TooltipProvider>
+                                                               )}
+                                                             </div>
+                                                           </TableCell>
+                                                           {/* Non-apoio: Repasse por Sessão */}
+                                                           {!isApoio && (
+                                                             <TableCell className="text-center py-1.5 px-1">
+                                                               <div className="flex items-center justify-center gap-0.5">
+                                                                 <div className="relative w-[68px]">
+                                                                   <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground font-semibold">R$</span>
+                                                                   <Input
+                                                                     type="number"
+                                                                     step="any"
+                                                                     className={cn(
+                                                                       "h-7 w-[68px] text-center text-xs pl-4 pr-1 border-muted-foreground/30 bg-background font-medium",
+                                                                       item.isRateModified && "border-primary/60 bg-primary/5"
+                                                                     )}
+                                                                     value={Number(item.unitRepVal.toFixed(2))}
+                                                                     onChange={(e) =>
+                                                                       handleOverrideChange(
+                                                                         group.profissionalId,
+                                                                         item.key,
+                                                                         "unitRepVal",
+                                                                         e.target.value,
+                                                                         defaultSessions,
+                                                                         item.defaultBaseValue,
+                                                                         item.defaultBaseRate,
+                                                                         item.value
+                                                                       )
+                                                                     }
+                                                                   />
+                                                                 </div>
+                                                                 {item.isRateModified && (
+                                                                   <TooltipProvider>
+                                                                     <Tooltip>
+                                                                       <TooltipTrigger asChild>
+                                                                         <Button
+                                                                           type="button"
+                                                                           variant="outline"
+                                                                           size="icon"
+                                                                           className="h-6 w-6 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded cursor-pointer p-0"
+                                                                           onClick={() => handleMakePatientDefault(group.profissionalId, item.key, item.pacienteNome, "rate", item.rate)}
+                                                                         >
+                                                                           <BookmarkCheck className="h-3 w-3" />
+                                                                         </Button>
+                                                                       </TooltipTrigger>
+                                                                       <TooltipContent side="top">
+                                                                         <p className="text-xs">Tornar R$ {Number(item.unitRepVal.toFixed(2))}/sessão padrão</p>
+                                                                       </TooltipContent>
+                                                                     </Tooltip>
+                                                                   </TooltipProvider>
+                                                                 )}
+                                                               </div>
+                                                             </TableCell>
+                                                           )}
+                                                           <TableCell className="text-right font-bold text-xs text-emerald-600 dark:text-emerald-400 py-1.5 px-2 whitespace-nowrap">
+                                                             {brl(item.repVal)}
+                                                           </TableCell>
+                                                           <TableCell className="text-center py-1.5 px-0.5">
+                                                             {item.isCustomized && (
+                                                               <TooltipProvider>
+                                                                 <Tooltip>
+                                                                   <TooltipTrigger asChild>
+                                                                     <Button
+                                                                       type="button"
+                                                                       variant="ghost"
+                                                                       size="icon"
+                                                                       className="h-6 w-6 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded cursor-pointer p-0"
+                                                                       onClick={() => handleResetPatientDefault(group.profissionalId, item.key, item.pacienteNome)}
+                                                                     >
+                                                                       <RotateCcw className="h-3 w-3" />
+                                                                     </Button>
+                                                                   </TooltipTrigger>
+                                                                   <TooltipContent side="top">
+                                                                     <p className="text-xs">Restaurar padrão original</p>
+                                                                   </TooltipContent>
+                                                                 </Tooltip>
+                                                               </TooltipProvider>
+                                                             )}
+                                                           </TableCell>
+                                                         </TableRow>
+                                                       );
+                                                     })}
+                                                     {/* Partial Sum Row */}
+                                                     <TableRow className="bg-muted/30 border-t border-muted font-semibold text-xs">
+                                                       <TableCell colSpan={isApoio ? 2 : 1} className="font-bold text-foreground py-1.5 px-2 whitespace-nowrap">
+                                                         Total ({spec})
+                                                       </TableCell>
+                                                       <TableCell className="text-center py-1.5 px-1 font-bold">
+                                                         {totalSess}
+                                                       </TableCell>
+                                                       <TableCell className="text-center py-1.5 px-1 whitespace-nowrap text-[11px]">
+                                                         {brl(totalFat)}
+                                                       </TableCell>
+                                                       <TableCell className="py-1.5 px-1" />
+                                                       {!isApoio && <TableCell className="py-1.5 px-1" />}
+                                                       <TableCell className="text-right font-bold text-emerald-600 dark:text-emerald-400 py-1.5 px-2 whitespace-nowrap">
+                                                         {brl(totalRep)}
+                                                       </TableCell>
+                                                       <TableCell className="py-1.5 px-0.5" />
+                                                     </TableRow>
+                                                   </TableBody>
+                                                 </Table>
+                                               </div>
                                              </div>
                                            );
                                          });
