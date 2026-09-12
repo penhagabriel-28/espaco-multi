@@ -79,8 +79,9 @@ function Agenda() {
   const qc = useQueryClient();
 
   useEffect(() => {
+    const channelId = `agendamentos-realtime-${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel("agendamentos-realtime-sync")
+      .channel(channelId)
       .on(
         "postgres_changes",
         {

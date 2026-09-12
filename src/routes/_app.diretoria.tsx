@@ -207,8 +207,9 @@ function DiretoriaPageContent() {
   const loggedInName = currentProfile?.nome || user?.user_metadata?.nome || "Diretoria";
 
   useEffect(() => {
+    const channelId = `diretoria-realtime-${Math.random().toString(36).substring(2, 9)}`;
     const channel = supabase
-      .channel("diretoria-realtime-sync")
+      .channel(channelId)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "faturas" },
@@ -229,6 +230,24 @@ function DiretoriaPageContent() {
         { event: "*", schema: "public", table: "pacientes" },
         () => {
           queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+          queryClient.invalidateQueries({ queryKey: ["pacientes"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "profissionais" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
+          queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+          queryClient.invalidateQueries({ queryKey: ["profissionais"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "mural_recados" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["mural-recados"] });
         }
       )
       .subscribe();
@@ -964,23 +983,6 @@ function DiretoriaPageContent() {
     },
   });
 
-  // Realtime subscription for mural_recados
-  useEffect(() => {
-    const channel = supabase
-      .channel("mural-realtime-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "mural_recados" },
-        () => {
-          void refetchMural();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [refetchMural]);
 
   // Mutation to insert message
   const createMuralMessageMutation = useMutation({
@@ -1607,34 +1609,6 @@ function DiretoriaPageContent() {
     });
   }, [profissionais, inicio, fim]);
 
-  // Realtime subscription for pacientes and profissionais to keep all devices synchronized
-  useEffect(() => {
-    const channel = supabase
-      .channel("diretoria-realtime-sync")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "pacientes" },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
-          queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
-          queryClient.invalidateQueries({ queryKey: ["pacientes"] });
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "profissionais" },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
-          queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
-          queryClient.invalidateQueries({ queryKey: ["profissionais"] });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [queryClient]);
 
   const getRepasseRates = (specialty: string) => {
     const specNorm = String(specialty || "").trim().toUpperCase();
