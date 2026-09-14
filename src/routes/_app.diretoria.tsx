@@ -1237,7 +1237,18 @@ function DiretoriaPageContent() {
   const getFaturaEffectiveValue = (fatura: any) => {
     if (!fatura) return 0;
     if (isApoioSpec(fatura.especialidade)) {
+      if (fatura.status === "paga" && Number(fatura.valor) > 0) {
+        return Number(fatura.valor);
+      }
       return getApoioFaturaValor(fatura);
+    }
+    // Ground truth for paid invoices is always the exact registered paid amount (fatura.valor)
+    if (fatura.status === "paga" && Number(fatura.valor) > 0) {
+      return Number(fatura.valor);
+    }
+    // If fatura is a remaining balance from a partial payment, ground truth is fatura.valor
+    if (fatura.observacoes?.includes("Saldo restante") && Number(fatura.valor) > 0) {
+      return Number(fatura.valor);
     }
     const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura.id);
     if (items.length > 0) {
@@ -1505,6 +1516,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
@@ -3189,7 +3201,9 @@ function DiretoriaPageContent() {
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
-            valor: isApoio ? getApoioFaturaValor(f) : (Number(item.total || 0)),
+            valor: isApoio 
+              ? getApoioFaturaValor(f) 
+              : (f.status === "paga" && Number(f.valor) > 0 ? Number(f.valor) : (Number(item.total || 0))),
             descricao: rowDesc,
             profissionalNome: finalProfName,
             especialidade: f.especialidade || null,
@@ -4329,18 +4343,18 @@ Nosso pix: 54.747.611/0001-27
       );
     }
     return (
-      <Table containerClassName="overflow-auto max-h-[65vh] rounded-lg border border-border bg-card relative" className="min-w-[880px]">
+      <Table containerClassName="overflow-y-auto max-h-[65vh] rounded-lg border border-border bg-card relative overflow-x-auto xl:overflow-x-hidden" className="w-full text-xs">
         <TableHeader className="bg-slate-100 dark:bg-slate-800 font-semibold text-foreground sticky top-0 z-10 shadow-xs">
             <TableRow className="text-xs">
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Paciente</TableHead>
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Profissionais</TableHead>
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Responsável</TableHead>
-              <TableHead className="py-2 px-2.5 text-center sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Fats. Pend.</TableHead>
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Soma Pend.</TableHead>
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Soma Paga</TableHead>
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Soma Geral</TableHead>
-              <TableHead className="py-2 px-2.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Situação</TableHead>
-              <TableHead className="py-2 px-2.5 w-[150px] text-right sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Ações</TableHead>
+              <TableHead className="py-2 px-2 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap text-left w-[18%]">Paciente</TableHead>
+              <TableHead className="py-2 px-1.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap text-left w-[13%]">Profissionais</TableHead>
+              <TableHead className="py-2 px-1.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap text-left w-[16%]">Responsável</TableHead>
+              <TableHead className="py-2 px-1 text-center sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap w-[6%]">Fats. Pend.</TableHead>
+              <TableHead className="py-2 px-1.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap w-[9%]">Soma Pend.</TableHead>
+              <TableHead className="py-2 px-1.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap w-[9%]">Soma Paga</TableHead>
+              <TableHead className="py-2 px-1.5 sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap w-[9%]">Soma Geral</TableHead>
+              <TableHead className="py-2 px-1.5 text-center sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap w-[6%]">Situação</TableHead>
+              <TableHead className="py-2 px-2 w-[14%] text-right sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 whitespace-nowrap">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -4353,9 +4367,9 @@ Nosso pix: 54.747.611/0001-27
 
               return (
                 <TableRow key={c.key} className="hover:bg-muted/30 text-xs">
-                  <TableCell className="font-semibold text-foreground py-2.5 px-2.5 max-w-[160px] break-words">
+                  <TableCell className="font-semibold text-foreground py-2 px-2 max-w-[150px] break-words">
                     <div className="flex flex-col gap-1">
-                      <div className="text-[13.5px] whitespace-normal leading-snug break-words text-foreground font-semibold" title={c.nome}>{c.nome}</div>
+                      <div className="text-xs whitespace-normal leading-snug break-words text-foreground font-semibold" title={c.nome}>{c.nome}</div>
                       {editingCobrarDiaPatientId === c.pacienteId ? (
                         <div className="flex items-center gap-1 mt-1 bg-muted/50 p-1 rounded border border-border/60 w-max" onClick={(e) => e.stopPropagation()}>
                           <span className="text-[9px] text-muted-foreground uppercase font-bold">Dia:</span>
@@ -4422,8 +4436,8 @@ Nosso pix: 54.747.611/0001-27
                       })()}
                     </div>
                   </TableCell>
-                  <TableCell className="py-2 px-2.5">
-                    <div className="flex flex-wrap gap-1 max-w-[130px]">
+                  <TableCell className="py-2 px-1.5">
+                    <div className="flex flex-wrap gap-1 max-w-[120px]">
                       {getPatientProfessionals(c.pacienteId).length > 0 ? (
                         getPatientProfessionals(c.pacienteId).map((name) => (
                           <Badge
@@ -4439,11 +4453,11 @@ Nosso pix: 54.747.611/0001-27
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="py-2.5 px-2.5 max-w-[150px] break-words">
+                  <TableCell className="py-2 px-1.5 max-w-[140px] break-words">
                     {primaryResp ? (
-                      <div className="flex items-start gap-1.5 justify-between">
+                      <div className="flex items-start gap-1 justify-between">
                         <div className="flex-1 min-w-0">
-                          <span className="font-semibold text-foreground block text-[13px] leading-snug whitespace-normal break-words" title={primaryResp.nome}>
+                          <span className="font-semibold text-foreground block text-xs leading-snug whitespace-normal break-words" title={primaryResp.nome}>
                             {primaryResp.nome}
                           </span>
                           {primaryResp.parentesco && (
@@ -4456,13 +4470,13 @@ Nosso pix: 54.747.611/0001-27
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-6 w-6 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0 mt-0.5"
+                            className="h-5.5 w-5.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0 mt-0.5"
                             onClick={() =>
                               handleWhatsAppClick(c.pacienteId, c.totalPendente, c.nome)
                             }
                             title={`Chamar no WhatsApp: ${primaryResp.whatsapp || primaryResp.telefone}`}
                           >
-                            <MessageCircle className="h-3.5 w-3.5 fill-emerald-600/10" />
+                            <MessageCircle className="h-3 w-3 fill-emerald-600/10" />
                           </Button>
                         )}
                       </div>
@@ -4472,23 +4486,23 @@ Nosso pix: 54.747.611/0001-27
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-center font-medium py-2 px-2.5">
+                  <TableCell className="text-center font-medium py-2 px-1 whitespace-nowrap">
                     {c.faturasPendentesCount}
                   </TableCell>
                   <TableCell
-                    className={`font-semibold py-2 px-2.5 ${c.totalPendente > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}
+                    className={`font-semibold py-2 px-1.5 whitespace-nowrap ${c.totalPendente > 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`}
                   >
                     {brl(c.totalPendente)}
                   </TableCell>
                   <TableCell
-                    className={`font-medium py-2 px-2.5 ${c.totalPago > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}
+                    className={`font-medium py-2 px-1.5 whitespace-nowrap ${c.totalPago > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}`}
                   >
                     {brl(c.totalPago)}
                   </TableCell>
-                  <TableCell className="font-medium text-foreground py-2 px-2.5">
+                  <TableCell className="font-medium text-foreground py-2 px-1.5 whitespace-nowrap">
                     {brl(c.totalGeral)}
                   </TableCell>
-                  <TableCell className="py-2 px-2.5">
+                  <TableCell className="py-2 px-1.5 text-center whitespace-nowrap">
                     <Badge
                       variant={
                         c.temAtraso
@@ -4518,9 +4532,9 @@ Nosso pix: 54.747.611/0001-27
                             : "Sem Faturas"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="py-2 px-2.5 text-right">
+                  <TableCell className="py-2 px-2 text-right whitespace-nowrap">
                     <div
-                      className="flex justify-end gap-1"
+                      className="flex justify-end gap-0.5"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Button
