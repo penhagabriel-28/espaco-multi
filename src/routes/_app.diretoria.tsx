@@ -20,6 +20,7 @@ import { cn, isProfActiveInPeriod, isProfissionalAdmin, isProfissionalClinico } 
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -511,79 +512,8 @@ function DiretoriaPageContent() {
     },
   });
 
-  // Confirm all patient payments mutation
-  const confirmAllPatientPaymentsMutation = useMutation({
-    mutationFn: async ({ pacienteId, patientName }: { pacienteId: string; patientName: string }) => {
-      // 1. Fetch all open/overdue faturas for this patient in the period
-      let targetFaturas = (faturas || []).filter(
-        (f) => f.paciente_id === pacienteId && (f.status === "aberta" || f.status === "vencida")
-      );
+  // confirmBatchPatientPaymentMutation definida abaixo após getFaturaEffectiveValue
 
-      // Fallback query directly from database if state is missing or stale
-      if (targetFaturas.length === 0) {
-        const { data: dbFats } = await supabase
-          .from("faturas")
-          .select("id, competencia, status")
-          .eq("paciente_id", pacienteId)
-          .gte("competencia", inicio)
-          .lte("competencia", fim)
-          .in("status", ["aberta", "vencida"]);
-        if (dbFats && dbFats.length > 0) {
-          targetFaturas = dbFats;
-        }
-      }
-
-      if (targetFaturas.length === 0) {
-        toast.info("Nenhuma fatura pendente encontrada para este paciente.");
-        return;
-      }
-
-      const fatIds = targetFaturas.map((f: any) => f.id);
-      const nowIso = new Date().toISOString();
-
-      // 2. Mark ALL open/overdue faturas of this patient directly to status 'paga'
-      const { error: fatErr } = await supabase
-        .from("faturas")
-        .update({
-          status: "paga",
-          pago_em: nowIso,
-          metodo: "pix",
-        })
-        .in("id", fatIds);
-
-      if (fatErr) throw fatErr;
-
-      // 3. Also find and update all linked agendamentos to status 'pago'
-      const { data: items } = await supabase
-        .from("fatura_itens")
-        .select("id, agendamento_id, fatura_id")
-        .in("fatura_id", fatIds);
-
-      const agIds = (items || [])
-        .map((item: any) => item.agendamento_id)
-        .filter(Boolean) as string[];
-
-      if (agIds.length > 0) {
-        const { error: agErr } = await supabase
-          .from("agendamentos")
-          .update({ status: "pago" })
-          .in("id", agIds);
-        if (agErr) throw agErr;
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
-      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
-      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
-      queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
-      queryClient.invalidateQueries({ queryKey: ["faturas"] });
-      queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
-      toast.success("Todos os pagamentos do período foram confirmados!");
-    },
-    onError: (err: any) => {
-      toast.error("Erro ao confirmar pagamentos: " + err.message);
-    },
-  });
 
   // Create billing (manual) mutation
   const createFaturaMutation = useMutation({
@@ -1316,6 +1246,291 @@ function DiretoriaPageContent() {
     }
     return Number(fatura.valor) || 0;
   };
+
+  // Batch/Partial Patient Payment Mutation
+  const confirmBatchPatientPaymentMutation = useMutation({
+    mutationFn: async ({
+      pacienteId,
+      patientName,
+      valorPago,
+      pago_em,
+      metodo,
+      observacoes,
+    }: {
+      pacienteId: string;
+      patientName: string;
+      valorPago: number;
+      pago_em: string;
+      metodo: string;
+      observacoes?: string;
+    }) => {
+      // 1. Fetch fresh pending faturas for this patient in the period
+      let { data: dbFats, error: fetchErr } = await supabase
+        .from("faturas")
+        .select("id, competencia, vencimento, valor, status, especialidade, profissional_id, observacoes, created_at, paciente_id")
+        .eq("paciente_id", pacienteId)
+        .gte("competencia", inicio)
+        .lte("competencia", fim)
+        .in("status", ["aberta", "vencida"]);
+
+      if (fetchErr) throw fetchErr;
+
+      // Fallback to cache if query returned empty but patient had items in state
+      if (!dbFats || dbFats.length === 0) {
+        dbFats = (faturas || []).filter(
+          (f: any) => f.paciente_id === pacienteId && (f.status === "aberta" || f.status === "vencida")
+        );
+      }
+
+      if (!dbFats || dbFats.length === 0) {
+        toast.info("Nenhuma fatura pendente encontrada para este paciente.");
+        return;
+      }
+
+      const fatIds = dbFats.map((f: any) => f.id);
+
+      // Fetch all items for these faturas
+      const { data: dbItems, error: itemsErr } = await supabase
+        .from("fatura_itens")
+        .select("id, fatura_id, agendamento_id, descricao, quantidade, valor_unitario, total, created_at")
+        .in("fatura_id", fatIds);
+
+      if (itemsErr) throw itemsErr;
+
+      const itemsByFatura = new Map<string, any[]>();
+      (dbItems || []).forEach((item: any) => {
+        if (!itemsByFatura.has(item.fatura_id)) {
+          itemsByFatura.set(item.fatura_id, []);
+        }
+        itemsByFatura.get(item.fatura_id)!.push(item);
+      });
+
+      // Calculate effective value for each fatura
+      const faturasWithDetails = dbFats.map((fat: any) => {
+        const items = itemsByFatura.get(fat.id) || [];
+        let val = Number(fat.valor) || 0;
+        if (isApoioSpec(fat.especialidade)) {
+          val = getApoioFaturaValor(fat);
+        } else if (items.length > 0) {
+          const itTot = items.reduce((sum: number, it: any) => sum + (Number(it.total) || 0), 0);
+          if (itTot > 0) val = itTot;
+        }
+        return {
+          ...fat,
+          items,
+          effectiveVal: val,
+        };
+      });
+
+      // Sort chronologically (oldest first - FIFO)
+      faturasWithDetails.sort((a: any, b: any) => {
+        const compA = a.competencia ? new Date(a.competencia).getTime() : 0;
+        const compB = b.competencia ? new Date(b.competencia).getTime() : 0;
+        if (compA !== compB) return compA - compB;
+
+        const vencA = a.vencimento ? new Date(a.vencimento).getTime() : compA;
+        const vencB = b.vencimento ? new Date(b.vencimento).getTime() : compB;
+        if (vencA !== vencB) return vencA - vencB;
+
+        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return dateA - dateB;
+      });
+
+      let remaining = Math.round(valorPago * 100) / 100;
+      const paymentDateIso = new Date(pago_em + "T12:00:00").toISOString();
+      let fullyPaidCount = 0;
+      let partialPaidCount = 0;
+
+      for (const fat of faturasWithDetails) {
+        if (remaining <= 0.009) {
+          break;
+        }
+
+        const fatVal = Math.round(fat.effectiveVal * 100) / 100;
+
+        if (remaining >= fatVal - 0.009) {
+          // FULL PAYMENT OF THIS FATURA
+          const noteToAdd = observacoes ? observacoes.trim() : "";
+          const finalNote = fat.observacoes
+            ? noteToAdd ? `${fat.observacoes} | ${noteToAdd}` : fat.observacoes
+            : noteToAdd || null;
+
+          const { error: updFatErr } = await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              pago_em: paymentDateIso,
+              metodo: metodo as any,
+              observacoes: finalNote,
+              valor: fatVal,
+            })
+            .eq("id", fat.id);
+
+          if (updFatErr) throw updFatErr;
+
+          // Update linked agendamentos to 'pago'
+          const agIds = fat.items
+            .map((i: any) => i.agendamento_id)
+            .filter(Boolean);
+
+          if (agIds.length > 0) {
+            await supabase
+              .from("agendamentos")
+              .update({ status: "pago" })
+              .in("id", agIds);
+          }
+
+          remaining = Math.round((remaining - fatVal) * 100) / 100;
+          fullyPaidCount++;
+        } else {
+          // PARTIAL PAYMENT OF THIS FATURA
+          const paidPart = remaining;
+          const unpaidPart = Math.round((fatVal - paidPart) * 100) / 100;
+
+          const userNote = observacoes ? ` (${observacoes.trim()})` : "";
+          const paidNote = `Pagamento parcial: ${brl(paidPart)} quitados de ${brl(fatVal)}${userNote}`;
+          const finalPaidNote = fat.observacoes ? `${fat.observacoes} | ${paidNote}` : paidNote;
+
+          // 1. Update existing fatura to paid with paidPart
+          const { error: updErr } = await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              valor: paidPart,
+              pago_em: paymentDateIso,
+              metodo: metodo as any,
+              observacoes: finalPaidNote,
+            })
+            .eq("id", fat.id);
+
+          if (updErr) throw updErr;
+
+          // 2. Adjust its items
+          if (fat.items.length === 1) {
+            const singleItem = fat.items[0];
+            await supabase
+              .from("fatura_itens")
+              .update({
+                total: paidPart,
+                valor_unitario: paidPart,
+                descricao: `${singleItem.descricao} (Parcial)`,
+              })
+              .eq("id", singleItem.id);
+          } else if (fat.items.length > 1) {
+            let itemBudget = paidPart;
+            for (const it of fat.items) {
+              const itVal = Number(it.total) || 0;
+              if (itemBudget >= itVal) {
+                itemBudget -= itVal;
+                if (it.agendamento_id) {
+                  await supabase
+                    .from("agendamentos")
+                    .update({ status: "pago" })
+                    .eq("id", it.agendamento_id);
+                }
+              } else if (itemBudget > 0) {
+                await supabase
+                  .from("fatura_itens")
+                  .update({
+                    total: itemBudget,
+                    valor_unitario: itemBudget,
+                    descricao: `${it.descricao} (Parcial)`,
+                  })
+                  .eq("id", it.id);
+                itemBudget = 0;
+              }
+            }
+          }
+
+          // 3. Create new fatura for unpaidPart
+          const unpaidNote = `Saldo restante de pagamento parcial (${brl(unpaidPart)} pendentes de ${brl(fatVal)})`;
+          const { data: newFat, error: newFatErr } = await supabase
+            .from("faturas")
+            .insert({
+              paciente_id: fat.paciente_id,
+              competencia: fat.competencia,
+              vencimento: fat.vencimento,
+              valor: unpaidPart,
+              status: "aberta",
+              especialidade: fat.especialidade || null,
+              profissional_id: fat.profissional_id || null,
+              observacoes: unpaidNote,
+            })
+            .select("id")
+            .single();
+
+          if (newFatErr) throw newFatErr;
+
+          // 4. Create item for new fatura
+          const origDesc = fat.items.length > 0 ? fat.items[0].descricao : (fat.especialidade || "Cobrança");
+          await supabase.from("fatura_itens").insert({
+            fatura_id: newFat.id,
+            descricao: `Saldo restante - ${origDesc}`,
+            quantidade: 1,
+            valor_unitario: unpaidPart,
+            total: unpaidPart,
+            agendamento_id: null,
+          });
+
+          // Move any remaining 0-budget items to new fatura if multi-item
+          if (fat.items.length > 1) {
+            let chkBudget = paidPart;
+            for (const it of fat.items) {
+              const itVal = Number(it.total) || 0;
+              if (chkBudget >= itVal) {
+                chkBudget -= itVal;
+              } else if (chkBudget > 0) {
+                chkBudget = 0;
+              } else {
+                await supabase
+                  .from("fatura_itens")
+                  .update({ fatura_id: newFat.id })
+                  .eq("id", it.id);
+              }
+            }
+          }
+
+          remaining = 0;
+          partialPaidCount++;
+          break;
+        }
+      }
+
+      return {
+        fullyPaidCount,
+        partialPaidCount,
+        valorPago,
+      };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+      queryClient.invalidateQueries({ queryKey: ["faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
+
+      if (data) {
+        if (data.partialPaidCount > 0) {
+          toast.success(
+            `Pagamento parcial de ${brl(data.valorPago)} confirmado com sucesso! (${data.fullyPaidCount} faturas quitadas integralmente e 1 com baixa parcial).`
+          );
+        } else {
+          toast.success(
+            `Pagamento de ${brl(data.valorPago)} confirmado com sucesso! (${data.fullyPaidCount} faturas quitadas).`
+          );
+        }
+      } else {
+        toast.success("Pagamentos confirmados com sucesso!");
+      }
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao confirmar pagamento: " + err.message);
+    },
+  });
+
+  const confirmAllPatientPaymentsMutation = confirmBatchPatientPaymentMutation;
 
   // Calculations
   const stats = useMemo(() => {
@@ -2470,6 +2685,9 @@ function DiretoriaPageContent() {
         comissaoPendente: number;
         sessoes: any[];
         salario: number;
+        defaultSalary?: number;
+        isSalaryModified?: boolean;
+        isSalaryCustomized?: boolean;
         isAdm: boolean;
         cargo?: string;
       }
@@ -2855,7 +3073,7 @@ function DiretoriaPageContent() {
       if (items.length === 0) {
         // Manual fatura or fatura with no items
         const rowProfId = f.profissional_id;
-        if (profFilter !== "all" && rowProfId !== profFilter) return;
+        if (selectedBillingProfs.length > 0 && rowProfId && !selectedBillingProfs.includes(rowProfId)) return;
 
         let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual");
         if (isApoio) {
@@ -3667,6 +3885,87 @@ Nosso pix: 54.747.611/0001-27
     observacoes: "",
   });
 
+  // Batch / Partial Payment Dialog
+  const [batchPayDialog, setBatchPayDialog] = useState<{
+    open: boolean;
+    pacienteId: string;
+    patientName: string;
+    totalPendente: number;
+    faturasCount: number;
+    faturas: any[];
+  }>({
+    open: false,
+    pacienteId: "",
+    patientName: "",
+    totalPendente: 0,
+    faturasCount: 0,
+    faturas: [],
+  });
+
+  const [batchPayForm, setBatchPayForm] = useState({
+    valorPago: "",
+    pago_em: format(new Date(), "yyyy-MM-dd"),
+    metodo: "pix",
+    observacoes: "",
+  });
+
+  const batchSimulation = useMemo(() => {
+    if (!batchPayDialog.open || !batchPayDialog.pacienteId) {
+      return null;
+    }
+    const valPaid = parseFloat(batchPayForm.valorPago.replace(",", ".")) || 0;
+    const totalPendente = batchPayDialog.totalPendente;
+    const saldoRestante = Math.max(0, Math.round((totalPendente - valPaid) * 100) / 100);
+
+    const sortedFats = [...(batchPayDialog.faturas || [])].sort((a: any, b: any) => {
+      const compA = a.competencia ? new Date(a.competencia).getTime() : 0;
+      const compB = b.competencia ? new Date(b.competencia).getTime() : 0;
+      if (compA !== compB) return compA - compB;
+
+      const vencA = a.vencimento ? new Date(a.vencimento).getTime() : compA;
+      const vencB = b.vencimento ? new Date(b.vencimento).getTime() : compB;
+      if (vencA !== vencB) return vencA - vencB;
+
+      return 0;
+    });
+
+    let budget = Math.round(valPaid * 100) / 100;
+    let fullyPaidCount = 0;
+    let partialFat: { originalVal: number; paidVal: number; remainingVal: number; fatura: any } | null = null;
+    let openCount = 0;
+
+    for (const fat of sortedFats) {
+      const fatVal = getFaturaEffectiveValue(fat);
+      if (budget <= 0.009) {
+        openCount++;
+      } else if (budget >= fatVal - 0.009) {
+        fullyPaidCount++;
+        budget = Math.round((budget - fatVal) * 100) / 100;
+      } else {
+        const paid = budget;
+        const rem = Math.round((fatVal - paid) * 100) / 100;
+        partialFat = {
+          originalVal: fatVal,
+          paidVal: paid,
+          remainingVal: rem,
+          fatura: fat,
+        };
+        budget = 0;
+      }
+    }
+
+    return {
+      valPaid,
+      totalPendente,
+      saldoRestante,
+      fullyPaidCount,
+      partialFat,
+      openCount,
+      isFullPayment: valPaid >= totalPendente - 0.009 && totalPendente > 0,
+    };
+  }, [batchPayDialog, batchPayForm.valorPago, faturaItens, patientDetailsMap]);
+
+
   const [faturaForm, setFaturaForm] = useState(() => {
     const initComp = format(startOfMonth(new Date()), "yyyy-MM-dd");
     return {
@@ -4241,21 +4540,28 @@ Nosso pix: 54.747.611/0001-27
                         <Button
                           variant="outline"
                           size="icon"
-                          title="Confirmar pagamento de todas as faturas do período"
-                          className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0"
+                          title="Confirmar / Debitar pagamento das faturas do período"
+                          className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 border-emerald-500/20 hover:border-emerald-500/40 shrink-0 cursor-pointer"
                           onClick={() => {
-                            if (
-                              confirm(
-                                `Deseja confirmar o pagamento de todas as faturas pendentes do período do paciente ${c.nome} no valor total de ${brl(c.totalPendente)}?`
-                              )
-                            ) {
-                              confirmAllPatientPaymentsMutation.mutate({
-                                pacienteId: c.pacienteId,
-                                patientName: c.nome,
-                              });
-                            }
+                            const pendingFats = (c.faturas || []).filter(
+                              (f: any) => f.status === "aberta" || f.status === "vencida"
+                            );
+                            setBatchPayForm({
+                              valorPago: c.totalPendente.toFixed(2),
+                              pago_em: format(new Date(), "yyyy-MM-dd"),
+                              metodo: "pix",
+                              observacoes: "",
+                            });
+                            setBatchPayDialog({
+                              open: true,
+                              pacienteId: c.pacienteId,
+                              patientName: c.nome,
+                              totalPendente: c.totalPendente,
+                              faturasCount: c.faturasPendentesCount,
+                              faturas: pendingFats,
+                            });
                           }}
-                          disabled={confirmAllPatientPaymentsMutation.isPending}
+                          disabled={confirmBatchPatientPaymentMutation.isPending}
                         >
                           <Check className="h-4.5 w-4.5" />
                         </Button>
@@ -5748,6 +6054,334 @@ Nosso pix: 54.747.611/0001-27
               </Button>
               <Button type="submit" disabled={confirmPaymentMutation.isPending}>
                 {confirmPaymentMutation.isPending ? "Confirmando..." : "Confirmar Pagamento"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch / Partial Patient Payment Dialog */}
+      <Dialog
+        open={batchPayDialog.open}
+        onOpenChange={(open) =>
+          setBatchPayDialog({
+            open,
+            pacienteId: open ? batchPayDialog.pacienteId : "",
+            patientName: open ? batchPayDialog.patientName : "",
+            totalPendente: open ? batchPayDialog.totalPendente : 0,
+            faturasCount: open ? batchPayDialog.faturasCount : 0,
+            faturas: open ? batchPayDialog.faturas : [],
+          })
+        }
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Check className="h-5 w-5 text-emerald-600" />
+              Baixa de Faturas do Período
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Confirme o pagamento integral ou debite um pagamento parcial para{" "}
+              <strong className="text-foreground">{batchPayDialog.patientName}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const valNum = parseFloat(batchPayForm.valorPago.replace(",", ".")) || 0;
+              if (valNum <= 0) {
+                toast.error("Informe um valor maior que zero para confirmar o pagamento.");
+                return;
+              }
+              if (valNum > batchPayDialog.totalPendente + 0.01) {
+                toast.error(
+                  `O valor informado (${brl(valNum)}) não pode ser superior ao total pendente (${brl(batchPayDialog.totalPendente)}).`
+                );
+                return;
+              }
+              confirmBatchPatientPaymentMutation.mutate(
+                {
+                  pacienteId: batchPayDialog.pacienteId,
+                  patientName: batchPayDialog.patientName,
+                  valorPago: valNum,
+                  pago_em: batchPayForm.pago_em,
+                  metodo: batchPayForm.metodo,
+                  observacoes: batchPayForm.observacoes,
+                },
+                {
+                  onSuccess: () => {
+                    setBatchPayDialog({
+                      open: false,
+                      pacienteId: "",
+                      patientName: "",
+                      totalPendente: 0,
+                      faturasCount: 0,
+                      faturas: [],
+                    });
+                  },
+                }
+              );
+            }}
+            className="space-y-4 pt-2"
+          >
+            {/* Resumo do Total Pendente */}
+            <div className="p-3 bg-muted/40 rounded-lg border border-border flex items-center justify-between">
+              <div>
+                <span className="text-xs text-muted-foreground block font-medium">
+                  Total Pendente ({batchPayDialog.faturasCount} {batchPayDialog.faturasCount === 1 ? "fatura" : "faturas"})
+                </span>
+                <span className="text-lg font-bold text-rose-600 dark:text-rose-400">
+                  {brl(batchPayDialog.totalPendente)}
+                </span>
+              </div>
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-8 cursor-pointer font-medium border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300"
+                  onClick={() =>
+                    setBatchPayForm({
+                      ...batchPayForm,
+                      valorPago: batchPayDialog.totalPendente.toFixed(2),
+                    })
+                  }
+                >
+                  Quitar Total
+                </Button>
+              </div>
+            </div>
+
+            {/* Campo Valor do Pagamento */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="valorPagoInput" className="text-sm font-semibold">
+                  Valor Pago / A Debitar (R$) *
+                </Label>
+                {batchPayDialog.totalPendente > 0 && (
+                  <span className="text-[11px] text-muted-foreground">
+                    Máx: {brl(batchPayDialog.totalPendente)}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <span className="absolute left-3 top-2.5 text-sm font-bold text-muted-foreground">
+                  R$
+                </span>
+                <Input
+                  id="valorPagoInput"
+                  type="text"
+                  inputMode="decimal"
+                  required
+                  placeholder="0,00"
+                  value={batchPayForm.valorPago}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^0-9.,]/g, "");
+                    setBatchPayForm({ ...batchPayForm, valorPago: val });
+                  }}
+                  className="pl-10 text-base font-bold text-foreground"
+                />
+              </div>
+
+              {/* Botões de atalho rápido */}
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {[100, 200, 300, 500, 1000].map((sug) => {
+                  if (sug >= batchPayDialog.totalPendente) return null;
+                  return (
+                    <Button
+                      key={sug}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[11px] bg-muted/60 hover:bg-muted font-medium border border-border/50 cursor-pointer"
+                      onClick={() =>
+                        setBatchPayForm({
+                          ...batchPayForm,
+                          valorPago: sug.toFixed(2),
+                        })
+                      }
+                    >
+                      {brl(sug)}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Simulação em Tempo Real do Pagamento */}
+            {batchSimulation && batchSimulation.valPaid > 0 && (
+              <div className="p-3 bg-slate-50 dark:bg-slate-900/60 rounded-lg border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center justify-between">
+                  <span>Resumo do Abatimento:</span>
+                  {batchSimulation.isFullPayment ? (
+                    <Badge className="bg-emerald-500 hover:bg-emerald-600 text-[10px] text-white">
+                      Quitação Integral
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-400 text-[10px]">
+                      Pagamento Parcial
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+                  <div className="bg-background/80 p-2 rounded border border-border/60">
+                    <span className="text-muted-foreground block text-[10px]">Valor Abatido</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                      {brl(batchSimulation.valPaid)}
+                    </span>
+                  </div>
+                  <div className="bg-background/80 p-2 rounded border border-border/60">
+                    <span className="text-muted-foreground block text-[10px]">Saldo Devedor Restante</span>
+                    <span
+                      className={`font-bold text-sm ${
+                        batchSimulation.saldoRestante > 0
+                          ? "text-rose-600 dark:text-rose-400"
+                          : "text-emerald-600 dark:text-emerald-400"
+                      }`}
+                    >
+                      {brl(batchSimulation.saldoRestante)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 text-[11px] text-muted-foreground pt-1">
+                  {batchSimulation.fullyPaidCount > 0 && (
+                    <div className="flex items-center gap-1 text-emerald-700 dark:text-emerald-300">
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        <strong>{batchSimulation.fullyPaidCount}</strong>{" "}
+                        {batchSimulation.fullyPaidCount === 1 ? "fatura será quitada" : "faturas serão quitadas"}{" "}
+                        integralmente.
+                      </span>
+                    </div>
+                  )}
+                  {batchSimulation.partialFat && (
+                    <div className="flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        <strong>1 fatura</strong> terá quitação parcial de{" "}
+                        <strong>{brl(batchSimulation.partialFat.paidVal)}</strong> (restando{" "}
+                        <strong>{brl(batchSimulation.partialFat.remainingVal)}</strong> pendentes).
+                      </span>
+                    </div>
+                  )}
+                  {batchSimulation.openCount > 0 && (
+                    <div className="flex items-center gap-1 text-slate-500">
+                      <Clock className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        <strong>{batchSimulation.openCount}</strong>{" "}
+                        {batchSimulation.openCount === 1 ? "fatura continuará" : "faturas continuarão"} em aberto.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Data e Método */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Data de Pagamento</Label>
+                <Input
+                  type="date"
+                  required
+                  value={batchPayForm.pago_em}
+                  onChange={(e) => setBatchPayForm({ ...batchPayForm, pago_em: e.target.value })}
+                  className="h-9 text-xs"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Método de Pagamento</Label>
+                <Select
+                  value={batchPayForm.metodo}
+                  onValueChange={(val) => setBatchPayForm({ ...batchPayForm, metodo: val })}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pix">PIX</SelectItem>
+                    <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                    <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                    <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                    <SelectItem value="transferencia">Transferência Bancária</SelectItem>
+                    <SelectItem value="boleto">Boleto</SelectItem>
+                    <SelectItem value="convenio">Convênio</SelectItem>
+                    <SelectItem value="outro">Outro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Observações */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Observações (Opcional)</Label>
+              <Textarea
+                placeholder="Ex: Pago via PIX pelo responsável no balcão..."
+                rows={2}
+                value={batchPayForm.observacoes}
+                onChange={(e) => setBatchPayForm({ ...batchPayForm, observacoes: e.target.value })}
+                className="text-xs"
+              />
+            </div>
+
+            {/* Anexar Comprovante */}
+            <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg border border-emerald-500/20 flex items-center justify-between gap-2">
+              <div className="text-xs">
+                <span className="font-bold text-emerald-800 dark:text-emerald-300 block">
+                  Comprovante de Pagamento
+                </span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                  Anexe fotos ou PDF do comprovante
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setComprovantesPatientId(batchPayDialog.pacienteId || null);
+                  setComprovantesModalOpen(true);
+                }}
+                className="h-7 text-xs border-emerald-500/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 font-semibold shrink-0 gap-1 cursor-pointer"
+              >
+                <FileCheck className="h-3.5 w-3.5" /> Anexar Comprovante
+              </Button>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setBatchPayDialog({
+                    open: false,
+                    pacienteId: "",
+                    patientName: "",
+                    totalPendente: 0,
+                    faturasCount: 0,
+                    faturas: [],
+                  })
+                }
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  confirmBatchPatientPaymentMutation.isPending ||
+                  !batchPayForm.valorPago ||
+                  parseFloat(batchPayForm.valorPago.replace(",", ".")) <= 0
+                }
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+              >
+                {confirmBatchPatientPaymentMutation.isPending
+                  ? "Confirmando..."
+                  : batchSimulation && batchSimulation.valPaid > 0
+                    ? `Confirmar Pagamento (${brl(batchSimulation.valPaid)})`
+                    : "Confirmar Pagamento"}
               </Button>
             </DialogFooter>
           </form>
