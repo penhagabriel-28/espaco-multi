@@ -474,14 +474,36 @@ function DiretoriaPageContent() {
         .update({
           status: "paga",
           pago_em,
-          metodo: metodo as any,
+          metodo: (metodo || "pix") as any,
           observacoes: observacoes || null,
         })
         .eq("id", id);
       if (error) throw error;
+
+      // Also update linked agendamentos if any
+      const { data: items } = await supabase
+        .from("fatura_itens")
+        .select("agendamento_id")
+        .eq("fatura_id", id);
+
+      const agIds = (items || [])
+        .map((i: any) => i.agendamento_id)
+        .filter(Boolean) as string[];
+
+      if (agIds.length > 0) {
+        await supabase
+          .from("agendamentos")
+          .update({ status: "pago" })
+          .in("id", agIds);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+      queryClient.invalidateQueries({ queryKey: ["faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
       toast.success("Pagamento confirmado com sucesso!");
     },
     onError: (err: any) => {
@@ -492,15 +514,46 @@ function DiretoriaPageContent() {
   // Confirm all patient payments mutation
   const confirmAllPatientPaymentsMutation = useMutation({
     mutationFn: async ({ pacienteId, patientName }: { pacienteId: string; patientName: string }) => {
-      const patientFats = (faturas || []).filter(
+      // 1. Fetch all open/overdue faturas for this patient in the period
+      let targetFaturas = (faturas || []).filter(
         (f) => f.paciente_id === pacienteId && (f.status === "aberta" || f.status === "vencida")
       );
 
-      if (patientFats.length === 0) return;
+      // Fallback query directly from database if state is missing or stale
+      if (targetFaturas.length === 0) {
+        const { data: dbFats } = await supabase
+          .from("faturas")
+          .select("id, competencia, status")
+          .eq("paciente_id", pacienteId)
+          .gte("competencia", inicio)
+          .lte("competencia", fim)
+          .in("status", ["aberta", "vencida"]);
+        if (dbFats && dbFats.length > 0) {
+          targetFaturas = dbFats;
+        }
+      }
 
-      const fatIds = patientFats.map(f => f.id);
-      const competencies = Array.from(new Set(patientFats.map(f => f.competencia)));
-      
+      if (targetFaturas.length === 0) {
+        toast.info("Nenhuma fatura pendente encontrada para este paciente.");
+        return;
+      }
+
+      const fatIds = targetFaturas.map((f: any) => f.id);
+      const nowIso = new Date().toISOString();
+
+      // 2. Mark ALL open/overdue faturas of this patient directly to status 'paga'
+      const { error: fatErr } = await supabase
+        .from("faturas")
+        .update({
+          status: "paga",
+          pago_em: nowIso,
+          metodo: "pix",
+        })
+        .in("id", fatIds);
+
+      if (fatErr) throw fatErr;
+
+      // 3. Also find and update all linked agendamentos to status 'pago'
       const { data: items } = await supabase
         .from("fatura_itens")
         .select("id, agendamento_id, fatura_id")
@@ -517,40 +570,14 @@ function DiretoriaPageContent() {
           .in("id", agIds);
         if (agErr) throw agErr;
       }
-
-      const faturasWithAgendamento = new Set((items || []).filter((item: any) => item.agendamento_id).map((item: any) => item.fatura_id));
-      const manualFatIds = fatIds.filter(id => !faturasWithAgendamento.has(id));
-
-      if (manualFatIds.length > 0) {
-        const { error: fatErr } = await supabase
-          .from("faturas")
-          .update({
-            status: "paga",
-            pago_em: new Date().toISOString(),
-            metodo: "pix",
-          })
-          .in("id", manualFatIds);
-        if (fatErr) throw fatErr;
-      }
-
-      // Force all faturas (including trigger sync'd ones) to show pago_em = now
-      if (competencies.length > 0) {
-        const { error: finalFatErr } = await supabase
-          .from("faturas")
-          .update({
-            pago_em: new Date().toISOString(),
-            metodo: "pix"
-          })
-          .eq("paciente_id", pacienteId)
-          .eq("status", "paga")
-          .in("competencia", competencies);
-        if (finalFatErr) throw finalFatErr;
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+      queryClient.invalidateQueries({ queryKey: ["faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
       toast.success("Todos os pagamentos do período foram confirmados!");
     },
     onError: (err: any) => {
@@ -854,6 +881,8 @@ function DiretoriaPageContent() {
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+      queryClient.invalidateQueries({ queryKey: ["faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
     },
     onError: (err: any) => {
       toast.error("Erro ao atualizar status da sessão: " + err.message);
