@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Plus, Pencil, Trash2, Calendar, CalendarOff } from "lucide-react";
 import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
-import { PacienteFormDialog, formatBirthDateForDisplay } from "@/components/PacienteFormDialog";
+import { PacienteFormDialog, formatBirthDateForDisplay, formatCPF } from "@/components/PacienteFormDialog";
 import { isProfissionalAdmin } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/pacientes/$id")({
@@ -263,6 +263,11 @@ function PacienteDetail() {
                 ? `Convênio: ${paciente.convenio_nome ?? "—"}`
                 : `Particular (${paciente.valor_mensal && paciente.valor_mensal > 0 ? "Mensal" : "Por Sessão"})`
             }
+          />
+
+          <Info
+            label="CPF do Responsável"
+            value={paciente.cpf ? formatCPF(paciente.cpf) : "Não informado"}
           />
 
           <Info

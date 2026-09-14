@@ -164,7 +164,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("pacientes")
-        .select("id, nome, cids_secundarios")
+        .select("id, nome, cids_secundarios, cpf")
         .eq("status", "ativo")
         .order("nome");
       if (error) throw error;
@@ -178,7 +178,8 @@ function RelatoriosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("responsaveis")
-        .select("id, paciente_id, nome, parentesco");
+        .select("id, paciente_id, nome, parentesco, telefone, created_at")
+        .order("created_at", { ascending: true });
       if (error) throw error;
       return data ?? [];
     },
@@ -314,6 +315,28 @@ function RelatoriosPage() {
     });
   }, [computedRequests, searchQuery, statusFilter]);
 
+  // Selected patient data and registration links
+  const selectedPatientData = useMemo(() => {
+    if (!formData.paciente_id) return null;
+    return activePatients.find((p: any) => p.id === formData.paciente_id) || null;
+  }, [formData.paciente_id, activePatients]);
+
+  const isResponsavelFromCadastro = useMemo(() => {
+    if (!formData.paciente_id || !formData.responsavel_nome) return false;
+    return responsaveis.some(
+      (r: any) =>
+        r.paciente_id === formData.paciente_id &&
+        r.nome?.trim().toLowerCase() === formData.responsavel_nome.trim().toLowerCase()
+    );
+  }, [formData.paciente_id, formData.responsavel_nome, responsaveis]);
+
+  const isCpfFromCadastro = useMemo(() => {
+    if (!selectedPatientData?.cpf || !formData.responsavel_cpf) return false;
+    const cleanPatientCpf = selectedPatientData.cpf.replace(/\D/g, "");
+    const cleanFormCpf = formData.responsavel_cpf.replace(/\D/g, "");
+    return cleanPatientCpf === cleanFormCpf && cleanPatientCpf.length > 0;
+  }, [selectedPatientData, formData.responsavel_cpf]);
+
   // Suggested elements
   const suggestedResponsibles = useMemo(() => {
     if (!formData.paciente_id) return [];
@@ -327,6 +350,46 @@ function RelatoriosPage() {
       .map((pp: any) => pp.profissionais);
   }, [formData.paciente_id, pacienteProfissionais]);
 
+  // Handler when selecting patient in dropdown
+  const handleSelectPatient = (patientId: string) => {
+    const patient = activePatients.find((p: any) => p.id === patientId);
+
+    // 1. Primary responsible from registration
+    const patientResps = responsaveis.filter((r: any) => r.paciente_id === patientId);
+    const primaryResp = patientResps[0]?.nome || "";
+
+    // 2. Fallback to previous report requests if not in registration
+    const prevReqWithResp = !primaryResp
+      ? reportRequests.find((r: any) => r.paciente_id === patientId && r.responsavel_nome)?.responsavel_nome || ""
+      : "";
+    const finalResp = primaryResp || prevReqWithResp;
+
+    // 3. CPF from patient registration or fallback to previous requests
+    const patientCpf = patient?.cpf ? formatCPF(patient.cpf) : "";
+    const prevReqWithCpf = !patientCpf
+      ? (() => {
+          const req = reportRequests.find((r: any) => r.paciente_id === patientId && r.responsavel_cpf);
+          return req ? formatCPF(req.responsavel_cpf) : "";
+        })()
+      : "";
+    const finalCpf = patientCpf || prevReqWithCpf;
+
+    // 4. Default assigned professional
+    const assignedProfs = pacienteProfissionais
+      .filter((pp: any) => pp.paciente_id === patientId)
+      .map((pp: any) => pp.profissionais)
+      .filter(Boolean);
+    const defaultProfId = assignedProfs.length === 1 ? assignedProfs[0].id : "";
+
+    setFormData((prev) => ({
+      ...prev,
+      paciente_id: patientId,
+      responsavel_nome: finalResp,
+      responsavel_cpf: finalCpf,
+      profissional_id: defaultProfId || prev.profissional_id,
+    }));
+  };
+
   // Filter invoice requests within selected month
   const invoiceRequestsForSelectedMonth = useMemo(() => {
     return computedRequests.filter((req: any) => {
@@ -336,27 +399,37 @@ function RelatoriosPage() {
     });
   }, [computedRequests, inicio, fim]);
 
-  // Auto-fill CPF, Valor Total and Especialidades when paciente_id or data_solicitacao changes
+  // Auto-fill CPF, Responsável, Valor Total and Especialidades when paciente_id or data_solicitacao changes
   useEffect(() => {
     if (editingRequest) return; // Do not overwrite when editing an existing request
     if (!formData.paciente_id) return;
 
     const autoFillBillingInfo = async () => {
       try {
-        // 1. Pre-fill CPF from pacientes table
-        const { data: pacData, error: pacErr } = await supabase
+        // 1. Pre-fill CPF and Responsável directly from patient registration if not set
+        const { data: pacData } = await supabase
           .from("pacientes")
           .select("cpf")
           .eq("id", formData.paciente_id)
           .single();
 
-        if (pacErr) {
-          console.error("Erro ao buscar dados do paciente:", pacErr);
-        } else if (pacData) {
-          setFormData((prev) => ({
-            ...prev,
-            responsavel_cpf: formatCPF(pacData.cpf || ""),
-          }));
+        const { data: respsData } = await supabase
+          .from("responsaveis")
+          .select("id, nome, parentesco")
+          .eq("paciente_id", formData.paciente_id)
+          .order("created_at", { ascending: true });
+
+        const firstResp = respsData && respsData.length > 0 ? respsData[0].nome : "";
+        const pacCpf = pacData?.cpf ? formatCPF(pacData.cpf) : "";
+
+        let fallbackResp = firstResp;
+        let fallbackCpf = pacCpf;
+        if (!fallbackResp || !fallbackCpf) {
+          const prevReq = reportRequests.find(
+            (r: any) => r.paciente_id === formData.paciente_id && (r.responsavel_nome || r.responsavel_cpf)
+          );
+          if (!fallbackResp && prevReq?.responsavel_nome) fallbackResp = prevReq.responsavel_nome;
+          if (!fallbackCpf && prevReq?.responsavel_cpf) fallbackCpf = formatCPF(prevReq.responsavel_cpf);
         }
 
         // 2. Pre-fill total value from faturas
@@ -408,6 +481,8 @@ function RelatoriosPage() {
 
         setFormData((prev) => ({
           ...prev,
+          responsavel_nome: prev.responsavel_nome || fallbackResp || "",
+          responsavel_cpf: prev.responsavel_cpf || fallbackCpf || "",
           valor_total: valorTotalPreFill,
           especialidades: uniqueSpecs,
         }));
@@ -417,7 +492,7 @@ function RelatoriosPage() {
     };
 
     autoFillBillingInfo();
-  }, [formData.paciente_id, formData.data_solicitacao, editingRequest]);
+  }, [formData.paciente_id, formData.data_solicitacao, editingRequest, reportRequests]);
 
   const getInvoicesTextSummary = () => {
     const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
@@ -546,10 +621,51 @@ function RelatoriosPage() {
           .insert(payload);
         if (error) throw error;
       }
+
+      // Sincronizar dados com o cadastro do paciente
+      if (data.paciente_id) {
+        try {
+          // 1. Atualizar CPF no cadastro do paciente caso não tenha ou seja diferente
+          if (cleanCpf) {
+            const { data: curPac } = await supabase
+              .from("pacientes")
+              .select("cpf")
+              .eq("id", data.paciente_id)
+              .single();
+
+            if (!curPac?.cpf || curPac.cpf !== cleanCpf) {
+              await supabase
+                .from("pacientes")
+                .update({ cpf: cleanCpf })
+                .eq("id", data.paciente_id);
+            }
+          }
+
+          // 2. Se o paciente não tiver responsável cadastrado, salvar o responsável informado
+          if (data.responsavel_nome && data.responsavel_nome.trim()) {
+            const { data: curResps } = await supabase
+              .from("responsaveis")
+              .select("id")
+              .eq("paciente_id", data.paciente_id);
+
+            if (!curResps || curResps.length === 0) {
+              await supabase.from("responsaveis").insert({
+                paciente_id: data.paciente_id,
+                nome: data.responsavel_nome.trim(),
+              });
+            }
+          }
+        } catch (syncErr) {
+          console.warn("Aviso ao sincronizar dados com cadastro do paciente:", syncErr);
+        }
+      }
     },
     onSuccess: () => {
       toast.success("Registro salvo com sucesso!");
       qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+      qc.invalidateQueries({ queryKey: ["active-patients-list"] });
+      qc.invalidateQueries({ queryKey: ["responsaveis-all"] });
+      qc.invalidateQueries({ queryKey: ["pacientes"] });
       setDialogOpen(false);
       resetForm();
     },
@@ -1459,7 +1575,14 @@ function RelatoriosPage() {
                                 {docTipo}
                               </Badge>
                             </TableCell>
-                            <TableCell>{req.responsavel_nome}</TableCell>
+                            <TableCell>
+                              <div className="font-medium">{req.responsavel_nome || "—"}</div>
+                              {req.responsavel_cpf && (
+                                <div className="text-[11px] text-muted-foreground font-mono">
+                                  CPF: {formatCPF(req.responsavel_cpf)}
+                                </div>
+                              )}
+                            </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-1.5">
                                 <span className="truncate max-w-[120px]" title={profNome}>{profNome}</span>
@@ -2190,10 +2313,18 @@ function RelatoriosPage() {
 
             <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
               <div className="space-y-2">
-                <Label htmlFor="paciente_id">Paciente</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="paciente_id">Paciente</Label>
+                  {selectedPatientData && (
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                      <Users className="h-3 w-3 text-primary" />
+                      Cadastro vinculado
+                    </span>
+                  )}
+                </div>
                 <Select
                   value={formData.paciente_id}
-                  onValueChange={(val) => setFormData((prev) => ({ ...prev, paciente_id: val, responsavel_nome: "", profissional_id: "" }))}
+                  onValueChange={handleSelectPatient}
                   disabled={!!editingRequest}
                 >
                   <SelectTrigger id="paciente_id">
@@ -2210,7 +2341,20 @@ function RelatoriosPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="responsavel_nome">Responsável Solicitante</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="responsavel_nome">Responsável Solicitante</Label>
+                  {formData.paciente_id && (
+                    isResponsavelFromCadastro ? (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                        <Check className="h-3 w-3" /> Puxado do cadastro
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                        Não cadastrado (será salvo)
+                      </span>
+                    )
+                  )}
+                </div>
                 <Input
                   id="responsavel_nome"
                   value={formData.responsavel_nome}
@@ -2220,13 +2364,20 @@ function RelatoriosPage() {
                 
                 {suggestedResponsibles.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1 items-center">
-                    <span className="text-[10px] text-muted-foreground mr-1">Sugestões:</span>
+                    <span className="text-[10px] text-muted-foreground mr-1">
+                      {suggestedResponsibles.length > 1 ? "Outros do cadastro:" : "Responsável cadastrado:"}
+                    </span>
                     {suggestedResponsibles.map((resp: any) => (
                       <Button
                         key={resp.id}
                         type="button"
                         variant="outline"
-                        className="text-[10px] px-2 py-0.5 h-auto rounded-full bg-secondary/50 hover:bg-secondary border-0"
+                        className={cn(
+                          "text-[10px] px-2 py-0.5 h-auto rounded-full border",
+                          formData.responsavel_nome === resp.nome
+                            ? "bg-primary/10 border-primary/30 text-primary font-medium"
+                            : "bg-secondary/50 hover:bg-secondary border-transparent"
+                        )}
                         onClick={() => setFormData((prev) => ({ ...prev, responsavel_nome: resp.nome }))}
                       >
                         {resp.nome} {resp.parentesco ? `(${resp.parentesco})` : ""}
@@ -2238,7 +2389,20 @@ function RelatoriosPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="responsavel_cpf">CPF do Responsável</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="responsavel_cpf">CPF do Responsável</Label>
+                    {formData.paciente_id && (
+                      isCpfFromCadastro ? (
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                          <Check className="h-3 w-3" /> Puxado do cadastro
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                          Não informado (será salvo)
+                        </span>
+                      )
+                    )}
+                  </div>
                   <Input
                     id="responsavel_cpf"
                     value={formData.responsavel_cpf}
