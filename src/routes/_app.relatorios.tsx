@@ -64,6 +64,15 @@ import { formatCPF } from "@/components/PacienteFormDialog";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { cn, isProfissionalAdmin } from "@/lib/utils";
 
+// Helper to split compound responsible names (e.g. "Thaís Pereira Amorim e Paulo Cruz Ferreira") into individual persons
+export function splitResponsibleNames(name: string): string[] {
+  if (!name) return [];
+  const parts = name.split(/\s+(?:e|\/|&|\+|e\/ou)\s+/i);
+  return parts
+    .map((p) => p.replace(/^(?:mãe|pai|responsável|resp\.?|avó|avô|tio|tia)\s*:\s*/i, "").trim())
+    .filter((p) => p.length > 1);
+}
+
 export const Route = createFileRoute("/_app/relatorios")({
   component: RelatoriosPage,
 });
@@ -357,14 +366,39 @@ function RelatoriosPage() {
     return activePatients.find((p: any) => p.id === formData.paciente_id) || null;
   }, [formData.paciente_id, activePatients]);
 
+  // Suggested elements
+  const suggestedResponsibles = useMemo(() => {
+    if (!formData.paciente_id) return [];
+    const rawResps = responsaveis.filter((r: any) => r.paciente_id === formData.paciente_id);
+    const result: any[] = [];
+    rawResps.forEach((r: any) => {
+      const splitNames = splitResponsibleNames(r.nome);
+      if (splitNames.length > 1) {
+        splitNames.forEach((sName: string, idx: number) => {
+          result.push({
+            ...r,
+            id: `${r.id}_${idx}`,
+            rawId: r.id,
+            nome: sName,
+            cpf: idx === 0 ? r.cpf : null,
+          });
+        });
+      } else {
+        result.push({
+          ...r,
+          rawId: r.id,
+        });
+      }
+    });
+    return result;
+  }, [formData.paciente_id, responsaveis]);
+
   const isResponsavelFromCadastro = useMemo(() => {
     if (!formData.paciente_id || !formData.responsavel_nome) return false;
-    return responsaveis.some(
-      (r: any) =>
-        r.paciente_id === formData.paciente_id &&
-        r.nome?.trim().toLowerCase() === formData.responsavel_nome.trim().toLowerCase()
+    return suggestedResponsibles.some(
+      (r: any) => r.nome?.trim().toLowerCase() === formData.responsavel_nome.trim().toLowerCase()
     );
-  }, [formData.paciente_id, formData.responsavel_nome, responsaveis]);
+  }, [formData.paciente_id, formData.responsavel_nome, suggestedResponsibles]);
 
   const isCpfFromCadastro = useMemo(() => {
     if (!selectedPatientData?.cpf || !formData.responsavel_cpf) return false;
@@ -372,12 +406,6 @@ function RelatoriosPage() {
     const cleanFormCpf = formData.responsavel_cpf.replace(/\D/g, "");
     return cleanPatientCpf === cleanFormCpf && cleanPatientCpf.length > 0;
   }, [selectedPatientData, formData.responsavel_cpf]);
-
-  // Suggested elements
-  const suggestedResponsibles = useMemo(() => {
-    if (!formData.paciente_id) return [];
-    return responsaveis.filter((r: any) => r.paciente_id === formData.paciente_id);
-  }, [formData.paciente_id, responsaveis]);
 
   const suggestedProfessionals = useMemo(() => {
     if (!formData.paciente_id) return [];
@@ -511,7 +539,7 @@ function RelatoriosPage() {
 
     setFormData((prev) => ({
       ...prev,
-      responsavel_id: resp.id,
+      responsavel_id: resp.rawId || resp.id,
       responsavel_nome: resp.nome,
       responsavel_cpf: respCpf,
       responsavel_email: respEmail,
@@ -523,35 +551,51 @@ function RelatoriosPage() {
   const handleSelectPatient = (patientId: string) => {
     const patient = activePatients.find((p: any) => p.id === patientId);
 
-    // 1. Primary responsible from registration
-    const patientResps = responsaveis.filter((r: any) => r.paciente_id === patientId);
-    const primaryResp = patientResps[0];
-    const primaryRespName = primaryResp?.nome || "";
+    // 1. List of responsibles for this patient (including split compound names)
+    const rawResps = responsaveis.filter((r: any) => r.paciente_id === patientId);
+    const parsedResps: any[] = [];
+    rawResps.forEach((r: any) => {
+      const splitNames = splitResponsibleNames(r.nome);
+      if (splitNames.length > 1) {
+        splitNames.forEach((sName: string, idx: number) => {
+          parsedResps.push({
+            ...r,
+            id: `${r.id}_${idx}`,
+            rawId: r.id,
+            nome: sName,
+            cpf: idx === 0 ? r.cpf : null,
+          });
+        });
+      } else {
+        parsedResps.push({
+          ...r,
+          rawId: r.id,
+        });
+      }
+    });
 
-    // 2. Fallback to previous report requests if not in registration
-    const prevReqWithResp = !primaryRespName
-      ? reportRequests.find((r: any) => r.paciente_id === patientId && r.responsavel_nome)
-      : null;
-    const finalRespName = primaryRespName || prevReqWithResp?.responsavel_nome || "";
+    // Se houver EXATAMENTE 1 responsável cadastrado, pré-seleciona ele.
+    // Se houver 2 OU MAIS (como pai e mãe), NÃO sugere ambos juntos nem escolhe às cegas:
+    // O usuário escolhe clicando diretamente no botão do responsável que emitirá a nota fiscal.
+    const autoResp = parsedResps.length === 1 ? parsedResps[0] : null;
 
-    // 3. CPF from responsible, patient registration or previous requests
     const patientCpf = patient?.cpf ? formatCPF(patient.cpf) : "";
-    const finalCpf = primaryResp?.cpf
-      ? formatCPF(primaryResp.cpf)
-      : patientCpf || (prevReqWithResp?.responsavel_cpf ? formatCPF(prevReqWithResp.responsavel_cpf) : "");
+    const finalRespName = autoResp ? autoResp.nome : "";
+    const finalRespId = autoResp ? autoResp.rawId || autoResp.id : "";
+    const finalCpf = autoResp?.cpf
+      ? formatCPF(autoResp.cpf)
+      : (autoResp ? patientCpf : "");
+    const finalEmail = autoResp?.email || "";
+    const finalEndereco = autoResp?.endereco || (patient as any)?.endereco || "";
 
-    // 4. Email & Endereço
-    const finalEmail = primaryResp?.email || (prevReqWithResp as any)?.responsavel_email || "";
-    const finalEndereco = primaryResp?.endereco || (patient as any)?.endereco || (prevReqWithResp as any)?.responsavel_endereco || "";
-
-    // 5. Default assigned professional
+    // Default assigned professional
     const assignedProfs = pacienteProfissionais
       .filter((pp: any) => pp.paciente_id === patientId)
       .map((pp: any) => pp.profissionais)
       .filter(Boolean);
     const defaultProfId = assignedProfs.length === 1 ? assignedProfs[0].id : "";
 
-    // 6. Especialidades cadastradas
+    // Especialidades cadastradas
     const patientSpecs = Array.isArray(patient?.cids_secundarios) && patient.cids_secundarios.length > 0
       ? patient.cids_secundarios.join(", ")
       : "";
@@ -559,7 +603,7 @@ function RelatoriosPage() {
     setFormData((prev) => ({
       ...prev,
       paciente_id: patientId,
-      responsavel_id: primaryResp?.id || "",
+      responsavel_id: finalRespId,
       responsavel_nome: finalRespName,
       responsavel_cpf: finalCpf,
       responsavel_email: finalEmail,
@@ -2697,10 +2741,15 @@ function RelatoriosPage() {
                 {formData.paciente_id && (
                   <div className="space-y-3 pt-2 border-t border-border/60 animate-in fade-in slide-in-from-top-2 duration-200">
                     {/* ESCOLHA DO RESPONSÁVEL */}
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs font-semibold text-foreground">
-                          Responsável Solicitante
+                        <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                          <span>Responsável Solicitante</span>
+                          {suggestedResponsibles.length > 1 && (
+                            <span className="text-[10px] text-muted-foreground font-normal">
+                              (selecione um abaixo)
+                            </span>
+                          )}
                         </Label>
                         {isResponsavelFromCadastro ? (
                           <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
@@ -2708,30 +2757,36 @@ function RelatoriosPage() {
                           </span>
                         ) : (
                           <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                            Personalizado (será salvo)
+                            {formData.responsavel_nome ? "Personalizado (será salvo)" : "Pendente de escolha"}
                           </span>
                         )}
                       </div>
 
+                      {suggestedResponsibles.length > 1 && !formData.responsavel_nome && (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium bg-amber-500/10 p-1.5 rounded border border-amber-500/20">
+                          Clique no responsável que constará na nota fiscal:
+                        </p>
+                      )}
+
                       {suggestedResponsibles.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="flex flex-wrap gap-2">
                           {suggestedResponsibles.map((resp: any) => {
                             const isSelected =
-                              formData.responsavel_id === resp.id ||
-                              formData.responsavel_nome === resp.nome;
+                              (formData.responsavel_id && (formData.responsavel_id === resp.id || formData.responsavel_id === resp.rawId)) ||
+                              (formData.responsavel_nome && formData.responsavel_nome.trim().toLowerCase() === resp.nome.trim().toLowerCase());
                             return (
                               <button
                                 key={resp.id}
                                 type="button"
                                 onClick={() => handlePickResponsible(resp)}
                                 className={cn(
-                                  "text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-all cursor-pointer",
+                                  "text-xs px-3 py-1.5 rounded-lg border flex items-center gap-2 transition-all cursor-pointer font-medium",
                                   isSelected
-                                    ? "bg-primary text-primary-foreground border-primary shadow-sm font-medium"
-                                    : "bg-background hover:bg-secondary border-border text-foreground"
+                                    ? "bg-primary text-primary-foreground border-primary shadow-sm ring-2 ring-primary/30 font-semibold"
+                                    : "bg-card hover:bg-secondary/80 border-border text-foreground hover:border-primary/50"
                                 )}
                               >
-                                <UserCheck className="h-3 w-3 shrink-0" />
+                                <UserCheck className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "text-primary-foreground" : "text-muted-foreground")} />
                                 <span>{resp.nome}</span>
                                 {resp.parentesco && (
                                   <span className="opacity-80 text-[10px]">({resp.parentesco})</span>
