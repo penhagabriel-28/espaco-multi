@@ -27,6 +27,9 @@ import {
   Eye,
   Download,
   Printer,
+  UserCheck,
+  Loader2,
+  Info as InfoIcon,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -38,7 +41,8 @@ import {
   Tooltip as RechartsTooltip,
   Legend as RechartsLegend,
 } from "recharts";
-import { format, startOfMonth, endOfMonth, differenceInDays, addDays, parseISO, isAfter } from "date-fns";
+import { format, startOfMonth, endOfMonth, differenceInDays, addDays, parseISO, isAfter, subMonths } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -99,10 +103,14 @@ function RelatoriosPage() {
   const [formData, setFormData] = useState({
     id: "",
     paciente_id: "",
+    responsavel_id: "",
     responsavel_nome: "",
     responsavel_cpf: "",
+    responsavel_email: "",
+    responsavel_endereco: "",
     profissional_id: "",
     tipo_documento_id: "",
+    meses_referencia: [format(new Date(), "yyyy-MM")] as string[],
     data_solicitacao: format(new Date(), "yyyy-MM-dd"),
     data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
     data_entrega: "",
@@ -110,6 +118,9 @@ function RelatoriosPage() {
     valor_total: "",
     especialidades: "",
   });
+
+  const [isCalculatingTotal, setIsCalculatingTotal] = useState(false);
+  const [calculationSummary, setCalculationSummary] = useState("");
 
   // Queries
   const { data: agendamentos = [] } = useQuery({
@@ -162,13 +173,26 @@ function RelatoriosPage() {
   const { data: activePatients = [] } = useQuery({
     queryKey: ["active-patients-list"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("pacientes")
-        .select("id, nome, cids_secundarios, cpf")
-        .eq("status", "ativo")
-        .order("nome");
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("pacientes")
+          .select("id, nome, cids_secundarios, cpf, endereco, valor_mensal")
+          .eq("status", "ativo")
+          .order("nome");
+        if (error) {
+          const { data: fbData, error: fbErr } = await supabase
+            .from("pacientes")
+            .select("id, nome, cids_secundarios, cpf, valor_mensal")
+            .eq("status", "ativo")
+            .order("nome");
+          if (fbErr) throw fbErr;
+          return fbData ?? [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn("Aviso ao buscar pacientes:", err);
+        return [];
+      }
     },
   });
 
@@ -176,12 +200,24 @@ function RelatoriosPage() {
   const { data: responsaveis = [] } = useQuery({
     queryKey: ["responsaveis-all"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("responsaveis")
-        .select("id, paciente_id, nome, parentesco, telefone, created_at")
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("responsaveis")
+          .select("id, paciente_id, nome, parentesco, telefone, cpf, email, endereco, created_at")
+          .order("created_at", { ascending: true });
+        if (error) {
+          const { data: fbData, error: fbErr } = await supabase
+            .from("responsaveis")
+            .select("id, paciente_id, nome, parentesco, telefone, email, created_at")
+            .order("created_at", { ascending: true });
+          if (fbErr) throw fbErr;
+          return fbData ?? [];
+        }
+        return data ?? [];
+      } catch (err) {
+        console.warn("Aviso ao buscar responsaveis:", err);
+        return [];
+      }
     },
   });
 
@@ -350,43 +386,186 @@ function RelatoriosPage() {
       .map((pp: any) => pp.profissionais);
   }, [formData.paciente_id, pacienteProfissionais]);
 
+  // Tipo de documento selecionado e se é Nota Fiscal
+  const selectedTipoDoc = useMemo(() => {
+    return tiposDocumento.find((t: any) => t.id === formData.tipo_documento_id);
+  }, [tiposDocumento, formData.tipo_documento_id]);
+
+  const isTipoNotaFiscal = useMemo(() => {
+    if (!selectedTipoDoc?.nome) return false;
+    return selectedTipoDoc.nome.toLowerCase().includes("nota fiscal");
+  }, [selectedTipoDoc]);
+
+  // Lista dos últimos 12 meses para seleção de Nota Fiscal
+  const availableMonths = useMemo(() => {
+    const months: { value: string; label: string; yearMonth: string }[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = subMonths(now, i);
+      const value = format(d, "yyyy-MM");
+      const label = format(d, "MMM/yy", { locale: ptBR });
+      const fullLabel = format(d, "MMMM 'de' yyyy", { locale: ptBR });
+      months.push({
+        value,
+        label: label.charAt(0).toUpperCase() + label.slice(1),
+        yearMonth: fullLabel.charAt(0).toUpperCase() + fullLabel.slice(1),
+      });
+    }
+    return months;
+  }, []);
+
+  // Atalhos de seleção de meses
+  const selectMonthPreset = (preset: "current" | "previous" | "last2" | "last3") => {
+    const now = new Date();
+    const current = format(now, "yyyy-MM");
+    const prev = format(subMonths(now, 1), "yyyy-MM");
+    const prev2 = format(subMonths(now, 2), "yyyy-MM");
+
+    let months: string[] = [];
+    if (preset === "current") months = [current];
+    else if (preset === "previous") months = [prev];
+    else if (preset === "last2") months = [prev, current];
+    else if (preset === "last3") months = [prev2, prev, current];
+
+    setFormData((prevForm) => ({ ...prevForm, meses_referencia: months }));
+  };
+
+  const toggleMonth = (monthVal: string) => {
+    setFormData((prev) => {
+      const currentList = prev.meses_referencia || [];
+      const exists = currentList.includes(monthVal);
+      const nextMonths = exists
+        ? currentList.filter((m) => m !== monthVal)
+        : [...currentList, monthVal].sort();
+      return { ...prev, meses_referencia: nextMonths };
+    });
+  };
+
+  // Especialidades que o paciente frequenta (consultas anteriores + cadastro)
+  const { data: patientConsultationSpecialties = [] } = useQuery({
+    queryKey: ["patient-consultation-specialties", formData.paciente_id],
+    queryFn: async () => {
+      if (!formData.paciente_id) return [];
+      const pac = activePatients.find((p: any) => p.id === formData.paciente_id);
+      const fromPac = Array.isArray(pac?.cids_secundarios) ? pac.cids_secundarios : [];
+
+      const { data: ags } = await supabase
+        .from("agendamentos")
+        .select("servicos(nome), profissionais(especialidade)")
+        .eq("paciente_id", formData.paciente_id)
+        .neq("status", "cancelado")
+        .limit(100);
+
+      const fromAgs: string[] = [];
+      ags?.forEach((a: any) => {
+        if (a.servicos?.nome) fromAgs.push(a.servicos.nome);
+        if (a.profissionais?.especialidade) {
+          a.profissionais.especialidade.split(",").forEach((s: string) => fromAgs.push(s.trim()));
+        }
+      });
+
+      return Array.from(new Set([...fromPac, ...fromAgs])).filter(Boolean);
+    },
+    enabled: !!formData.paciente_id,
+  });
+
+  const handleToggleSpecialty = (spec: string) => {
+    setFormData((prev) => {
+      const current = prev.especialidades
+        ? prev.especialidades.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+      const exists = current.some((s) => s.toLowerCase() === spec.toLowerCase());
+      const next = exists
+        ? current.filter((s) => s.toLowerCase() !== spec.toLowerCase())
+        : [...current, spec];
+      return { ...prev, especialidades: next.join(", ") };
+    });
+  };
+
+  // Mês alvo para checagem de profissionais ativos
+  const targetPeriodMonth = useMemo(() => {
+    if (isTipoNotaFiscal && formData.meses_referencia.length > 0) {
+      return formData.meses_referencia[formData.meses_referencia.length - 1];
+    }
+    return formData.data_solicitacao ? formData.data_solicitacao.substring(0, 7) : format(new Date(), "yyyy-MM");
+  }, [isTipoNotaFiscal, formData.meses_referencia, formData.data_solicitacao]);
+
+  const activeProfsForPeriod = useMemo(() => {
+    return activeProfessionals.filter((p: any) => {
+      if (p.id === formData.profissional_id) return true;
+      if (p.ativo) return true;
+      const config = p.valores_config as any;
+      if (config?.ativo_ate) {
+        return targetPeriodMonth <= config.ativo_ate;
+      }
+      return false;
+    });
+  }, [activeProfessionals, formData.profissional_id, targetPeriodMonth]);
+
+  // Escolher um dos responsáveis cadastrados do paciente
+  const handlePickResponsible = (resp: any) => {
+    const patientCpf = selectedPatientData?.cpf ? formatCPF(selectedPatientData.cpf) : "";
+    const respCpf = resp.cpf ? formatCPF(resp.cpf) : patientCpf;
+    const respEmail = resp.email || "";
+    const respEndereco = resp.endereco || (selectedPatientData as any)?.endereco || "";
+
+    setFormData((prev) => ({
+      ...prev,
+      responsavel_id: resp.id,
+      responsavel_nome: resp.nome,
+      responsavel_cpf: respCpf,
+      responsavel_email: respEmail,
+      responsavel_endereco: respEndereco,
+    }));
+  };
+
   // Handler when selecting patient in dropdown
   const handleSelectPatient = (patientId: string) => {
     const patient = activePatients.find((p: any) => p.id === patientId);
 
     // 1. Primary responsible from registration
     const patientResps = responsaveis.filter((r: any) => r.paciente_id === patientId);
-    const primaryResp = patientResps[0]?.nome || "";
+    const primaryResp = patientResps[0];
+    const primaryRespName = primaryResp?.nome || "";
 
     // 2. Fallback to previous report requests if not in registration
-    const prevReqWithResp = !primaryResp
-      ? reportRequests.find((r: any) => r.paciente_id === patientId && r.responsavel_nome)?.responsavel_nome || ""
-      : "";
-    const finalResp = primaryResp || prevReqWithResp;
+    const prevReqWithResp = !primaryRespName
+      ? reportRequests.find((r: any) => r.paciente_id === patientId && r.responsavel_nome)
+      : null;
+    const finalRespName = primaryRespName || prevReqWithResp?.responsavel_nome || "";
 
-    // 3. CPF from patient registration or fallback to previous requests
+    // 3. CPF from responsible, patient registration or previous requests
     const patientCpf = patient?.cpf ? formatCPF(patient.cpf) : "";
-    const prevReqWithCpf = !patientCpf
-      ? (() => {
-          const req = reportRequests.find((r: any) => r.paciente_id === patientId && r.responsavel_cpf);
-          return req ? formatCPF(req.responsavel_cpf) : "";
-        })()
-      : "";
-    const finalCpf = patientCpf || prevReqWithCpf;
+    const finalCpf = primaryResp?.cpf
+      ? formatCPF(primaryResp.cpf)
+      : patientCpf || (prevReqWithResp?.responsavel_cpf ? formatCPF(prevReqWithResp.responsavel_cpf) : "");
 
-    // 4. Default assigned professional
+    // 4. Email & Endereço
+    const finalEmail = primaryResp?.email || (prevReqWithResp as any)?.responsavel_email || "";
+    const finalEndereco = primaryResp?.endereco || (patient as any)?.endereco || (prevReqWithResp as any)?.responsavel_endereco || "";
+
+    // 5. Default assigned professional
     const assignedProfs = pacienteProfissionais
       .filter((pp: any) => pp.paciente_id === patientId)
       .map((pp: any) => pp.profissionais)
       .filter(Boolean);
     const defaultProfId = assignedProfs.length === 1 ? assignedProfs[0].id : "";
 
+    // 6. Especialidades cadastradas
+    const patientSpecs = Array.isArray(patient?.cids_secundarios) && patient.cids_secundarios.length > 0
+      ? patient.cids_secundarios.join(", ")
+      : "";
+
     setFormData((prev) => ({
       ...prev,
       paciente_id: patientId,
-      responsavel_nome: finalResp,
+      responsavel_id: primaryResp?.id || "",
+      responsavel_nome: finalRespName,
       responsavel_cpf: finalCpf,
+      responsavel_email: finalEmail,
+      responsavel_endereco: finalEndereco,
       profissional_id: defaultProfId || prev.profissional_id,
+      especialidades: prev.especialidades || patientSpecs,
     }));
   };
 
@@ -399,100 +578,67 @@ function RelatoriosPage() {
     });
   }, [computedRequests, inicio, fim]);
 
-  // Auto-fill CPF, Responsável, Valor Total and Especialidades when paciente_id or data_solicitacao changes
+  // Cálculo automático do "Valor Total" com a soma dos valores das consultas dos meses referidos
   useEffect(() => {
-    if (editingRequest) return; // Do not overwrite when editing an existing request
-    if (!formData.paciente_id) return;
+    if (editingRequest) return; // Não sobrescrever em edição
+    if (!formData.paciente_id) {
+      setCalculationSummary("");
+      return;
+    }
 
-    const autoFillBillingInfo = async () => {
+    const calcTotal = async () => {
+      setIsCalculatingTotal(true);
       try {
-        // 1. Pre-fill CPF and Responsável directly from patient registration if not set
-        const { data: pacData } = await supabase
-          .from("pacientes")
-          .select("cpf")
-          .eq("id", formData.paciente_id)
-          .single();
+        const monthsToCalc = isTipoNotaFiscal && formData.meses_referencia.length > 0
+          ? formData.meses_referencia
+          : [formData.data_solicitacao.substring(0, 7)];
 
-        const { data: respsData } = await supabase
-          .from("responsaveis")
-          .select("id, nome, parentesco")
-          .eq("paciente_id", formData.paciente_id)
-          .order("created_at", { ascending: true });
+        const competencias = monthsToCalc.map((m) => `${m}-01`);
 
-        const firstResp = respsData && respsData.length > 0 ? respsData[0].nome : "";
-        const pacCpf = pacData?.cpf ? formatCPF(pacData.cpf) : "";
-
-        let fallbackResp = firstResp;
-        let fallbackCpf = pacCpf;
-        if (!fallbackResp || !fallbackCpf) {
-          const prevReq = reportRequests.find(
-            (r: any) => r.paciente_id === formData.paciente_id && (r.responsavel_nome || r.responsavel_cpf)
-          );
-          if (!fallbackResp && prevReq?.responsavel_nome) fallbackResp = prevReq.responsavel_nome;
-          if (!fallbackCpf && prevReq?.responsavel_cpf) fallbackCpf = formatCPF(prevReq.responsavel_cpf);
-        }
-
-        // 2. Pre-fill total value from faturas
-        const d = parseISO(formData.data_solicitacao);
-        const competencia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-
-        const { data: faturaData, error: faturaErr } = await supabase
+        // 1. Buscar faturas do paciente para estes meses
+        const { data: faturasData, error: fatError } = await supabase
           .from("faturas")
-          .select("valor")
+          .select("competencia, valor")
           .eq("paciente_id", formData.paciente_id)
-          .eq("competencia", competencia)
-          .maybeSingle();
+          .in("competencia", competencias);
 
-        let valorTotalPreFill = "";
-        if (faturaErr) {
-          console.error("Erro ao buscar fatura:", faturaErr);
-        } else if (faturaData) {
-          valorTotalPreFill = String(faturaData.valor || "");
-        }
+        let total = 0;
+        const foundMonths = new Set<string>();
 
-        // 3. Pre-fill unique specialties attended in the month
-        const start = `${competencia}T00:00:00`;
-        const end = `${format(endOfMonth(d), "yyyy-MM-dd")}T23:59:59`;
-
-        const { data: sessions, error: sessionsErr } = await supabase
-          .from("agendamentos")
-          .select("servicos(nome), profissionais(especialidade)")
-          .eq("paciente_id", formData.paciente_id)
-          .gte("data_inicio", start)
-          .lte("data_inicio", end)
-          .in("status", ["realizado", "pago"]);
-
-        let uniqueSpecs = "";
-        if (sessionsErr) {
-          console.error("Erro ao buscar especialidades atendidas:", sessionsErr);
-        } else if (sessions) {
-          const specsSet = new Set<string>();
-          sessions.forEach((a: any) => {
-            const spec = a.servicos?.nome || a.profissionais?.especialidade;
-            if (spec) {
-              spec.split(",").forEach((s: string) => {
-                const trimmed = s.trim();
-                if (trimmed) specsSet.add(trimmed);
-              });
-            }
+        if (!fatError && faturasData && faturasData.length > 0) {
+          faturasData.forEach((f: any) => {
+            total += Number(f.valor || 0);
+            if (f.competencia) foundMonths.add(f.competencia.substring(0, 7));
           });
-          uniqueSpecs = Array.from(specsSet).join(", ");
         }
 
-        setFormData((prev) => ({
-          ...prev,
-          responsavel_nome: prev.responsavel_nome || fallbackResp || "",
-          responsavel_cpf: prev.responsavel_cpf || fallbackCpf || "",
-          valor_total: valorTotalPreFill,
-          especialidades: uniqueSpecs,
-        }));
+        // 2. Se algum mês não tem fatura cadastrada, buscar valor mensal do paciente
+        const missingMonths = monthsToCalc.filter((m) => !foundMonths.has(m));
+        if (missingMonths.length > 0) {
+          const pac = activePatients.find((p: any) => p.id === formData.paciente_id);
+          if (pac?.valor_mensal) {
+            total += Number(pac.valor_mensal) * missingMonths.length;
+          }
+        }
+
+        if (total > 0) {
+          setFormData((prev) => ({ ...prev, valor_total: total.toFixed(2) }));
+          const formattedTotal = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(total);
+          setCalculationSummary(
+            `Soma calculada: ${formattedTotal} (${monthsToCalc.length} ${monthsToCalc.length === 1 ? "mês" : "meses"})`
+          );
+        } else {
+          setCalculationSummary("Nenhuma fatura encontrada para os meses selecionados (insira manualmente se necessário).");
+        }
       } catch (err) {
-        console.error("Erro no preenchimento automático:", err);
+        console.error("Erro ao calcular valor total dos meses:", err);
+      } finally {
+        setIsCalculatingTotal(false);
       }
     };
 
-    autoFillBillingInfo();
-  }, [formData.paciente_id, formData.data_solicitacao, editingRequest, reportRequests]);
+    calcTotal();
+  }, [formData.paciente_id, formData.meses_referencia, formData.data_solicitacao, isTipoNotaFiscal, editingRequest, activePatients]);
 
   const getInvoicesTextSummary = () => {
     const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
@@ -511,6 +657,9 @@ function RelatoriosPage() {
       const paciente = req.paciente?.nome || "—";
       const responsavel = req.responsavel_nome || "—";
       const cpf = req.responsavel_cpf ? formatCPF(req.responsavel_cpf) : "—";
+      const email = req.responsavel_email || "—";
+      const endereco = req.responsavel_endereco || "—";
+      const mesesRef = req.meses_referencia || "—";
       const valorTotal = req.valor_total 
         ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(req.valor_total))
         : "—";
@@ -520,8 +669,11 @@ function RelatoriosPage() {
       
       text += `${index + 1}. *Paciente:* ${paciente}\n`;
       text += `   *Responsável:* ${responsavel} (CPF: ${cpf})\n`;
-      text += `   *Valor Total das Sessões:* ${valorTotal}\n`;
-      text += `   *Especialidades Atendidas:* ${especialidades}\n`;
+      if (email !== "—") text += `   *E-mail:* ${email}\n`;
+      if (endereco !== "—") text += `   *Endereço:* ${endereco}\n`;
+      if (mesesRef !== "—") text += `   *Meses de Referência:* ${mesesRef}\n`;
+      text += `   *Valor Total:* ${valorTotal}\n`;
+      text += `   *Especialidades:* ${especialidades}\n`;
       text += `   *Data Solicitação:* ${dataSol}\n`;
       text += `   *Observações:* ${obs}\n\n`;
     });
@@ -552,6 +704,9 @@ function RelatoriosPage() {
       "Paciente",
       "Responsável Solicitante",
       "CPF do Responsável",
+      "E-mail do Responsável",
+      "Endereço do Responsável",
+      "Meses de Referência",
       "Valor Total das Sessões",
       "Especialidades Atendidas",
       "Profissional Responsável",
@@ -566,6 +721,9 @@ function RelatoriosPage() {
       req.paciente?.nome || "—",
       req.responsavel_nome || "—",
       req.responsavel_cpf ? formatCPF(req.responsavel_cpf) : "—",
+      req.responsavel_email || "—",
+      req.responsavel_endereco || "—",
+      req.meses_referencia || "—",
       req.valor_total ? String(req.valor_total) : "—",
       req.especialidades || "—",
       req.profissional?.nome || "—",
@@ -595,10 +753,18 @@ function RelatoriosPage() {
   // Mutations
   const saveMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const payload = {
+      const cleanCpf = data.responsavel_cpf ? data.responsavel_cpf.replace(/\D/g, "") : null;
+      const mesesStr = Array.isArray(data.meses_referencia) && data.meses_referencia.length > 0
+        ? data.meses_referencia.join(", ")
+        : null;
+
+      const payload: any = {
         paciente_id: data.paciente_id,
         responsavel_nome: data.responsavel_nome,
-        responsavel_cpf: data.responsavel_cpf ? data.responsavel_cpf.replace(/\D/g, "") : null,
+        responsavel_cpf: cleanCpf,
+        responsavel_email: data.responsavel_email?.trim() || null,
+        responsavel_endereco: data.responsavel_endereco?.trim() || null,
+        meses_referencia: mesesStr,
         profissional_id: data.profissional_id === "none" || !data.profissional_id ? null : data.profissional_id,
         tipo_documento_id: data.tipo_documento_id || null,
         data_solicitacao: data.data_solicitacao,
@@ -609,50 +775,81 @@ function RelatoriosPage() {
         especialidades: data.especialidades || null,
       };
 
-      if (data.id) {
-        const { error } = await supabase
-          .from("controle_relatorios")
-          .update(payload)
-          .eq("id", data.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from("controle_relatorios")
-          .insert(payload);
-        if (error) throw error;
-      }
+      const saveReq = async (id?: string) => {
+        if (id) {
+          let res = await supabase.from("controle_relatorios").update(payload).eq("id", id);
+          if (res.error && (res.error.message?.includes("responsavel_email") || res.error.message?.includes("responsavel_endereco") || res.error.message?.includes("meses_referencia"))) {
+            delete payload.responsavel_email;
+            delete payload.responsavel_endereco;
+            delete payload.meses_referencia;
+            res = await supabase.from("controle_relatorios").update(payload).eq("id", id);
+          }
+          if (res.error) throw res.error;
+        } else {
+          let res = await supabase.from("controle_relatorios").insert(payload);
+          if (res.error && (res.error.message?.includes("responsavel_email") || res.error.message?.includes("responsavel_endereco") || res.error.message?.includes("meses_referencia"))) {
+            delete payload.responsavel_email;
+            delete payload.responsavel_endereco;
+            delete payload.meses_referencia;
+            res = await supabase.from("controle_relatorios").insert(payload);
+          }
+          if (res.error) throw res.error;
+        }
+      };
 
-      // Sincronizar dados com o cadastro do paciente
+      await saveReq(data.id);
+
+      // Sincronizar dados com o cadastro do paciente e responsável
       if (data.paciente_id) {
         try {
-          // 1. Atualizar CPF no cadastro do paciente caso não tenha ou seja diferente
-          if (cleanCpf) {
-            const { data: curPac } = await supabase
-              .from("pacientes")
-              .select("cpf")
-              .eq("id", data.paciente_id)
-              .single();
-
-            if (!curPac?.cpf || curPac.cpf !== cleanCpf) {
-              await supabase
-                .from("pacientes")
-                .update({ cpf: cleanCpf })
-                .eq("id", data.paciente_id);
+          // 1. Atualizar CPF e Endereço no paciente caso necessário
+          const pacUpdate: any = {};
+          if (cleanCpf) pacUpdate.cpf = cleanCpf;
+          if (data.responsavel_endereco?.trim()) pacUpdate.endereco = data.responsavel_endereco.trim();
+          if (Object.keys(pacUpdate).length > 0) {
+            let pRes = await supabase.from("pacientes").update(pacUpdate).eq("id", data.paciente_id);
+            if (pRes.error && pRes.error.message?.includes("endereco")) {
+              delete pacUpdate.endereco;
+              if (Object.keys(pacUpdate).length > 0) {
+                await supabase.from("pacientes").update(pacUpdate).eq("id", data.paciente_id);
+              }
             }
           }
 
-          // 2. Se o paciente não tiver responsável cadastrado, salvar o responsável informado
-          if (data.responsavel_nome && data.responsavel_nome.trim()) {
+          // 2. Atualizar ou criar responsável
+          if (data.responsavel_id) {
+            const respUpdate: any = {
+              nome: data.responsavel_nome,
+              cpf: cleanCpf,
+              email: data.responsavel_email?.trim() || null,
+              endereco: data.responsavel_endereco?.trim() || null,
+            };
+            let rRes = await supabase.from("responsaveis").update(respUpdate).eq("id", data.responsavel_id);
+            if (rRes.error && (rRes.error.message?.includes("cpf") || rRes.error.message?.includes("endereco"))) {
+              delete respUpdate.cpf;
+              delete respUpdate.endereco;
+              await supabase.from("responsaveis").update(respUpdate).eq("id", data.responsavel_id);
+            }
+          } else if (data.responsavel_nome && data.responsavel_nome.trim()) {
             const { data: curResps } = await supabase
               .from("responsaveis")
               .select("id")
               .eq("paciente_id", data.paciente_id);
 
             if (!curResps || curResps.length === 0) {
-              await supabase.from("responsaveis").insert({
+              const newRespPayload: any = {
                 paciente_id: data.paciente_id,
                 nome: data.responsavel_nome.trim(),
-              });
+                cpf: cleanCpf,
+                email: data.responsavel_email?.trim() || null,
+                endereco: data.responsavel_endereco?.trim() || null,
+              };
+              let nRes = await supabase.from("responsaveis").insert(newRespPayload);
+              if (nRes.error && (nRes.error.message?.includes("cpf") || nRes.error.message?.includes("endereco"))) {
+                delete newRespPayload.cpf;
+                delete newRespPayload.endereco;
+                await supabase.from("responsaveis").insert(newRespPayload);
+              }
             }
           }
         } catch (syncErr) {
@@ -754,13 +951,18 @@ function RelatoriosPage() {
   });
 
   const resetForm = () => {
+    const currentMonth = format(new Date(), "yyyy-MM");
     setFormData({
       id: "",
       paciente_id: "",
+      responsavel_id: "",
       responsavel_nome: "",
       responsavel_cpf: "",
+      responsavel_email: "",
+      responsavel_endereco: "",
       profissional_id: "",
       tipo_documento_id: "",
+      meses_referencia: [currentMonth],
       data_solicitacao: format(new Date(), "yyyy-MM-dd"),
       data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
       data_entrega: "",
@@ -768,6 +970,7 @@ function RelatoriosPage() {
       valor_total: "",
       especialidades: "",
     });
+    setCalculationSummary("");
     setEditingRequest(null);
   };
 
@@ -783,13 +986,21 @@ function RelatoriosPage() {
 
   const handleOpenEditDialog = (req: any) => {
     setEditingRequest(req);
+    const parsedMonths = req.meses_referencia
+      ? req.meses_referencia.split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [req.data_solicitacao ? req.data_solicitacao.substring(0, 7) : format(new Date(), "yyyy-MM")];
+
     setFormData({
       id: req.id,
       paciente_id: req.paciente_id,
-      responsavel_nome: req.responsavel_nome,
+      responsavel_id: "",
+      responsavel_nome: req.responsavel_nome || "",
       responsavel_cpf: formatCPF(req.responsavel_cpf || ""),
+      responsavel_email: req.responsavel_email || "",
+      responsavel_endereco: req.responsavel_endereco || "",
       profissional_id: req.profissional_id || "",
       tipo_documento_id: req.tipo_documento_id || "",
+      meses_referencia: parsedMonths,
       data_solicitacao: req.data_solicitacao,
       data_limite: req.data_limite,
       data_entrega: req.data_entrega || "",
@@ -2311,135 +2522,10 @@ function RelatoriosPage() {
               </DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
+            <div className="space-y-4 py-4 max-h-[65vh] overflow-y-auto pr-2">
+              {/* 1 - TIPO DE DOCUMENTO */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="paciente_id">Paciente</Label>
-                  {selectedPatientData && (
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                      <Users className="h-3 w-3 text-primary" />
-                      Cadastro vinculado
-                    </span>
-                  )}
-                </div>
-                <Select
-                  value={formData.paciente_id}
-                  onValueChange={handleSelectPatient}
-                  disabled={!!editingRequest}
-                >
-                  <SelectTrigger id="paciente_id">
-                    <SelectValue placeholder="Selecione o paciente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activePatients.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="responsavel_nome">Responsável Solicitante</Label>
-                  {formData.paciente_id && (
-                    isResponsavelFromCadastro ? (
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                        <Check className="h-3 w-3" /> Puxado do cadastro
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                        Não cadastrado (será salvo)
-                      </span>
-                    )
-                  )}
-                </div>
-                <Input
-                  id="responsavel_nome"
-                  value={formData.responsavel_nome}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, responsavel_nome: e.target.value }))}
-                  placeholder="Nome do responsável"
-                />
-                
-                {suggestedResponsibles.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1 items-center">
-                    <span className="text-[10px] text-muted-foreground mr-1">
-                      {suggestedResponsibles.length > 1 ? "Outros do cadastro:" : "Responsável cadastrado:"}
-                    </span>
-                    {suggestedResponsibles.map((resp: any) => (
-                      <Button
-                        key={resp.id}
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "text-[10px] px-2 py-0.5 h-auto rounded-full border",
-                          formData.responsavel_nome === resp.nome
-                            ? "bg-primary/10 border-primary/30 text-primary font-medium"
-                            : "bg-secondary/50 hover:bg-secondary border-transparent"
-                        )}
-                        onClick={() => setFormData((prev) => ({ ...prev, responsavel_nome: resp.nome }))}
-                      >
-                        {resp.nome} {resp.parentesco ? `(${resp.parentesco})` : ""}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="responsavel_cpf">CPF do Responsável</Label>
-                    {formData.paciente_id && (
-                      isCpfFromCadastro ? (
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                          <Check className="h-3 w-3" /> Puxado do cadastro
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                          Não informado (será salvo)
-                        </span>
-                      )
-                    )}
-                  </div>
-                  <Input
-                    id="responsavel_cpf"
-                    value={formData.responsavel_cpf}
-                    onChange={(e) => {
-                      const formatted = formatCPF(e.target.value);
-                      setFormData((prev) => ({ ...prev, responsavel_cpf: formatted }));
-                    }}
-                    placeholder="000.000.000-00"
-                    maxLength={14}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="valor_total">Valor Total (R$)</Label>
-                  <Input
-                    id="valor_total"
-                    type="number"
-                    step="0.01"
-                    value={formData.valor_total}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, valor_total: e.target.value }))}
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="especialidades">Especialidades Atendidas (Opcional)</Label>
-                <Input
-                  id="especialidades"
-                  value={formData.especialidades}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, especialidades: e.target.value }))}
-                  placeholder="Ex: Fonoaudiologia, Terapia Ocupacional..."
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="tipo_documento_id">Tipo de Documento</Label>
+                <Label htmlFor="tipo_documento_id">1. Tipo de Documento</Label>
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <Select
@@ -2470,8 +2556,302 @@ function RelatoriosPage() {
                 </div>
               </div>
 
+              {/* 2 - MESES DE REFERÊNCIA (QUANDO NOTA FISCAL) */}
+              {isTipoNotaFiscal && (
+                <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/[0.03] p-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold flex items-center gap-1.5 text-primary">
+                      <Calendar className="h-3.5 w-3.5" />
+                      2. Meses de Referência da Nota Fiscal
+                    </Label>
+                    <span className="text-[11px] text-muted-foreground font-medium">
+                      {formData.meses_referencia.length === 0
+                        ? "Nenhum mês selecionado"
+                        : `${formData.meses_referencia.length} ${formData.meses_referencia.length === 1 ? "mês selecionado" : "meses selecionados"}`}
+                    </span>
+                  </div>
+
+                  {/* Atalhos Rápidos */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="text-muted-foreground mr-0.5">Atalhos:</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 rounded-full"
+                      onClick={() => selectMonthPreset("current")}
+                    >
+                      Mês Atual
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 rounded-full"
+                      onClick={() => selectMonthPreset("previous")}
+                    >
+                      Mês Anterior
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 rounded-full"
+                      onClick={() => selectMonthPreset("last2")}
+                    >
+                      Últimos 2 Meses
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[10px] px-2 rounded-full"
+                      onClick={() => selectMonthPreset("last3")}
+                    >
+                      Últimos 3 Meses
+                    </Button>
+                  </div>
+
+                  {/* Grade de Pílulas de Meses */}
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 pt-1">
+                    {availableMonths.map((m) => {
+                      const isSelected = formData.meses_referencia.includes(m.value);
+                      return (
+                        <button
+                          key={m.value}
+                          type="button"
+                          onClick={() => toggleMonth(m.value)}
+                          className={cn(
+                            "flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium border transition-all cursor-pointer",
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                              : "bg-background hover:bg-secondary border-border text-foreground"
+                          )}
+                        >
+                          <span>{m.label}</span>
+                          {isSelected && <Check className="h-3 w-3 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 3 - VALOR TOTAL (R$) COM SOMA AUTOMÁTICA */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="valor_total">3. Valor Total (R$)</Label>
+                  {isCalculatingTotal && (
+                    <span className="text-[11px] text-muted-foreground flex items-center gap-1 animate-pulse">
+                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                      Calculando soma...
+                    </span>
+                  )}
+                </div>
+                <Input
+                  id="valor_total"
+                  type="number"
+                  step="0.01"
+                  value={formData.valor_total}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, valor_total: e.target.value }))}
+                  placeholder="0.00"
+                />
+                {calculationSummary && (
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1 pt-0.5">
+                    <InfoIcon className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span>{calculationSummary}</span>
+                  </p>
+                )}
+              </div>
+
+              {/* 4 - PACIENTE E RESPONSÁVEL SOLICITANTE */}
+              <div className="space-y-3 rounded-lg border bg-muted/15 p-3.5">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="paciente_id">4. Paciente</Label>
+                    {selectedPatientData && (
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <Users className="h-3 w-3 text-primary" />
+                        Cadastro vinculado
+                      </span>
+                    )}
+                  </div>
+                  <Select
+                    value={formData.paciente_id}
+                    onValueChange={handleSelectPatient}
+                    disabled={!!editingRequest}
+                  >
+                    <SelectTrigger id="paciente_id">
+                      <SelectValue placeholder="Selecione o paciente" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activePatients.map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {formData.paciente_id && (
+                  <div className="space-y-3 pt-2 border-t border-border/60 animate-in fade-in slide-in-from-top-2 duration-200">
+                    {/* ESCOLHA DO RESPONSÁVEL */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-foreground">
+                          Responsável Solicitante
+                        </Label>
+                        {isResponsavelFromCadastro ? (
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                            <Check className="h-3 w-3" /> Puxado do cadastro
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                            Personalizado (será salvo)
+                          </span>
+                        )}
+                      </div>
+
+                      {suggestedResponsibles.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {suggestedResponsibles.map((resp: any) => {
+                            const isSelected =
+                              formData.responsavel_id === resp.id ||
+                              formData.responsavel_nome === resp.nome;
+                            return (
+                              <button
+                                key={resp.id}
+                                type="button"
+                                onClick={() => handlePickResponsible(resp)}
+                                className={cn(
+                                  "text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-all cursor-pointer",
+                                  isSelected
+                                    ? "bg-primary text-primary-foreground border-primary shadow-sm font-medium"
+                                    : "bg-background hover:bg-secondary border-border text-foreground"
+                                )}
+                              >
+                                <UserCheck className="h-3 w-3 shrink-0" />
+                                <span>{resp.nome}</span>
+                                {resp.parentesco && (
+                                  <span className="opacity-80 text-[10px]">({resp.parentesco})</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground">
+                          Nenhum responsável cadastrado na ficha do paciente. Preencha abaixo para cadastrar.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* DADOS SALVOS DO RESPONSÁVEL: NOME, CPF, E-MAIL, ENDEREÇO */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="responsavel_nome" className="text-xs">
+                          Nome do Responsável
+                        </Label>
+                        <Input
+                          id="responsavel_nome"
+                          value={formData.responsavel_nome}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, responsavel_nome: e.target.value }))}
+                          placeholder="Nome do responsável"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="responsavel_cpf" className="text-xs">
+                          CPF do Responsável
+                        </Label>
+                        <Input
+                          id="responsavel_cpf"
+                          value={formData.responsavel_cpf}
+                          onChange={(e) => {
+                            const formatted = formatCPF(e.target.value);
+                            setFormData((prev) => ({ ...prev, responsavel_cpf: formatted }));
+                          }}
+                          placeholder="000.000.000-00"
+                          maxLength={14}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="responsavel_email" className="text-xs">
+                          E-mail do Responsável
+                        </Label>
+                        <Input
+                          id="responsavel_email"
+                          type="email"
+                          value={formData.responsavel_email}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, responsavel_email: e.target.value }))}
+                          placeholder="exemplo@email.com"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="responsavel_endereco" className="text-xs">
+                          Endereço do Responsável
+                        </Label>
+                        <Input
+                          id="responsavel_endereco"
+                          value={formData.responsavel_endereco}
+                          onChange={(e) => setFormData((prev) => ({ ...prev, responsavel_endereco: e.target.value }))}
+                          placeholder="Rua, número, bairro, cidade..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 6 - ESPECIALIDADES ATENDIDAS */}
               <div className="space-y-2">
-                <Label htmlFor="profissional_id">Profissional Responsável (Opcional)</Label>
+                <Label htmlFor="especialidades">6. Especialidades Atendidas</Label>
+                <Input
+                  id="especialidades"
+                  value={formData.especialidades}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, especialidades: e.target.value }))}
+                  placeholder="Ex: Fonoaudiologia, Terapia Ocupacional..."
+                />
+
+                {patientConsultationSpecialties.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+                    <span className="text-[10px] text-muted-foreground mr-1">Sugestões das consultas:</span>
+                    {patientConsultationSpecialties.map((spec: string) => {
+                      const isSelected = formData.especialidades
+                        .toLowerCase()
+                        .split(",")
+                        .map((s) => s.trim())
+                        .includes(spec.toLowerCase());
+                      return (
+                        <Button
+                          key={spec}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "text-[10px] px-2 py-0.5 h-auto rounded-full border transition-colors",
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary font-medium"
+                              : "bg-secondary/50 hover:bg-secondary border-transparent text-foreground"
+                          )}
+                          onClick={() => handleToggleSpecialty(spec)}
+                        >
+                          {isSelected ? `✓ ${spec}` : `+ ${spec}`}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 7 - PROFISSIONAL RESPONSÁVEL */}
+              <div className="space-y-2">
+                <Label htmlFor="profissional_id">7. Profissional Responsável</Label>
                 <Select
                   value={formData.profissional_id || "none"}
                   onValueChange={(val) => setFormData((prev) => ({ ...prev, profissional_id: val === "none" ? "" : val }))}
@@ -2481,43 +2861,42 @@ function RelatoriosPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhum profissional</SelectItem>
-                    {activeProfessionals
-                      .filter((p: any) => {
-                        if (p.id === formData.profissional_id) return true;
-                        if (p.ativo) return true;
-                        const config = p.valores_config as any;
-                        if (config?.ativo_ate) {
-                          const targetMonth = formData.data_solicitacao ? formData.data_solicitacao.substring(0, 7) : (inicio ? inicio.substring(0, 7) : format(new Date(), "yyyy-MM"));
-                          return targetMonth <= config.ativo_ate;
-                        }
-                        return false;
-                      })
-                      .map((p: any) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.nome}
-                        </SelectItem>
-                      ))}
+                    {activeProfsForPeriod.map((p: any) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.nome}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 
                 {suggestedProfessionals.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1 items-center">
-                    <span className="text-[10px] text-muted-foreground mr-1">Sugestões (Vinculados):</span>
-                    {suggestedProfessionals.map((p: any) => (
-                      <Button
-                        key={p.id}
-                        type="button"
-                        variant="outline"
-                        className="text-[10px] px-2 py-0.5 h-auto rounded-full bg-secondary/50 hover:bg-secondary border-0"
-                        onClick={() => setFormData((prev) => ({ ...prev, profissional_id: p.id }))}
-                      >
-                        {p.nome}
-                      </Button>
-                    ))}
+                    <span className="text-[10px] text-muted-foreground mr-1">Vinculados ao paciente:</span>
+                    {suggestedProfessionals.map((p: any) => {
+                      const isSelected = formData.profissional_id === p.id;
+                      return (
+                        <Button
+                          key={p.id}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "text-[10px] px-2 py-0.5 h-auto rounded-full border transition-colors",
+                            isSelected
+                              ? "bg-primary text-primary-foreground border-primary font-medium"
+                              : "bg-secondary/50 hover:bg-secondary border-transparent text-foreground"
+                          )}
+                          onClick={() => setFormData((prev) => ({ ...prev, profissional_id: p.id }))}
+                        >
+                          {p.nome}
+                        </Button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
+              {/* 8 - DEMAIS CAMPOS (DATA DE SOLICITAÇÃO, PRAZO LIMITE, OBSERVAÇÕES) */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="data_solicitacao">Data de Solicitação</Label>
@@ -2547,7 +2926,7 @@ function RelatoriosPage() {
                   id="observacoes"
                   value={formData.observacoes}
                   onChange={(e) => setFormData((prev) => ({ ...prev, observacoes: e.target.value }))}
-                  placeholder="Ex: Responsável solicitou relatório para fins escolares/médicos..."
+                  placeholder="Ex: Responsável solicitou nota para reembolso/declaração..."
                   rows={3}
                 />
               </div>

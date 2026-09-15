@@ -204,10 +204,13 @@ export type Database = {
           data_solicitacao: string
           especialidades: string | null
           id: string
+          meses_referencia: string | null
           observacoes: string | null
           paciente_id: string
           profissional_id: string | null
           responsavel_cpf: string | null
+          responsavel_email: string | null
+          responsavel_endereco: string | null
           responsavel_nome: string
           tipo_documento_id: string | null
           updated_at: string
@@ -220,10 +223,13 @@ export type Database = {
           data_solicitacao?: string
           especialidades?: string | null
           id?: string
+          meses_referencia?: string | null
           observacoes?: string | null
           paciente_id: string
           profissional_id?: string | null
           responsavel_cpf?: string | null
+          responsavel_email?: string | null
+          responsavel_endereco?: string | null
           responsavel_nome: string
           tipo_documento_id?: string | null
           updated_at?: string
@@ -236,10 +242,13 @@ export type Database = {
           data_solicitacao?: string
           especialidades?: string | null
           id?: string
+          meses_referencia?: string | null
           observacoes?: string | null
           paciente_id?: string
           profissional_id?: string | null
           responsavel_cpf?: string | null
+          responsavel_email?: string | null
+          responsavel_endereco?: string | null
           responsavel_nome?: string
           tipo_documento_id?: string | null
           updated_at?: string
@@ -460,6 +469,7 @@ export type Database = {
           cpf?: string | null
           created_at?: string
           data_nascimento?: string | null
+          endereco?: string | null
           foto_url?: string | null
           id?: string
           nome: string
@@ -478,6 +488,7 @@ export type Database = {
           cpf?: string | null
           created_at?: string
           data_nascimento?: string | null
+          endereco?: string | null
           foto_url?: string | null
           id?: string
           nome?: string
@@ -560,8 +571,10 @@ export type Database = {
       }
       responsaveis: {
         Row: {
+          cpf: string | null
           created_at: string
           email: string | null
+          endereco: string | null
           id: string
           nome: string
           paciente_id: string
@@ -570,8 +583,10 @@ export type Database = {
           whatsapp: string | null
         }
         Insert: {
+          cpf?: string | null
           created_at?: string
           email?: string | null
+          endereco?: string | null
           id?: string
           nome: string
           paciente_id: string
@@ -580,8 +595,10 @@ export type Database = {
           whatsapp?: string | null
         }
         Update: {
+          cpf?: string | null
           created_at?: string
           email?: string | null
+          endereco?: string | null
           id?: string
           nome?: string
           paciente_id?: string

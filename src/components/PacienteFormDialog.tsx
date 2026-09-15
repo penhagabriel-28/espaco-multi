@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, UserCheck, Users } from "lucide-react";
 import { isProfissionalAdmin } from "@/lib/utils";
 
 export const formatBirthDate = (value: string) => {
@@ -87,9 +87,14 @@ export function PacienteFormDialog({
     observacoes: getCleanObservacoes(paciente?.observacoes),
     responsavel: "",
     telefone: "",
+    cpf: paciente?.cpf ?? "",
+    email: "",
+    endereco: (paciente as any)?.endereco ?? "",
     responsavel_secundario: "",
     telefone_secundario: "",
-    cpf: paciente?.cpf ?? "",
+    cpf_secundario: "",
+    email_secundario: "",
+    endereco_secundario: "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
     apoio_frequencia: paciente?.apoio_frequencia ?? "avulso",
     apoio_valor_personalizado: paciente?.apoio_valor_personalizado ? String(paciente.apoio_valor_personalizado) : "",
@@ -184,12 +189,20 @@ export function PacienteFormDialog({
 
   useEffect(() => {
     if (isResponsaveisSuccess && responsaveis && responsaveis.length > 0 && !hasLoadedResponsavel) {
+      const r1 = responsaveis[0];
+      const r2 = responsaveis[1];
       setForm((f) => ({
         ...f,
-        responsavel: responsaveis[0]?.nome || "",
-        telefone: formatPhone(responsaveis[0]?.telefone ?? ""),
-        responsavel_secundario: responsaveis[1]?.nome || "",
-        telefone_secundario: formatPhone(responsaveis[1]?.telefone ?? ""),
+        responsavel: r1?.nome || "",
+        telefone: formatPhone(r1?.telefone ?? ""),
+        cpf: r1?.cpf ? formatCPF(r1.cpf) : (f.cpf || ""),
+        email: r1?.email ?? "",
+        endereco: r1?.endereco ?? (f.endereco || ""),
+        responsavel_secundario: r2?.nome || "",
+        telefone_secundario: formatPhone(r2?.telefone ?? ""),
+        cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : "",
+        email_secundario: r2?.email ?? "",
+        endereco_secundario: r2?.endereco ?? "",
       }));
       if (responsaveis.length > 1) {
         setShowSecondaryResponsible(true);
@@ -234,6 +247,9 @@ export function PacienteFormDialog({
         }
       }
 
+      const cleanCpf1 = form.cpf ? form.cpf.replace(/\D/g, "") : null;
+      const cleanCpf2 = form.cpf_secundario ? form.cpf_secundario.replace(/\D/g, "") : null;
+
       const payload: any = {
         nome: form.nome,
         data_nascimento: dbBirthDate,
@@ -243,15 +259,49 @@ export function PacienteFormDialog({
         convenio_nome: form.tipo_atendimento === "convenio" ? form.convenio_nome : null,
         status: form.status,
         observacoes: finalObservacoes,
-        cpf: form.cpf || null,
+        cpf: cleanCpf1,
+        endereco: form.endereco.trim() || null,
         valor_mensal: form.valor_mensal ? Number(form.valor_mensal) : null,
         apoio_frequencia: form.apoio_frequencia,
         apoio_valor_personalizado: form.apoio_valor_personalizado ? Number(form.apoio_valor_personalizado) : null,
       };
+
+      const saveResp = async (respId: string | undefined, data: { nome: string; telefone?: string | null; email?: string | null; cpf?: string | null; endereco?: string | null; paciente_id: string }) => {
+        const fullPayload: any = {
+          nome: data.nome,
+          telefone: data.telefone || null,
+          email: data.email || null,
+          cpf: data.cpf || null,
+          endereco: data.endereco || null,
+        };
+        if (respId) {
+          let res = await supabase.from("responsaveis").update(fullPayload).eq("id", respId);
+          if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco"))) {
+            delete fullPayload.cpf;
+            delete fullPayload.endereco;
+            res = await supabase.from("responsaveis").update(fullPayload).eq("id", respId);
+          }
+          if (res.error) throw res.error;
+        } else {
+          fullPayload.paciente_id = data.paciente_id;
+          let res = await supabase.from("responsaveis").insert(fullPayload);
+          if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco"))) {
+            delete fullPayload.cpf;
+            delete fullPayload.endereco;
+            res = await supabase.from("responsaveis").insert(fullPayload);
+          }
+          if (res.error) throw res.error;
+        }
+      };
+
       if (paciente) {
         // Edit mode
-        const { error } = await supabase.from("pacientes").update(payload).eq("id", paciente.id);
-        if (error) throw error;
+        let updateRes = await supabase.from("pacientes").update(payload).eq("id", paciente.id);
+        if (updateRes.error && updateRes.error.message?.includes("endereco")) {
+          delete payload.endereco;
+          updateRes = await supabase.from("pacientes").update(payload).eq("id", paciente.id);
+        }
+        if (updateRes.error) throw updateRes.error;
 
         // Clear existing mappings
         await supabase.from("paciente_profissional").delete().eq("paciente_id", paciente.id);
@@ -275,24 +325,24 @@ export function PacienteFormDialog({
               .eq("id", responsaveis[0].id);
             if (rError) throw rError;
           } else {
-            // Update existing responsible person if name is provided
-            const { error: rError } = await supabase
-              .from("responsaveis")
-              .update({
-                nome: form.responsavel.trim(),
-                telefone: form.telefone.trim() || null,
-              })
-              .eq("id", responsaveis[0].id);
-            if (rError) throw rError;
+            await saveResp(responsaveis[0].id, {
+              paciente_id: paciente.id,
+              nome: form.responsavel.trim(),
+              telefone: form.telefone.trim() || null,
+              email: form.email.trim() || null,
+              cpf: cleanCpf1,
+              endereco: form.endereco.trim() || null,
+            });
           }
         } else if (form.responsavel.trim()) {
-          // Insert new responsible person if name is provided and none existed
-          const { error: rError } = await supabase.from("responsaveis").insert({
+          await saveResp(undefined, {
             paciente_id: paciente.id,
             nome: form.responsavel.trim(),
             telefone: form.telefone.trim() || null,
+            email: form.email.trim() || null,
+            cpf: cleanCpf1,
+            endereco: form.endereco.trim() || null,
           });
-          if (rError) throw rError;
         }
 
         if (responsaveis.length > 1) {
@@ -304,24 +354,24 @@ export function PacienteFormDialog({
               .eq("id", responsaveis[1].id);
             if (rError) throw rError;
           } else {
-            // Update secondary responsible
-            const { error: rError } = await supabase
-              .from("responsaveis")
-              .update({
-                nome: form.responsavel_secundario.trim(),
-                telefone: form.telefone_secundario.trim() || null,
-              })
-              .eq("id", responsaveis[1].id);
-            if (rError) throw rError;
+            await saveResp(responsaveis[1].id, {
+              paciente_id: paciente.id,
+              nome: form.responsavel_secundario.trim(),
+              telefone: form.telefone_secundario.trim() || null,
+              email: form.email_secundario.trim() || null,
+              cpf: cleanCpf2,
+              endereco: form.endereco_secundario.trim() || null,
+            });
           }
         } else if (form.responsavel_secundario.trim()) {
-          // Insert secondary responsible
-          const { error: rError } = await supabase.from("responsaveis").insert({
+          await saveResp(undefined, {
             paciente_id: paciente.id,
             nome: form.responsavel_secundario.trim(),
             telefone: form.telefone_secundario.trim() || null,
+            email: form.email_secundario.trim() || null,
+            cpf: cleanCpf2,
+            endereco: form.endereco_secundario.trim() || null,
           });
-          if (rError) throw rError;
         }
 
         // Recalculate Apoio package if applicable
@@ -356,13 +406,14 @@ export function PacienteFormDialog({
 
         return { ...paciente, ...payload };
       } else {
-        // Create mode
-        const { data: newPaciente, error } = await supabase
-          .from("pacientes")
-          .insert(payload)
-          .select()
-          .single();
-        if (error) throw error;
+        let newPaciente: any = null;
+        let insertRes = await supabase.from("pacientes").insert(payload).select().single();
+        if (insertRes.error && insertRes.error.message?.includes("endereco")) {
+          delete payload.endereco;
+          insertRes = await supabase.from("pacientes").insert(payload).select().single();
+        }
+        if (insertRes.error) throw insertRes.error;
+        newPaciente = insertRes.data;
 
         // Insert new mappings
         if (selectedProfs.length > 0 && newPaciente) {
@@ -375,21 +426,25 @@ export function PacienteFormDialog({
         }
 
         if (form.responsavel.trim() && newPaciente) {
-          const { error: rError } = await supabase.from("responsaveis").insert({
+          await saveResp(undefined, {
             paciente_id: newPaciente.id,
             nome: form.responsavel.trim(),
             telefone: form.telefone.trim() || null,
+            email: form.email.trim() || null,
+            cpf: cleanCpf1,
+            endereco: form.endereco.trim() || null,
           });
-          if (rError) throw rError;
         }
 
         if (form.responsavel_secundario.trim() && newPaciente) {
-          const { error: rError } = await supabase.from("responsaveis").insert({
+          await saveResp(undefined, {
             paciente_id: newPaciente.id,
             nome: form.responsavel_secundario.trim(),
             telefone: form.telefone_secundario.trim() || null,
+            email: form.email_secundario.trim() || null,
+            cpf: cleanCpf2,
+            endereco: form.endereco_secundario.trim() || null,
           });
-          if (rError) throw rError;
         }
 
         // Recalculate Apoio package if applicable
@@ -567,76 +622,148 @@ export function PacienteFormDialog({
             )}
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label>Responsável</Label>
-              {!showSecondaryResponsible && (
-                <button
-                  type="button"
-                  onClick={() => setShowSecondaryResponsible(true)}
-                  className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer bg-transparent border-none p-0 font-medium"
-                  title="Adicionar responsável adicional"
-                >
-                  <Plus className="h-2.5 w-2.5" /> Adicionar outro
-                </button>
-              )}
+        {/* RESPONSÁVEL PRINCIPAL */}
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-3.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 font-medium text-xs text-foreground">
+              <UserCheck className="h-3.5 w-3.5 text-primary" />
+              <span>Responsável Principal</span>
             </div>
-            <Input
-              value={form.responsavel}
-              onChange={(e) => setForm({ ...form, responsavel: e.target.value })}
-              placeholder="Nome do pai, mãe..."
-            />
+            {!showSecondaryResponsible && (
+              <button
+                type="button"
+                onClick={() => setShowSecondaryResponsible(true)}
+                className="text-[11px] text-primary hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none p-0 font-medium"
+                title="Adicionar responsável adicional"
+              >
+                <Plus className="h-3 w-3" /> Adicionar outro
+              </button>
+            )}
           </div>
-          <div className="space-y-1.5">
-            <Label>Telefone</Label>
-            <Input
-              value={form.telefone}
-              onChange={handlePhoneChange}
-              placeholder="(XX) XXXXX-XXXX"
-            />
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>Nome do Responsável</Label>
+              <Input
+                value={form.responsavel}
+                onChange={(e) => setForm({ ...form, responsavel: e.target.value })}
+                placeholder="Nome do pai, mãe..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Telefone</Label>
+              <Input
+                value={form.telefone}
+                onChange={handlePhoneChange}
+                placeholder="(XX) XXXXX-XXXX"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>CPF do Responsável</Label>
+              <Input
+                value={form.cpf}
+                onChange={(e) => setForm({ ...form, cpf: formatCPF(e.target.value) })}
+                placeholder="000.000.000-00"
+                maxLength={14}
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>CPF do Responsável</Label>
-            <Input
-              value={form.cpf}
-              onChange={(e) => setForm({ ...form, cpf: formatCPF(e.target.value) })}
-              placeholder="XXX.XXX.XXX-XX"
-              maxLength={14}
-            />
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>E-mail</Label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="exemplo@email.com"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Endereço</Label>
+              <Input
+                value={form.endereco}
+                onChange={(e) => setForm({ ...form, endereco: e.target.value })}
+                placeholder="Rua, número, bairro, cidade..."
+              />
+            </div>
           </div>
         </div>
 
+        {/* RESPONSÁVEL ADICIONAL */}
         {showSecondaryResponsible && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 animate-in fade-in slide-in-from-top-2 duration-200">
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label>Responsável Adicional (Opcional)</Label>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSecondaryResponsible(false);
-                    setForm({ ...form, responsavel_secundario: "", telefone_secundario: "" });
-                  }}
-                  className="text-[10px] text-destructive hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
-                  title="Remover responsável adicional"
-                >
-                  Remover
-                </button>
+          <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/[0.02] p-3.5 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-medium text-xs text-foreground">
+                <Users className="h-3.5 w-3.5 text-primary" />
+                <span>Responsável Adicional</span>
               </div>
-              <Input
-                value={form.responsavel_secundario || ""}
-                onChange={(e) => setForm({ ...form, responsavel_secundario: e.target.value })}
-                placeholder="Nome do segundo responsável..."
-              />
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSecondaryResponsible(false);
+                  setForm({
+                    ...form,
+                    responsavel_secundario: "",
+                    telefone_secundario: "",
+                    cpf_secundario: "",
+                    email_secundario: "",
+                    endereco_secundario: "",
+                  });
+                }}
+                className="text-[11px] text-destructive hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
+                title="Remover responsável adicional"
+              >
+                Remover
+              </button>
             </div>
-            <div className="space-y-1.5">
-              <Label>Telefone do Resp. Adicional (Opcional)</Label>
-              <Input
-                value={form.telefone_secundario || ""}
-                onChange={(e) => setForm({ ...form, telefone_secundario: formatPhone(e.target.value) })}
-                placeholder="(XX) XXXXX-XXXX"
-              />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>Nome do Responsável</Label>
+                <Input
+                  value={form.responsavel_secundario || ""}
+                  onChange={(e) => setForm({ ...form, responsavel_secundario: e.target.value })}
+                  placeholder="Nome do segundo responsável..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Telefone</Label>
+                <Input
+                  value={form.telefone_secundario || ""}
+                  onChange={(e) => setForm({ ...form, telefone_secundario: formatPhone(e.target.value) })}
+                  placeholder="(XX) XXXXX-XXXX"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>CPF</Label>
+                <Input
+                  value={form.cpf_secundario || ""}
+                  onChange={(e) => setForm({ ...form, cpf_secundario: formatCPF(e.target.value) })}
+                  placeholder="000.000.000-00"
+                  maxLength={14}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>E-mail</Label>
+                <Input
+                  type="email"
+                  value={form.email_secundario || ""}
+                  onChange={(e) => setForm({ ...form, email_secundario: e.target.value })}
+                  placeholder="exemplo@email.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Endereço</Label>
+                <Input
+                  value={form.endereco_secundario || ""}
+                  onChange={(e) => setForm({ ...form, endereco_secundario: e.target.value })}
+                  placeholder="Rua, número, bairro, cidade..."
+                />
+              </div>
             </div>
           </div>
         )}

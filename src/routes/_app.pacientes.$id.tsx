@@ -321,10 +321,22 @@ function PacienteDetail() {
                         <span className="text-muted-foreground">• {r.parentesco}</span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {[r.telefone, r.whatsapp && `WhatsApp: ${r.whatsapp}`, r.email]
-                        .filter(Boolean)
-                        .join(" • ")}
+                    <div className="text-xs text-muted-foreground space-y-0.5 mt-0.5">
+                      <div>
+                        {[
+                          r.telefone,
+                          r.whatsapp && `WhatsApp: ${r.whatsapp}`,
+                          (r as any).cpf && `CPF: ${formatCPF((r as any).cpf)}`,
+                          r.email,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </div>
+                      {(r as any).endereco && (
+                        <div className="text-[11px] text-muted-foreground/80">
+                          Endereço: {(r as any).endereco}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <Button size="icon" variant="ghost" onClick={() => delResp.mutate(r.id)}>
@@ -502,14 +514,25 @@ function ResponsavelDialog({ pacienteId, onSaved }: { pacienteId: string; onSave
     parentesco: "",
     telefone: "",
     whatsapp: "",
+    cpf: "",
     email: "",
+    endereco: "",
   });
   const m = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from("responsaveis")
-        .insert({ ...form, paciente_id: pacienteId });
-      if (error) throw error;
+      const cleanCpf = form.cpf ? form.cpf.replace(/\D/g, "") : null;
+      const payload: any = {
+        ...form,
+        cpf: cleanCpf,
+        paciente_id: pacienteId,
+      };
+      let res = await supabase.from("responsaveis").insert(payload);
+      if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco"))) {
+        delete payload.cpf;
+        delete payload.endereco;
+        res = await supabase.from("responsaveis").insert(payload);
+      }
+      if (res.error) throw res.error;
     },
     onSuccess: () => {
       toast.success("Responsável adicionado");
@@ -561,12 +584,32 @@ function ResponsavelDialog({ pacienteId, onSaved }: { pacienteId: string; onSave
             />
           </div>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label>CPF</Label>
+            <Input
+              value={form.cpf}
+              onChange={(e) => setForm({ ...form, cpf: formatCPF(e.target.value) })}
+              placeholder="000.000.000-00"
+              maxLength={14}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>E-mail</Label>
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              placeholder="exemplo@email.com"
+            />
+          </div>
+        </div>
         <div className="space-y-1.5">
-          <Label>E-mail</Label>
+          <Label>Endereço</Label>
           <Input
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
+            value={form.endereco}
+            onChange={(e) => setForm({ ...form, endereco: e.target.value })}
+            placeholder="Rua, número, bairro, cidade..."
           />
         </div>
         <DialogFooter>
