@@ -638,23 +638,45 @@ function RelatoriosPage() {
       const minDate = `${sortedMonths[0]}-01`;
       const maxDate = `${sortedMonths[sortedMonths.length - 1]}-31`;
 
-      // 1. Buscar faturas do paciente para estes meses
-      const { data: faturasData, error: fatError } = await supabase
+      // 1. Buscar faturas do paciente para estes meses (incluindo itens para sessões avulsas)
+      let faturasData: any[] = [];
+      const { data: dataWithItens, error: errWithItens } = await supabase
         .from("faturas")
-        .select("competencia, valor, status")
+        .select("id, competencia, valor, status, fatura_itens(total)")
         .eq("paciente_id", patientId)
         .gte("competencia", minDate)
-        .lte("competencia", maxDate);
+        .lte("competencia", maxDate)
+        .neq("status", "cancelada");
+
+      if (!errWithItens && dataWithItens) {
+        faturasData = dataWithItens;
+      } else {
+        const { data: simpleData } = await supabase
+          .from("faturas")
+          .select("id, competencia, valor, status")
+          .eq("paciente_id", patientId)
+          .gte("competencia", minDate)
+          .lte("competencia", maxDate)
+          .neq("status", "cancelada");
+        faturasData = simpleData || [];
+      }
 
       let total = 0;
       const monthsWithFatura = new Set<string>();
 
-      if (!fatError && faturasData && faturasData.length > 0) {
+      if (faturasData && faturasData.length > 0) {
         faturasData.forEach((f: any) => {
           const compMonth = f.competencia ? f.competencia.substring(0, 7) : "";
           if (monthsToCalc.includes(compMonth)) {
-            total += Number(f.valor || 0);
-            monthsWithFatura.add(compMonth);
+            const itemsSum = Array.isArray(f.fatura_itens)
+              ? f.fatura_itens.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0)
+              : 0;
+            const fatVal = itemsSum > 0 ? itemsSum : Number(f.valor || 0);
+
+            total += fatVal;
+            if (fatVal > 0) {
+              monthsWithFatura.add(compMonth);
+            }
           }
         });
       }
