@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -80,6 +80,8 @@ export const Route = createFileRoute("/_app/relatorios")({
 function RelatoriosPage() {
   const qc = useQueryClient();
   const today = new Date();
+  const isInitialEditRef = useRef<boolean>(false);
+  const initialEditMonthsRef = useRef<string>("");
 
   // 1. Existing general metrics state
   const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
@@ -448,12 +450,13 @@ function RelatoriosPage() {
     const current = format(now, "yyyy-MM");
     const prev = format(subMonths(now, 1), "yyyy-MM");
     const prev2 = format(subMonths(now, 2), "yyyy-MM");
+    const prev3 = format(subMonths(now, 3), "yyyy-MM");
 
     let months: string[] = [];
     if (preset === "current") months = [current];
     else if (preset === "previous") months = [prev];
-    else if (preset === "last2") months = [prev, current];
-    else if (preset === "last3") months = [prev2, prev, current];
+    else if (preset === "last2") months = [prev2, prev];
+    else if (preset === "last3") months = [prev3, prev2, prev];
 
     setFormData((prevForm) => ({ ...prevForm, meses_referencia: months }));
   };
@@ -622,67 +625,100 @@ function RelatoriosPage() {
     });
   }, [computedRequests, inicio, fim]);
 
+  // Função para calcular o total das consultas/faturas para os meses selecionados
+  const calcTotalForMonths = async (monthsToCalc: string[], patientId: string) => {
+    if (!patientId || monthsToCalc.length === 0) {
+      setCalculationSummary("");
+      return;
+    }
+
+    setIsCalculatingTotal(true);
+    try {
+      const sortedMonths = [...monthsToCalc].sort();
+      const minDate = `${sortedMonths[0]}-01`;
+      const maxDate = `${sortedMonths[sortedMonths.length - 1]}-31`;
+
+      // 1. Buscar faturas do paciente para estes meses
+      const { data: faturasData, error: fatError } = await supabase
+        .from("faturas")
+        .select("competencia, valor, status")
+        .eq("paciente_id", patientId)
+        .gte("competencia", minDate)
+        .lte("competencia", maxDate);
+
+      let total = 0;
+      const monthsWithFatura = new Set<string>();
+
+      if (!fatError && faturasData && faturasData.length > 0) {
+        faturasData.forEach((f: any) => {
+          const compMonth = f.competencia ? f.competencia.substring(0, 7) : "";
+          if (monthsToCalc.includes(compMonth)) {
+            total += Number(f.valor || 0);
+            monthsWithFatura.add(compMonth);
+          }
+        });
+      }
+
+      // 2. Se algum mês selecionado não possui fatura gerada no banco:
+      const missingMonths = monthsToCalc.filter((m) => !monthsWithFatura.has(m));
+      if (missingMonths.length > 0) {
+        const pac = activePatients.find((p: any) => p.id === patientId);
+        const pacValorMensal = pac?.valor_mensal ? Number(pac.valor_mensal) : 0;
+        
+        if (pacValorMensal > 0) {
+          total += pacValorMensal * missingMonths.length;
+        } else if (editingRequest?.valor_total && monthsWithFatura.size === 0) {
+          // Se o paciente não tem valor mensal cadastrado e não achou fatura,
+          // multiplica proporcionalmente pela quantidade de meses selecionados
+          const oldMonthsCount = editingRequest.meses_referencia
+            ? editingRequest.meses_referencia.split(",").length
+            : 1;
+          const basePerMonth = Number(editingRequest.valor_total) / oldMonthsCount;
+          total = basePerMonth * monthsToCalc.length;
+        }
+      }
+
+      if (total > 0) {
+        setFormData((prev) => ({ ...prev, valor_total: total.toFixed(2) }));
+        const formattedTotal = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(total);
+        setCalculationSummary(
+          `Soma calculada: ${formattedTotal} (${monthsToCalc.length} ${monthsToCalc.length === 1 ? "mês" : "meses"})`
+        );
+      } else {
+        setCalculationSummary("Nenhuma fatura encontrada para os meses selecionados (insira manualmente se necessário).");
+      }
+    } catch (err) {
+      console.error("Erro ao calcular valor total dos meses:", err);
+    } finally {
+      setIsCalculatingTotal(false);
+    }
+  };
+
   // Cálculo automático do "Valor Total" com a soma dos valores das consultas dos meses referidos
   useEffect(() => {
-    if (editingRequest) return; // Não sobrescrever em edição
     if (!formData.paciente_id) {
       setCalculationSummary("");
       return;
     }
 
-    const calcTotal = async () => {
-      setIsCalculatingTotal(true);
-      try {
-        const monthsToCalc = isTipoNotaFiscal && formData.meses_referencia.length > 0
-          ? formData.meses_referencia
-          : [formData.data_solicitacao.substring(0, 7)];
-
-        const competencias = monthsToCalc.map((m) => `${m}-01`);
-
-        // 1. Buscar faturas do paciente para estes meses
-        const { data: faturasData, error: fatError } = await supabase
-          .from("faturas")
-          .select("competencia, valor")
-          .eq("paciente_id", formData.paciente_id)
-          .in("competencia", competencias);
-
-        let total = 0;
-        const foundMonths = new Set<string>();
-
-        if (!fatError && faturasData && faturasData.length > 0) {
-          faturasData.forEach((f: any) => {
-            total += Number(f.valor || 0);
-            if (f.competencia) foundMonths.add(f.competencia.substring(0, 7));
-          });
-        }
-
-        // 2. Se algum mês não tem fatura cadastrada, buscar valor mensal do paciente
-        const missingMonths = monthsToCalc.filter((m) => !foundMonths.has(m));
-        if (missingMonths.length > 0) {
-          const pac = activePatients.find((p: any) => p.id === formData.paciente_id);
-          if (pac?.valor_mensal) {
-            total += Number(pac.valor_mensal) * missingMonths.length;
-          }
-        }
-
-        if (total > 0) {
-          setFormData((prev) => ({ ...prev, valor_total: total.toFixed(2) }));
-          const formattedTotal = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(total);
-          setCalculationSummary(
-            `Soma calculada: ${formattedTotal} (${monthsToCalc.length} ${monthsToCalc.length === 1 ? "mês" : "meses"})`
-          );
-        } else {
-          setCalculationSummary("Nenhuma fatura encontrada para os meses selecionados (insira manualmente se necessário).");
-        }
-      } catch (err) {
-        console.error("Erro ao calcular valor total dos meses:", err);
-      } finally {
-        setIsCalculatingTotal(false);
+    // Se acabou de abrir a edição e os meses não foram alterados pelo usuário:
+    if (isInitialEditRef.current) {
+      isInitialEditRef.current = false;
+      if (editingRequest?.valor_total) {
+        const formatted = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(editingRequest.valor_total));
+        const monthsCount = formData.meses_referencia?.length || 1;
+        setCalculationSummary(`Valor registrado: ${formatted} (${monthsCount} ${monthsCount === 1 ? "mês" : "meses"})`);
+        return;
       }
-    };
+    }
 
-    calcTotal();
-  }, [formData.paciente_id, formData.meses_referencia, formData.data_solicitacao, isTipoNotaFiscal, editingRequest, activePatients]);
+    const prevMonth = format(subMonths(new Date(), 1), "yyyy-MM");
+    const monthsToCalc = isTipoNotaFiscal && formData.meses_referencia.length > 0
+      ? formData.meses_referencia
+      : (formData.meses_referencia.length > 0 ? formData.meses_referencia : [prevMonth]);
+
+    calcTotalForMonths(monthsToCalc, formData.paciente_id);
+  }, [formData.paciente_id, formData.meses_referencia, formData.data_solicitacao, isTipoNotaFiscal, activePatients]);
 
   const getInvoicesTextSummary = () => {
     const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
@@ -995,7 +1031,7 @@ function RelatoriosPage() {
   });
 
   const resetForm = () => {
-    const currentMonth = format(new Date(), "yyyy-MM");
+    const previousMonth = format(subMonths(new Date(), 1), "yyyy-MM");
     setFormData({
       id: "",
       paciente_id: "",
@@ -1006,7 +1042,7 @@ function RelatoriosPage() {
       responsavel_endereco: "",
       profissional_id: "",
       tipo_documento_id: "",
-      meses_referencia: [currentMonth],
+      meses_referencia: [previousMonth],
       data_solicitacao: format(new Date(), "yyyy-MM-dd"),
       data_limite: format(addDays(new Date(), 10), "yyyy-MM-dd"),
       data_entrega: "",
@@ -1016,23 +1052,41 @@ function RelatoriosPage() {
     });
     setCalculationSummary("");
     setEditingRequest(null);
+    isInitialEditRef.current = false;
+    initialEditMonthsRef.current = "";
   };
 
   const handleOpenNewDialog = () => {
     resetForm();
+    const previousMonth = format(subMonths(new Date(), 1), "yyyy-MM");
     const relEvolucao = tiposDocumento.find((t: any) => t.nome === "Relatório de Evolução");
     setFormData((prev) => ({
       ...prev,
       tipo_documento_id: relEvolucao?.id || tiposDocumento[0]?.id || "",
+      meses_referencia: [previousMonth],
     }));
     setDialogOpen(true);
   };
 
   const handleOpenEditDialog = (req: any) => {
     setEditingRequest(req);
+    isInitialEditRef.current = true;
+
+    // Checar se o tipo de documento é Nota Fiscal
+    const tipo = tiposDocumento.find((t: any) => t.id === req.tipo_documento_id);
+    const isNota = tipo?.nome ? tipo.nome.toLowerCase().includes("nota fiscal") : true;
+
+    // Para Nota Fiscal, o mês padrão é o MÊS ANTERIOR (ex.: solicitado em Set/26 refere-se a Ago/26)
+    const prevMonthFromDate = format(
+      subMonths(req.data_solicitacao ? parseISO(req.data_solicitacao) : new Date(), 1),
+      "yyyy-MM"
+    );
+
     const parsedMonths = req.meses_referencia
       ? req.meses_referencia.split(",").map((s: string) => s.trim()).filter(Boolean)
-      : [req.data_solicitacao ? req.data_solicitacao.substring(0, 7) : format(new Date(), "yyyy-MM")];
+      : [isNota ? prevMonthFromDate : (req.data_solicitacao ? req.data_solicitacao.substring(0, 7) : prevMonthFromDate)];
+
+    initialEditMonthsRef.current = parsedMonths.join(",");
 
     setFormData({
       id: req.id,
@@ -1049,10 +1103,28 @@ function RelatoriosPage() {
       data_limite: req.data_limite,
       data_entrega: req.data_entrega || "",
       observacoes: req.observacoes || "",
-      valor_total: req.valor_total ? String(req.valor_total) : "",
+      valor_total: req.valor_total !== null && req.valor_total !== undefined ? String(req.valor_total) : "",
       especialidades: req.especialidades || "",
     });
     setDialogOpen(true);
+  };
+
+  const handleTipoDocumentoChange = (val: string) => {
+    const selected = tiposDocumento.find((t: any) => t.id === val);
+    const isNota = selected?.nome?.toLowerCase()?.includes("nota fiscal");
+    const prevMonth = format(subMonths(new Date(), 1), "yyyy-MM");
+
+    setFormData((prev) => {
+      let nextMonths = prev.meses_referencia;
+      if (isNota && (!nextMonths || nextMonths.length === 0)) {
+        nextMonths = [prevMonth];
+      }
+      return {
+        ...prev,
+        tipo_documento_id: val,
+        meses_referencia: nextMonths,
+      };
+    });
   };
 
   const handleDataSolicitacaoChange = (val: string) => {
@@ -2574,7 +2646,7 @@ function RelatoriosPage() {
                   <div className="flex-1">
                     <Select
                       value={formData.tipo_documento_id}
-                      onValueChange={(val) => setFormData((prev) => ({ ...prev, tipo_documento_id: val }))}
+                      onValueChange={handleTipoDocumentoChange}
                     >
                       <SelectTrigger id="tipo_documento_id">
                         <SelectValue placeholder="Selecione o tipo de documento" />
@@ -2685,12 +2757,30 @@ function RelatoriosPage() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="valor_total">3. Valor Total (R$)</Label>
-                  {isCalculatingTotal && (
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1 animate-pulse">
-                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                      Calculando soma...
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isCalculatingTotal && (
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1 animate-pulse">
+                        <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                        Calculando soma...
+                      </span>
+                    )}
+                    {formData.paciente_id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prevMonth = format(subMonths(new Date(), 1), "yyyy-MM");
+                          const monthsToCalc = isTipoNotaFiscal && formData.meses_referencia.length > 0
+                            ? formData.meses_referencia
+                            : (formData.meses_referencia.length > 0 ? formData.meses_referencia : [prevMonth]);
+                          calcTotalForMonths(monthsToCalc, formData.paciente_id);
+                        }}
+                        className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                        title="Recalcular a soma dos meses selecionados"
+                      >
+                        Recalcular
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <Input
                   id="valor_total"
