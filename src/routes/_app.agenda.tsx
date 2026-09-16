@@ -228,7 +228,11 @@ function Agenda() {
       normalizeString(p.nome || "").includes(searchLower)
     );
   }, [sortedPacientesList, pacSearch]);
-  const { data: ags = [] } = useQuery({
+  const {
+    data: ags = [],
+    isLoading: loadingAgs,
+    isFetching: fetchingAgs,
+  } = useQuery({
     queryKey: ["ags", weekStart.toISOString()],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -273,9 +277,10 @@ function Agenda() {
         .lt("data_inicio", addDays(weekEnd, 1).toISOString())
         .order("data_inicio");
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
     staleTime: 60 * 1000,
+    placeholderData: (prev: any) => prev,
   });
 
   const filteredAgs = useMemo(() => {
@@ -545,7 +550,12 @@ function Agenda() {
         </div>
       </div>
 
-      <Card>
+      <Card className="relative overflow-hidden">
+        {fetchingAgs && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/20 overflow-hidden z-30 pointer-events-none">
+            <div className="h-full bg-primary animate-pulse w-full" />
+          </div>
+        )}
         <CardContent className="overflow-auto max-h-[calc(100dvh-180px)] md:max-h-[calc(100vh-220px)] p-0">
           <div className="grid min-w-[650px] md:min-w-[800px] lg:min-w-0 grid-cols-[60px_repeat(6,minmax(0,1fr))]">
             <div className="sticky top-0 z-20 border-b border-r bg-card p-2 text-xs font-medium text-muted-foreground"></div>

@@ -24,12 +24,6 @@ function AppLayout() {
   const { session, loading } = useAuth();
   const path = useRouterState({ select: (r) => r.location.pathname });
 
-  if (loading) {
-    return (
-      <div className="grid min-h-screen place-items-center text-muted-foreground">Carregando…</div>
-    );
-  }
-
   const title =
     Object.entries(titles).find(([k]) => path === k || path.startsWith(k + "/"))?.[1] ?? "";
 

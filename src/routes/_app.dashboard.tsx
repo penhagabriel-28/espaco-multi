@@ -37,7 +37,7 @@ function Dashboard() {
 
   const dateKey = format(now, "yyyy-MM-dd");
 
-  const { data: agHoje = [] } = useQuery({
+  const { data: agHoje = [], isLoading: loadingAgHoje } = useQuery({
     queryKey: ["ags", "hoje", dateKey],
     queryFn: async () => {
       const start = new Date(now);
@@ -76,12 +76,13 @@ function Dashboard() {
         .lte("data_inicio", end.toISOString())
         .order("data_inicio");
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
-    refetchInterval: 15000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
   });
 
-  const { data: stats } = useQuery({
+  const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["ags", "stats", dateKey],
     queryFn: async () => {
       const start = new Date(now);
@@ -113,11 +114,12 @@ function Dashboard() {
         faltas: ags.filter((a) => a.status === "falta").length,
       };
     },
-    refetchInterval: 15000,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
   });
 
   // Buscar salas ativas
-  const { data: salas = [] } = useQuery({
+  const { data: salas = [], isLoading: loadingSalas } = useQuery({
     queryKey: ["salas"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -126,8 +128,9 @@ function Dashboard() {
         .eq("ativo", true)
         .order("nome");
       if (error) throw error;
-      return data;
+      return data ?? [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   // Buscar profissionais para aniversariantes do mês
@@ -142,6 +145,7 @@ function Dashboard() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 10 * 60 * 1000,
   });
 
   const aniversariantesDoMes = useMemo(() => {
@@ -192,19 +196,28 @@ function Dashboard() {
           label="Agendamentos hoje"
           value={stats?.agendamentosHoje ?? 0}
           tone="primary"
+          loading={loadingStats}
         />
         <StatCard
           icon={CheckCircle2}
           label="Realizados"
           value={stats?.realizados ?? 0}
           tone="success"
+          loading={loadingStats}
         />
-        <StatCard icon={XCircle} label="Faltas" value={stats?.faltas ?? 0} tone="destructive" />
+        <StatCard
+          icon={XCircle}
+          label="Faltas"
+          value={stats?.faltas ?? 0}
+          tone="destructive"
+          loading={loadingStats}
+        />
         <StatCard
           icon={Users}
           label="Pacientes ativos"
           value={stats?.pacientes ?? 0}
           tone="accent"
+          loading={loadingStats}
         />
       </div>
 
@@ -276,7 +289,19 @@ function Dashboard() {
           Monitoramento de Salas (Tempo Real)
         </h3>
 
-        {salas.length === 0 ? (
+        {loadingSalas ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="animate-pulse border p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <div className="h-4 w-28 bg-muted rounded" />
+                  <div className="h-5 w-16 bg-muted rounded-full" />
+                </div>
+                <div className="h-9 bg-muted/50 rounded" />
+              </Card>
+            ))}
+          </div>
+        ) : salas.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="py-6 text-center text-sm text-muted-foreground">
               Nenhuma sala ativa cadastrada no momento.
@@ -439,7 +464,21 @@ function Dashboard() {
           </Link>
         </CardHeader>
         <CardContent>
-          {agHoje.length === 0 ? (
+          {loadingAgHoje ? (
+            <div className="divide-y space-y-3 py-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
+                  <div className="h-10 w-1 rounded-full bg-muted" />
+                  <div className="h-4 w-20 bg-muted rounded" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-4 w-44 bg-muted rounded" />
+                    <div className="h-3 w-32 bg-muted/60 rounded" />
+                  </div>
+                  <div className="h-6 w-16 bg-muted rounded-full" />
+                </div>
+              ))}
+            </div>
+          ) : agHoje.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               <Clock className="mx-auto mb-2 h-6 w-6 opacity-50" />
               Nenhum agendamento para hoje.
@@ -501,11 +540,13 @@ function StatCard({
   label,
   value,
   tone,
+  loading = false,
 }: {
   icon: any;
   label: string;
   value: number;
   tone: "primary" | "success" | "destructive" | "accent";
+  loading?: boolean;
 }) {
   const map = {
     primary: "bg-primary/10 text-primary",
@@ -521,7 +562,11 @@ function StatCard({
         </div>
         <div>
           <div className="text-xs text-muted-foreground">{label}</div>
-          <div className="text-2xl font-semibold">{value}</div>
+          {loading ? (
+            <div className="h-7 w-12 rounded bg-muted animate-pulse mt-1" />
+          ) : (
+            <div className="text-2xl font-semibold">{value}</div>
+          )}
         </div>
       </CardContent>
     </Card>

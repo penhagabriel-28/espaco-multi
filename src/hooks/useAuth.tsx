@@ -33,10 +33,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initializeAuth() {
       try {
-        const { data } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
+          setTimeout(() => resolve({ data: { session: null } }), 2000)
+        );
+        const { data } = await Promise.race([sessionPromise, timeoutPromise]);
         if (data.session) {
           setSession(data.session);
-          await loadRoles(data.session.user.id);
+          try {
+            await loadRoles(data.session.user.id);
+          } catch (e) {
+            console.warn("Aviso ao carregar roles:", e);
+          }
         }
       } catch (err) {
         console.error("Erro na inicialização da sessão:", err);

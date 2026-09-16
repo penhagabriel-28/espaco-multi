@@ -44,10 +44,16 @@ function PacientesPage() {
   const { data: pacientes = [], isLoading } = useQuery({
     queryKey: ["pacientes"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("pacientes").select("*").order("nome");
+      const { data, error } = await supabase
+        .from("pacientes")
+        .select(
+          "id, nome, data_nascimento, cid_principal, cids_secundarios, status, tipo_atendimento, convenio_nome, valor_mensal, observacoes, created_at"
+        )
+        .order("nome");
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: pacienteProfissionais = [] } = useQuery({
@@ -59,6 +65,7 @@ function PacientesPage() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   const deleteMutation = useMutation({
@@ -106,9 +113,22 @@ function PacientesPage() {
   const normalizeString = (str: string) =>
     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
 
-  const filtered = (pacientes || []).filter((p) =>
-    normalizeString(p.nome).includes(normalizeString(q))
-  );
+  const filtered = useMemo(() => {
+    if (!pacientes || !Array.isArray(pacientes)) return [];
+    const term = normalizeString(q.trim());
+    if (!term) return pacientes;
+    return pacientes.filter((p) => normalizeString(p.nome).includes(term));
+  }, [pacientes, q]);
+
+  const profissionaisByPacienteMap = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const item of pacienteProfissionais || []) {
+      const list = map.get(item.paciente_id) || [];
+      list.push(item);
+      map.set(item.paciente_id, list);
+    }
+    return map;
+  }, [pacienteProfissionais]);
 
   return (
     <div className="space-y-4">
@@ -183,7 +203,29 @@ function PacientesPage() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando…</p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="rounded-xl border bg-card p-4 space-y-3 animate-pulse"
+            >
+              <div className="flex items-start gap-3">
+                <div className="h-4 w-4 rounded bg-muted mt-1 shrink-0" />
+                <div className="flex-1 space-y-2 min-w-0">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="h-4 w-32 bg-muted rounded" />
+                    <div className="h-5 w-14 bg-muted rounded-full" />
+                  </div>
+                  <div className="h-3 w-28 bg-muted/60 rounded" />
+                </div>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t">
+                <div className="h-3 w-24 bg-muted/60 rounded" />
+                <div className="h-6 w-16 bg-muted rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
@@ -248,10 +290,8 @@ function PacientesPage() {
                       </div>
                     )}
                     {(() => {
-                      const profs = (pacienteProfissionais || []).filter(
-                        (m: any) => m.paciente_id === p.id,
-                      );
-                      if ((profs || []).length === 0) return null;
+                      const profs = profissionaisByPacienteMap.get(p.id) || [];
+                      if (profs.length === 0) return null;
                       return (
                         <div className="mt-1.5 flex flex-wrap gap-1 items-center">
                           {profs.map((item: any) => (
