@@ -20,6 +20,10 @@ import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
 import { PacienteFormDialog, formatBirthDateForDisplay, formatCPF } from "@/components/PacienteFormDialog";
 import { isProfissionalAdmin } from "@/lib/utils";
+import {
+  getDefaultRoomIdForProfessional,
+  isDefaultRoomForProfessional,
+} from "@/lib/defaultRooms";
 
 export const Route = createFileRoute("/_app/pacientes/$id")({
   component: PacienteDetail,
@@ -734,7 +738,15 @@ function AgendaFixaFormDialog({
           <select
             required
             value={form.profissional_id}
-            onChange={(e) => setForm({ ...form, profissional_id: e.target.value })}
+            onChange={(e) => {
+              const profId = e.target.value;
+              const defaultRoomId = getDefaultRoomIdForProfessional(profId, profissionais, salas);
+              setForm({
+                ...form,
+                profissional_id: profId,
+                sala_id: defaultRoomId || form.sala_id,
+              });
+            }}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
             <option value="">Selecione um profissional...</option>
@@ -770,11 +782,14 @@ function AgendaFixaFormDialog({
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
               <option value="">Selecione uma sala...</option>
-              {salas.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nome}
-                </option>
-              ))}
+              {salas.map((s) => {
+                const isDefault = isDefaultRoomForProfessional(form.profissional_id, s.id, profissionais, salas);
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.nome} {isDefault ? "(Padrão)" : ""}
+                  </option>
+                );
+              })}
             </select>
           </div>
         </div>

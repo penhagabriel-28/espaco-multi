@@ -44,6 +44,11 @@ import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn, isProfissionalAdmin } from "@/lib/utils";
+import {
+  getDefaultRoomIdForProfessional,
+  getDefaultRoomNameForProfessional,
+  isDefaultRoomForProfessional,
+} from "@/lib/defaultRooms";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -542,7 +547,14 @@ function Agenda() {
           <Button
             size="sm"
             className="h-8 text-xs font-semibold gap-1.5 ml-auto sm:ml-2 shadow-sm transition-all"
-            onClick={() => setDialog({ open: true })}
+            onClick={() =>
+              setDialog({
+                open: true,
+                defaults: {
+                  professionalId: selectedProfs.length === 1 ? selectedProfs[0] : undefined,
+                },
+              })
+            }
           >
             <Plus className="h-3.5 w-3.5" />
             <span>Novo<span className="hidden min-[380px]:inline"> agendamento</span></span>
@@ -583,7 +595,16 @@ function Agenda() {
                 h={h}
                 days={days}
                 ags={filteredAgs}
-                onCellClick={(date: Date) => setDialog({ open: true, defaults: { date, hour: h } })}
+                onCellClick={(date: Date) =>
+                  setDialog({
+                    open: true,
+                    defaults: {
+                      date,
+                      hour: h,
+                      professionalId: selectedProfs.length === 1 ? selectedProfs[0] : undefined,
+                    },
+                  })
+                }
                 onEdit={(a: any) => setDialog({ open: true, editing: a })}
               />
             ))}
@@ -913,9 +934,11 @@ function AgendamentoDialog({
         .replace(/\[Meio: (Pix|Espécie)\]\n?/, "")
     : "";
 
+  const initialProfId = editing?.profissional_id ?? defaults?.professionalId ?? "";
+
   const [form, setForm] = useState({
     paciente_id: editing?.paciente_id ?? "",
-    profissional_id: editing?.profissional_id ?? "",
+    profissional_id: initialProfId,
     servico_id: editing?.servico_id ?? "",
     data_inicio: initialStart,
     data_fim: initialEnd,
@@ -1035,6 +1058,19 @@ function AgendamentoDialog({
       ).data ?? [],
     staleTime: 5 * 60 * 1000,
   });
+
+  // Auto-seleciona a sala padrão do profissional quando ele estiver selecionado e o agendamento não tiver sala definida
+  useEffect(() => {
+    if (!editing && form.profissional_id && (!form.sala_id || form.sala_id === "sem_sala")) {
+      const defaultRoomId = getDefaultRoomIdForProfessional(form.profissional_id, profissionais, salas);
+      if (defaultRoomId) {
+        setForm((prev) => ({
+          ...prev,
+          sala_id: defaultRoomId,
+        }));
+      }
+    }
+  }, [form.profissional_id, profissionais, salas, editing]);
 
   const { data: patientAgs = [] } = useQuery({
     queryKey: ["patient-ags-dialog", form.paciente_id],
@@ -1361,9 +1397,11 @@ Fico à disposição para qualquer dúvida!`;
   };
 
   const handleProfissionalChange = (profId: string) => {
+    const defaultRoomId = getDefaultRoomIdForProfessional(profId, profissionais, salas);
     setForm((prev) => ({
       ...prev,
       profissional_id: profId,
+      sala_id: defaultRoomId || prev.sala_id,
     }));
     setSelectedSpecialty("");
   };
@@ -2281,7 +2319,20 @@ Fico à disposição para qualquer dúvida!`;
 
                 {/* Seleção de Sala */}
                 <div className="space-y-1.5 animate-in fade-in duration-200">
-                  <Label>Sala</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Sala</Label>
+                    {(() => {
+                      const prof = Array.isArray(profissionais)
+                        ? profissionais.find((p: any) => p.id === form.profissional_id)
+                        : undefined;
+                      const defaultRoomName = prof ? getDefaultRoomNameForProfessional(prof.nome) : null;
+                      return defaultRoomName ? (
+                        <span className="text-[11px] text-muted-foreground">
+                          Padrão: <span className="font-semibold text-foreground">{defaultRoomName}</span>
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   <Select
                     value={form.sala_id || "sem_sala"}
                     onValueChange={(v) => setForm({ ...form, sala_id: v === "sem_sala" ? "" : v })}
@@ -2291,11 +2342,29 @@ Fico à disposição para qualquer dúvida!`;
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sem_sala">Sem Sala</SelectItem>
-                      {salas.map((s: any) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.nome}
-                        </SelectItem>
-                      ))}
+                      {salas.map((s: any) => {
+                        const isDefault = isDefaultRoomForProfessional(
+                          form.profissional_id,
+                          s.id,
+                          profissionais,
+                          salas,
+                        );
+                        return (
+                          <SelectItem key={s.id} value={s.id}>
+                            <div className="flex items-center justify-between gap-2 w-full">
+                              <span>{s.nome}</span>
+                              {isDefault && (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[9px] px-1.5 py-0 h-4 bg-primary/10 text-primary border border-primary/20 font-medium"
+                                >
+                                  Padrão
+                                </Badge>
+                              )}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
