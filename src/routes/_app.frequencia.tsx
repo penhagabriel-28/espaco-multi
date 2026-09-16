@@ -57,6 +57,7 @@ import {
   Search,
   Filter,
   Users,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, isProfissionalAdmin, isProfActiveInPeriod } from "@/lib/utils";
@@ -65,6 +66,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 const normalizeString = (str: string) =>
   str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
+
+// Helper to extract or split responsible names
+function splitResponsibleNames(name: string): string[] {
+  if (!name) return [];
+  const parts = name.split(/\s+(?:e|\/|&|\+|e\/ou)\s+/i);
+  return parts
+    .map((p) => p.replace(/^(?:mãe|pai|responsável|resp\.?|avó|avô|tio|tia)\s*:\s*/i, "").trim())
+    .filter((p) => p.length > 1);
+}
 
 export const Route = createFileRoute("/_app/frequencia")({
   component: FrequenciaPage,
@@ -433,6 +443,65 @@ function FrequenciaPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Fetch patient's responsibles for auto-filling and suggestions in the signature modal
+  const { data: responsaveisSign = [], isLoading: loadingResponsaveis } = useQuery({
+    queryKey: ["freq-responsaveis", signDialog.ag?.paciente_id],
+    queryFn: async () => {
+      if (!signDialog.ag?.paciente_id) return [];
+      const { data, error } = await supabase
+        .from("responsaveis")
+        .select("id, nome, parentesco")
+        .eq("paciente_id", signDialog.ag.paciente_id)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []).filter((r: any) => !!r.nome && r.nome.trim().length > 0);
+    },
+    enabled: signDialog.open && !!signDialog.ag?.paciente_id,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const suggestedResponsibles = useMemo(() => {
+    if (!responsaveisSign.length) return [];
+    const list: { id: string; name: string; parentesco?: string }[] = [];
+    responsaveisSign.forEach((r: any) => {
+      const parts = splitResponsibleNames(r.nome || "");
+      if (parts.length > 1) {
+        parts.forEach((p, idx) => {
+          list.push({
+            id: `${r.id}_${idx}`,
+            name: p,
+            parentesco: r.parentesco || undefined,
+          });
+        });
+      } else if (r.nome && r.nome.trim()) {
+        list.push({
+          id: r.id,
+          name: r.nome.trim(),
+          parentesco: r.parentesco || undefined,
+        });
+      }
+    });
+    return list;
+  }, [responsaveisSign]);
+
+  // Pre-fill Nome do Responsável with the first responsible name when modal opens
+  useEffect(() => {
+    if (signDialog.open && suggestedResponsibles.length > 0) {
+      setNomeResponsavel((current) => {
+        if (!current || current.trim() === "") {
+          return suggestedResponsibles[0].name;
+        }
+        return current;
+      });
+    }
+  }, [signDialog.open, signDialog.ag?.id, suggestedResponsibles]);
+
+  useEffect(() => {
+    if (!signDialog.open) {
+      setNomeResponsavel("");
+    }
+  }, [signDialog.open]);
+
   // Sign Attendance Mutation
   const signMutation = useMutation({
     mutationFn: async ({
@@ -518,7 +587,15 @@ function FrequenciaPage() {
   });
 
   const handleOpenSign = (ag: any) => {
-    setNomeResponsavel("");
+    let initialName = "";
+    if (ag?.paciente_id) {
+      const cached = qc.getQueryData<any[]>(["freq-responsaveis", ag.paciente_id]);
+      if (cached && cached.length > 0 && cached[0]?.nome) {
+        const parts = splitResponsibleNames(cached[0].nome);
+        initialName = parts[0] || cached[0].nome.trim();
+      }
+    }
+    setNomeResponsavel(initialName);
     setSignDialog({ open: true, ag });
   };
 
@@ -1122,7 +1199,14 @@ function FrequenciaPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="resp-name">Nome do Responsável *</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="resp-name">Nome do Responsável *</Label>
+                {loadingResponsaveis && (
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Buscando responsáveis...
+                  </span>
+                )}
+              </div>
               <Input
                 id="resp-name"
                 placeholder="Ex: Maria Souza (Mãe)"
@@ -1130,6 +1214,31 @@ function FrequenciaPage() {
                 onChange={(e) => setNomeResponsavel(e.target.value)}
                 required
               />
+              {suggestedResponsibles.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[11px] text-muted-foreground font-medium">Sugerido:</span>
+                  {suggestedResponsibles.map((sug) => {
+                    const isSelected =
+                      nomeResponsavel.trim().toLowerCase() === sug.name.trim().toLowerCase();
+                    return (
+                      <button
+                        key={sug.id}
+                        type="button"
+                        onClick={() => setNomeResponsavel(sug.name)}
+                        className={cn(
+                          "text-[11px] px-2.5 py-0.5 rounded-full border transition-all cursor-pointer select-none",
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary font-medium shadow-xs"
+                            : "bg-muted/60 text-foreground border-border hover:bg-muted hover:border-muted-foreground/30"
+                        )}
+                      >
+                        {sug.name}
+                        {sug.parentesco ? ` (${sug.parentesco})` : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="space-y-1">
               <Label>Assinatura Digital *</Label>
