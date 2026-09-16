@@ -240,7 +240,7 @@ function PacientesPage() {
         <Card className="border-destructive/30">
           <CardContent className="py-8 text-center space-y-3">
             <p className="text-sm text-destructive font-medium">
-              Erro ao carregar pacientes: {queryError instanceof Error ? queryError.message : "Erro de conexão"}
+              Erro ao carregar pacientes: {(queryError as any)?.message || (queryError instanceof Error ? queryError.message : "Erro de conexão")}
             </p>
             <Button
               variant="outline"

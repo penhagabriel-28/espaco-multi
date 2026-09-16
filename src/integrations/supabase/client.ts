@@ -1,17 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-export const SUPABASE_PROJECT_ID =
-  import.meta.env.VITE_SUPABASE_PROJECT_ID || "xjlmsgwqjjpuqpbrlvwr";
+// Forçar o uso do banco de dados ativo com dados reais para evitar variáveis desatualizadas na Vercel
+export const SUPABASE_PROJECT_ID = "xjlmsgwqjjpuqpbrlvwr";
 
-export const SUPABASE_URL =
-  import.meta.env.VITE_SUPABASE_URL ||
-  process.env.SUPABASE_URL ||
-  "https://xjlmsgwqjjpuqpbrlvwr.supabase.co";
+export const SUPABASE_URL = "https://xjlmsgwqjjpuqpbrlvwr.supabase.co";
 
 export const SUPABASE_PUBLISHABLE_KEY =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.SUPABASE_PUBLISHABLE_KEY ||
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqbG1zZ3dxampwdXFwYnJsdndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwNzg4MTQsImV4cCI6MjA5NTY1NDgxNH0.0kwln23c78z-fYx-plG3yI1wCTAyASLP6ov6PT6WcqM";
 
 // Clean up stale or foreign Supabase tokens from localStorage
@@ -33,25 +28,6 @@ function cleanupStaleStorage() {
           keysToRemove.push(k);
           continue;
         }
-        // Inspect token payload
-        try {
-          const raw = localStorage.getItem(k);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            const token = parsed?.access_token || parsed?.currentSession?.access_token;
-            if (token && typeof token === "string") {
-              const parts = token.split(".");
-              if (parts.length === 3) {
-                const payload = JSON.parse(atob(parts[1]));
-                if (payload?.ref && payload.ref !== SUPABASE_PROJECT_ID) {
-                  keysToRemove.push(k);
-                }
-              }
-            }
-          }
-        } catch {
-          // If unparseable, keep safe
-        }
       }
     }
     keysToRemove.forEach((key) => localStorage.removeItem(key));
@@ -62,51 +38,57 @@ function cleanupStaleStorage() {
 
 // Resilient fetch wrapper to auto-recover if a stale JWT causes 401 / PGRST301
 const resilientFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-  const response = await fetch(input, init);
-  if (response.status === 401) {
-    try {
-      const clone = response.clone();
-      const body = await clone.json();
-      if (
-        body &&
-        (body.code === "PGRST301" ||
-          body.message?.includes("JWT") ||
-          body.message?.includes("key") ||
-          body.message?.includes("token"))
-      ) {
-        console.warn("[Supabase] Invalid or stale JWT detected, purging session and retrying with anon key...");
-        if (typeof window !== "undefined" && window.localStorage) {
-          for (let i = localStorage.length - 1; i >= 0; i--) {
-            const k = localStorage.key(i);
-            if (k && (k.startsWith("sb-") || k.includes("supabase.auth.token"))) {
-              localStorage.removeItem(k);
+  try {
+    const response = await fetch(input, init);
+    if (response.status === 401) {
+      try {
+        const clone = response.clone();
+        const body = await clone.json();
+        if (
+          body &&
+          (body.code === "PGRST301" ||
+            body.message?.includes("JWT") ||
+            body.message?.includes("key") ||
+            body.message?.includes("token"))
+        ) {
+          console.warn("[Supabase] Invalid or stale JWT detected, purging session and retrying with anon key...");
+          if (typeof window !== "undefined" && window.localStorage) {
+            for (let i = localStorage.length - 1; i >= 0; i--) {
+              const k = localStorage.key(i);
+              if (k && (k.startsWith("sb-") || k.includes("supabase.auth.token"))) {
+                localStorage.removeItem(k);
+              }
             }
           }
+          const headers = new Headers(init?.headers);
+          headers.set("apikey", SUPABASE_PUBLISHABLE_KEY);
+          headers.set("Authorization", `Bearer ${SUPABASE_PUBLISHABLE_KEY}`);
+          
+          const targetUrl =
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+              ? input.toString()
+              : (input as Request).url;
+
+          return fetch(targetUrl, {
+            ...init,
+            headers,
+          });
         }
-        const headers = new Headers(init?.headers);
-        headers.set("apikey", SUPABASE_PUBLISHABLE_KEY);
-        headers.set("Authorization", `Bearer ${SUPABASE_PUBLISHABLE_KEY}`);
-        return fetch(input, { ...init, headers });
+      } catch {
+        // ignore json parse error
       }
-    } catch {
-      // ignore json parse error
     }
+    return response;
+  } catch (err) {
+    console.error("[Supabase Fetch Error]:", err);
+    throw err;
   }
-  return response;
 };
 
 function createSupabaseClient() {
   cleanupStaleStorage();
-
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    const missing = [
-      ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ["SUPABASE_PUBLISHABLE_KEY"] : []),
-    ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}.`;
-    console.error(`[Supabase] ${message}`);
-    throw new Error(message);
-  }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
