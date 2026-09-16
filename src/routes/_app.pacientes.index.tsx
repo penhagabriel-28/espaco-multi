@@ -41,7 +41,13 @@ function PacientesPage() {
   const [editing, setEditing] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  const { data: pacientes = [], isLoading } = useQuery({
+  const {
+    data: pacientes = [],
+    isLoading,
+    isError,
+    error: queryError,
+    refetch,
+  } = useQuery({
     queryKey: ["pacientes"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -50,10 +56,14 @@ function PacientesPage() {
           "id, nome, data_nascimento, cid_principal, cids_secundarios, status, tipo_atendimento, convenio_nome, valor_mensal, observacoes, created_at"
         )
         .order("nome");
-      if (error) throw error;
+      if (error) {
+        console.error("Erro ao carregar pacientes:", error);
+        throw error;
+      }
       return data ?? [];
     },
     staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
 
   const { data: pacienteProfissionais = [] } = useQuery({
@@ -226,11 +236,29 @@ function PacientesPage() {
             </div>
           ))}
         </div>
+      ) : isError ? (
+        <Card className="border-destructive/30">
+          <CardContent className="py-8 text-center space-y-3">
+            <p className="text-sm text-destructive font-medium">
+              Erro ao carregar pacientes: {queryError instanceof Error ? queryError.message : "Erro de conexão"}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                qc.invalidateQueries({ queryKey: ["pacientes"] });
+                refetch();
+              }}
+            >
+              Tentar novamente
+            </Button>
+          </CardContent>
+        </Card>
       ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             <User className="mx-auto mb-2 h-6 w-6 opacity-50" />
-            Nenhum paciente encontrado.
+            {q.trim() ? "Nenhum paciente encontrado com essa busca." : "Nenhum paciente encontrado."}
           </CardContent>
         </Card>
       ) : (
