@@ -88,6 +88,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ComprovantesPagamentoDialog } from "@/components/ComprovantesPagamentoDialog";
+import { WhatsAppCobrancaDialog } from "@/components/WhatsAppCobrancaDialog";
+
 
 function parseDateFromDescription(desc: string): number | null {
   if (!desc) return null;
@@ -3755,35 +3757,21 @@ function DiretoriaPageContent() {
     printWindow.document.close();
   };
 
-  const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
-    const resps = responsaveisMap.get(pacienteId) || [];
-    const primaryResp = resps.find((r) => r.whatsapp) || resps.find((r) => r.telefone) || resps[0];
-    if (!primaryResp) {
-      toast.error("Nenhum responsável com telefone cadastrado para este paciente.");
-      return;
-    }
-    const num = primaryResp.whatsapp || primaryResp.telefone;
-    if (!num) {
-      toast.error("Responsável sem telefone ou WhatsApp cadastrado.");
-      return;
-    }
-    const cleanNum = String(num).replace(/\D/g, "");
-    if (!cleanNum) {
-      toast.error("Número de telefone inválido.");
-      return;
-    }
-    let phoneWithCountry = cleanNum;
-    if (cleanNum.length === 10 || cleanNum.length === 11) {
-      phoneWithCountry = "55" + cleanNum;
-    }
+  // WhatsApp Billing Dialog State & Helper
+  const [whatsAppModal, setWhatsAppModal] = useState<{
+    open: boolean;
+    patientId: string;
+    patientName: string;
+    totalPendente: number;
+  }>({
+    open: false,
+    patientId: "",
+    patientName: "",
+    totalPendente: 0,
+  });
 
-    const months = [
-      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-    ];
-    const monthIndex = inicio ? parseInt(inicio.split("-")[1], 10) - 1 : -1;
-    const mesRef = months[monthIndex] || "";
-
+  const getPatientSummaryText = (pacienteId: string) => {
+    if (!pacienteId) return "";
     const periodFats = (faturas || []).filter(
       (f) => f.paciente_id === pacienteId && (f.status === "aberta" || f.status === "vencida")
     );
@@ -3869,16 +3857,27 @@ function DiretoriaPageContent() {
       summaryLines.push(`• ${s.count} sessão(ões) de ${s.spec} com ${s.profName}`);
     });
 
-    const summaryText = summaryLines.length > 0 ? "\n\nResumo:\n" + summaryLines.join("\n") : "";
+    return summaryLines.length > 0 ? "\n\nResumo:\n" + summaryLines.join("\n") : "";
+  };
 
-    const textMsg = `Olá, ${primaryResp.nome}! Gostaríamos de lembrar do pagamento referente aos atendimentos de ${mesRef} de *${patientName}* no valor total de *${brl(totalPendente)}*.${summaryText}
+  const handleWhatsAppClick = (pacienteId: string, totalPendente: number, patientName: string) => {
+    const resps = responsaveisMap.get(pacienteId) || [];
+    const hasPhone = resps.some((r) => r.whatsapp || r.telefone);
+    if (!hasPhone && resps.length > 0) {
+      toast.error("Responsável sem telefone ou WhatsApp cadastrado.");
+      return;
+    }
+    if (resps.length === 0) {
+      toast.error("Nenhum responsável cadastrado para este paciente.");
+      return;
+    }
 
-Nosso pix: 54.747.611/0001-27
-
- Agradecemos a atenção! *Espaço Multi*`;
-
-    const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`;
-    window.open(url, "_blank");
+    setWhatsAppModal({
+      open: true,
+      patientId: pacienteId,
+      patientName,
+      totalPendente,
+    });
   };
 
   // Billing Modals
@@ -4474,7 +4473,7 @@ Nosso pix: 54.747.611/0001-27
                             onClick={() =>
                               handleWhatsAppClick(c.pacienteId, c.totalPendente, c.nome)
                             }
-                            title={`Chamar no WhatsApp: ${primaryResp.whatsapp || primaryResp.telefone}`}
+                            title={`Cobrança via WhatsApp: ${primaryResp.whatsapp || primaryResp.telefone} (Editar, copiar ou enviar)`}
                           >
                             <MessageCircle className="h-3 w-3 fill-emerald-600/10" />
                           </Button>
@@ -7696,6 +7695,27 @@ Nosso pix: 54.747.611/0001-27
         pacientes={pacientes}
         faturas={faturas}
         initialPacienteId={comprovantesPatientId}
+      />
+
+      {/* WhatsApp Cobrança com Aprendizado e Menções Dialog */}
+      <WhatsAppCobrancaDialog
+        open={whatsAppModal.open}
+        onOpenChange={(open) => setWhatsAppModal((prev) => ({ ...prev, open }))}
+        patientId={whatsAppModal.patientId}
+        patientName={whatsAppModal.patientName}
+        totalPendente={whatsAppModal.totalPendente}
+        responsaveis={responsaveisMap.get(whatsAppModal.patientId) || []}
+        mesRef={(() => {
+          const months = [
+            "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+            "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+          ];
+          const monthIndex = inicio ? parseInt(inicio.split("-")[1], 10) - 1 : -1;
+          return months[monthIndex] || "";
+        })()}
+        summaryText={getPatientSummaryText(whatsAppModal.patientId)}
+        defaultPix="54.747.611/0001-27"
+        clinicaNome="Espaço Multi"
       />
     </div>
   );

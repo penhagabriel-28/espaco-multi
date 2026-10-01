@@ -38,4 +38,5 @@ dist-ssr
 scratch/
 inspect_schema_pac_ag.js
 calculate_active_patients.js
+comprovantes/
 
