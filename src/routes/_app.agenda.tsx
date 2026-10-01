@@ -953,7 +953,7 @@ function AgendamentoDialog({
   const [pacienteOpen, setPacienteOpen] = useState(false);
   const [recorrenciaConfirmOpen, setRecorrenciaConfirmOpen] = useState(false);
   const [planoAbaOpen, setPlanoAbaOpen] = useState(false);
-  const [apoioFrequencia, setApoioFrequencia] = useState<'avulso' | '1x' | '2x' | '3x' | 'semana_toda'>('avulso');
+  const [apoioFrequencia, setApoioFrequencia] = useState<string>('2x');
   const [apoioValorPersonalizado, setApoioValorPersonalizado] = useState<string>('');
 
   const [feriasFieldsOpen, setFeriasFieldsOpen] = useState(false);
@@ -1290,7 +1290,7 @@ Fico à disposição para qualquer dúvida!`;
 
   useEffect(() => {
     if (selectedPaciente) {
-      setApoioFrequencia((selectedPaciente.apoio_frequencia as any) || 'avulso');
+      setApoioFrequencia((selectedPaciente.apoio_frequencia as any) || '2x');
       setApoioValorPersonalizado(selectedPaciente.apoio_valor_personalizado ? String(selectedPaciente.apoio_valor_personalizado) : '');
     }
   }, [form.paciente_id, selectedPaciente]);
@@ -2227,28 +2227,60 @@ Fico à disposição para qualquer dúvida!`;
                   <div className="col-span-2 grid grid-cols-2 gap-4 border-t pt-3 mt-1 animate-in fade-in duration-200">
                     <div className="space-y-1.5">
                       <Label>Frequência do Aluno (Apoio) *</Label>
-                      <Select value={apoioFrequencia} onValueChange={(v: any) => setApoioFrequencia(v)}>
+                      <Select
+                        value={apoioFrequencia}
+                        onValueChange={(v: any) => {
+                          setApoioFrequencia(v);
+                          const defaults: Record<string, string> = {
+                            "1x": "120.00",
+                            "2x": "240.00",
+                            "2x_252": "252.00",
+                            "2x_280": "280.00",
+                            "3x": "360.00",
+                            "3x_250": "250.00",
+                            "3x_400": "400.00",
+                            "3x_510": "510.00",
+                            semana_toda: "450.00",
+                            semana_toda_500: "500.00",
+                            semana_toda_600: "600.00",
+                            avulso: "50.00",
+                          };
+                          if (defaults[v]) {
+                            setApoioValorPersonalizado(defaults[v]);
+                          }
+                        }}
+                      >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="avulso">Sessão Avulsa (R$ 50,00)</SelectItem>
-                          <SelectItem value="1x">1x por semana (R$ 120,00)</SelectItem>
-                          <SelectItem value="2x">2x por semana (R$ 240,00)</SelectItem>
-                          <SelectItem value="3x">3x por semana (R$ 360,00)</SelectItem>
-                          <SelectItem value="semana_toda">Semana Toda (R$ 450,00)</SelectItem>
+                          <SelectItem value="1x">1x por semana (R$ 120,00/mês)</SelectItem>
+                          <SelectItem value="2x">2x por semana (R$ 240,00/mês)</SelectItem>
+                          <SelectItem value="2x_252">2x por semana (R$ 252,00/mês)</SelectItem>
+                          <SelectItem value="2x_280">2x por semana (R$ 280,00/mês)</SelectItem>
+                          <SelectItem value="3x">3x por semana (R$ 360,00/mês)</SelectItem>
+                          <SelectItem value="3x_250">3x por semana (R$ 250,00/mês)</SelectItem>
+                          <SelectItem value="3x_400">3x por semana (R$ 400,00/mês)</SelectItem>
+                          <SelectItem value="3x_510">3x por semana (R$ 510,00/mês)</SelectItem>
+                          <SelectItem value="semana_toda">Semana Toda (R$ 450,00/mês)</SelectItem>
+                          <SelectItem value="semana_toda_500">Semana Toda (R$ 500,00/mês)</SelectItem>
+                          <SelectItem value="semana_toda_600">Semana Toda (R$ 600,00/mês)</SelectItem>
+                          <SelectItem value="avulso">Sessão Avulsa (R$ 50,00/sessão)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Valor Customizado / Desconto (Opcional)</Label>
+                      <Label>Valor da Mensalidade / Sessão (R$)</Label>
                       <Input
                         type="number"
                         step="0.01"
-                        placeholder={apoioFrequencia === 'avulso' ? "Ex: 40.00 (por sessão)" : "Ex: 100.00 (mensal)"}
+                        placeholder={apoioFrequencia === 'avulso' ? "Ex: 50.00 (por sessão)" : "Ex: 240.00 (mensal)"}
                         value={apoioValorPersonalizado}
                         onChange={(e) => setApoioValorPersonalizado(e.target.value)}
                       />
+                    </div>
+                    <div className="col-span-2 text-[11px] text-muted-foreground bg-primary/5 p-2 rounded border border-primary/10">
+                      ℹ️ O Apoio Pedagógico é faturado como <strong>mensalidade fixa única por mês</strong> (não multiplica por sessão individual).
                     </div>
                   </div>
                 )}
@@ -2270,11 +2302,10 @@ Fico à disposição para qualquer dúvida!`;
                         <div>
                           <span className="text-muted-foreground">Frequência/Cobrança (Apoio): </span>
                           <span className="font-semibold text-foreground text-xs block mt-0.5">
-                            {apoioFrequencia === "avulso" && `Sessão Avulsa - R$ ${Number(apoioValorPersonalizado || 50).toFixed(2)} por sessão`}
-                            {apoioFrequencia === "1x" && `1x por semana - R$ ${Number(apoioValorPersonalizado || 120).toFixed(2)} mensal`}
-                            {apoioFrequencia === "2x" && `2x por semana - R$ ${Number(apoioValorPersonalizado || 240).toFixed(2)} mensal`}
-                            {apoioFrequencia === "3x" && `3x por semana - R$ ${Number(apoioValorPersonalizado || 360).toFixed(2)} mensal`}
-                            {apoioFrequencia === "semana_toda" && `Semana Toda - R$ ${Number(apoioValorPersonalizado || 450).toFixed(2)} mensal`}
+                            {apoioFrequencia === "avulso" && (!apoioValorPersonalizado || Number(apoioValorPersonalizado) <= 60)
+                              ? `Sessão Avulsa - R$ ${Number(apoioValorPersonalizado || 50).toFixed(2)} por sessão`
+                              : `Mensalidade Fixa - R$ ${Number(apoioValorPersonalizado || 240).toFixed(2)} / mês`
+                            }
                           </span>
                         </div>
                       ) : (

@@ -96,7 +96,7 @@ export function PacienteFormDialog({
     email_secundario: "",
     endereco_secundario: "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
-    apoio_frequencia: paciente?.apoio_frequencia ?? "avulso",
+    apoio_frequencia: paciente?.apoio_frequencia ?? "2x",
     apoio_valor_personalizado: paciente?.apoio_valor_personalizado ? String(paciente.apoio_valor_personalizado) : "",
   });
   const { data: profissionais = EMPTY_ARRAY } = useQuery({
@@ -399,6 +399,30 @@ export function PacienteFormDialog({
                 }
               }
             }
+            const monthlyVal = form.apoio_valor_personalizado ? Number(form.apoio_valor_personalizado) : null;
+            if (monthlyVal && monthlyVal > 0) {
+              await supabase
+                .from("faturas")
+                .update({ valor: monthlyVal })
+                .eq("paciente_id", paciente.id)
+                .ilike("especialidade", "%Apoio%")
+                .eq("status", "aberta");
+              
+              const { data: openApoioFats } = await supabase
+                .from("faturas")
+                .select("id")
+                .eq("paciente_id", paciente.id)
+                .ilike("especialidade", "%Apoio%")
+                .eq("status", "aberta");
+              if (openApoioFats && openApoioFats.length > 0) {
+                const fatIds = openApoioFats.map((f: any) => f.id);
+                await supabase
+                  .from("fatura_itens")
+                  .update({ valor_unitario: monthlyVal, total: monthlyVal })
+                  .in("fatura_id", fatIds)
+                  .is("agendamento_id", null);
+              }
+            }
           } catch (err) {
             console.error("Erro ao recalcular pacote Apoio:", err);
           }
@@ -551,37 +575,72 @@ export function PacienteFormDialog({
         </div>
         
         {form.cids_secundarios.some((s) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP") && (
-          <div className="grid grid-cols-2 gap-3 p-3 border rounded-lg bg-primary/5 border-dashed border-border/80 animate-in fade-in duration-200">
-            <div className="col-span-2 text-xs font-bold uppercase tracking-wider text-primary">
-              Configurações do Apoio
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 border rounded-lg bg-sky-500/5 border-dashed border-sky-500/30 animate-in fade-in duration-200">
+            <div className="md:col-span-2 flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                ⭐ Configurações do Apoio Pedagógico (Planos Mensais)
+              </span>
+              <span className="text-[10px] text-muted-foreground font-medium">
+                Cobrança Mensal Fixa
+              </span>
             </div>
             <div className="space-y-1.5">
-              <Label>Frequência do Aluno</Label>
+              <Label>Plano / Frequência do Apoio</Label>
               <Select
                 value={form.apoio_frequencia}
-                onValueChange={(v) => setForm({ ...form, apoio_frequencia: v })}
+                onValueChange={(v) => {
+                  const defaultPrices: Record<string, string> = {
+                    "1x": "120.00",
+                    "2x": "240.00",
+                    "2x_252": "252.00",
+                    "2x_280": "280.00",
+                    "3x": "360.00",
+                    "3x_250": "250.00",
+                    "3x_400": "400.00",
+                    "3x_510": "510.00",
+                    semana_toda: "450.00",
+                    semana_toda_500: "500.00",
+                    semana_toda_600: "600.00",
+                    avulso: "50.00",
+                  };
+                  setForm({
+                    ...form,
+                    apoio_frequencia: v,
+                    apoio_valor_personalizado: defaultPrices[v] ?? form.apoio_valor_personalizado,
+                  });
+                }}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Selecione o plano mensal..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="avulso">Sessão Avulsa (R$ 50,00)</SelectItem>
-                  <SelectItem value="1x">1x por semana (R$ 120,00)</SelectItem>
-                  <SelectItem value="2x">2x por semana (R$ 240,00)</SelectItem>
-                  <SelectItem value="3x">3x por semana (R$ 360,00)</SelectItem>
-                  <SelectItem value="semana_toda">Semana Toda (R$ 450,00)</SelectItem>
+                  <SelectItem value="1x">1x por semana (R$ 120,00/mês)</SelectItem>
+                  <SelectItem value="2x">2x por semana - Padrão (R$ 240,00/mês)</SelectItem>
+                  <SelectItem value="2x_252">2x por semana (R$ 252,00/mês)</SelectItem>
+                  <SelectItem value="2x_280">2x por semana (R$ 280,00/mês)</SelectItem>
+                  <SelectItem value="3x">3x por semana - Padrão (R$ 360,00/mês)</SelectItem>
+                  <SelectItem value="3x_250">3x por semana (R$ 250,00/mês)</SelectItem>
+                  <SelectItem value="3x_400">3x por semana (R$ 400,00/mês)</SelectItem>
+                  <SelectItem value="3x_510">3x por semana (R$ 510,00/mês)</SelectItem>
+                  <SelectItem value="semana_toda">Semana Toda - Padrão (R$ 450,00/mês)</SelectItem>
+                  <SelectItem value="semana_toda_500">Semana Toda (R$ 500,00/mês)</SelectItem>
+                  <SelectItem value="semana_toda_600">Semana Toda (R$ 600,00/mês)</SelectItem>
+                  <SelectItem value="avulso">Sessão Avulsa (R$ 50,00 por sessão)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Valor Customizado / Desconto</Label>
+              <Label>Mensalidade Fixa do Apoio (R$)</Label>
               <Input
                 type="number"
                 step="0.01"
-                placeholder={form.apoio_frequencia === 'avulso' ? "Ex: 40.00 (por sessão)" : "Ex: 100.00 (mensal)"}
+                placeholder={form.apoio_frequencia === 'avulso' ? "Ex: 50.00 (por sessão)" : "Ex: 280.00 (mensal)"}
                 value={form.apoio_valor_personalizado}
                 onChange={(e) => setForm({ ...form, apoio_valor_personalizado: e.target.value })}
               />
+            </div>
+            <div className="md:col-span-2 text-[10px] text-muted-foreground bg-muted/40 p-2 rounded border border-border/50">
+              💡 <strong>Regra do Apoio:</strong> O valor configurado acima é a <strong>mensalidade fixa mensal</strong> cobrada dos responsáveis. O sistema nunca multiplicará este valor pelas sessões realizadas.
             </div>
           </div>
         )}

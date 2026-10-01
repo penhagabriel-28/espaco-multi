@@ -111,6 +111,36 @@ export function isApoioSpec(specialty?: string | null): boolean {
   return s === "APOIO" || s === "AP";
 }
 
+const APOIO_FREQ_LABELS: Record<string, string> = {
+  avulso: "Pacote Apoio - Sessões Avulsas",
+  "1x": "Pacote Apoio - 1x por semana",
+  "2x": "Pacote Apoio - 2x por semana",
+  "2x_252": "Pacote Apoio - 2x por semana (R$ 252,00)",
+  "2x_280": "Pacote Apoio - 2x por semana (R$ 280,00)",
+  "3x": "Pacote Apoio - 3x por semana",
+  "3x_250": "Pacote Apoio - 3x por semana (R$ 250,00)",
+  "3x_400": "Pacote Apoio - 3x por semana (R$ 400,00)",
+  "3x_510": "Pacote Apoio - 3x por semana (R$ 510,00)",
+  semana_toda: "Pacote Apoio - Semana Inteira",
+  semana_toda_500: "Pacote Apoio - Semana Inteira (R$ 500,00)",
+  semana_toda_600: "Pacote Apoio - Semana Inteira (R$ 600,00)",
+};
+
+const APOIO_RATES_MAP: Record<string, number> = {
+  "1x": 120.00,
+  "2x": 240.00,
+  "2x_252": 252.00,
+  "2x_280": 280.00,
+  "3x": 360.00,
+  "3x_250": 250.00,
+  "3x_400": 400.00,
+  "3x_510": 510.00,
+  semana_toda: 450.00,
+  semana_toda_500: 500.00,
+  semana_toda_600: 600.00,
+  avulso: 50.00,
+};
+
 export const Route = createFileRoute("/_app/diretoria")({
   component: DiretoriaPage,
 });
@@ -852,15 +882,8 @@ function DiretoriaPageContent() {
         let label = fatura.especialidade;
         if (fatura.especialidade === "Apoio") {
           const p = patientDetailsMap.get(fatura.paciente_id);
-          const freq = p?.apoio_frequencia || 'avulso';
-          const freqLabels: Record<string, string> = {
-            avulso: "Pacote Apoio - Sessões Avulsas",
-            "1x": "Pacote Apoio - 1x por semana",
-            "2x": "Pacote Apoio - 2x por semana",
-            "3x": "Pacote Apoio - 3x por semana",
-            semana_toda: "Pacote Apoio - Semana Inteira",
-          };
-          label = freqLabels[freq] || "Pacote Apoio";
+          const freq = p?.apoio_frequencia || '2x';
+          label = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
         }
         return (
           <span className="text-[10px] font-semibold text-foreground bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded whitespace-nowrap block w-max">
@@ -878,15 +901,8 @@ function DiretoriaPageContent() {
           let itemDesc = item.descricao;
           if (fatura.especialidade === "Apoio" && !item.descricao.startsWith("Pacote Apoio")) {
             const p = patientDetailsMap.get(fatura.paciente_id);
-            const freq = p?.apoio_frequencia || 'avulso';
-            const freqLabels: Record<string, string> = {
-              avulso: "Pacote Apoio - Sessões Avulsas",
-              "1x": "Pacote Apoio - 1x por semana",
-              "2x": "Pacote Apoio - 2x por semana",
-              "3x": "Pacote Apoio - 3x por semana",
-              semana_toda: "Pacote Apoio - Semana Inteira",
-            };
-            itemDesc = freqLabels[freq] || "Pacote Apoio";
+            const freq = p?.apoio_frequencia || '2x';
+            itemDesc = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
           }
           const valBrl = brl(Number(item.total || 0));
           return (
@@ -1210,29 +1226,30 @@ function DiretoriaPageContent() {
     const p = fatura.paciente_id ? patientDetailsMap.get(fatura.paciente_id) : null;
     if (!p) return Number(fatura.valor) || 0;
     
-    const freq = p.apoio_frequencia || 'avulso';
+    const freq = p.apoio_frequencia || '2x';
     const customVal = p.apoio_valor_personalizado;
     
+    // Se há valor customizado, para o Apoio ele representa SEMPRE a mensalidade fixa mensal
+    if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+      const numVal = Number(customVal);
+      // Qualquer valor superior a R$ 60 é incontestavelmente uma mensalidade do Apoio
+      if (freq !== 'avulso' || numVal > 60) {
+        return numVal;
+      }
+      const sessionsCount = (faturaItens || []).filter(
+        (item: any) => item.fatura_id === fatura.id && item.agendamento_id
+      ).length;
+      return sessionsCount > 0 ? (sessionsCount * numVal) : numVal;
+    }
+
     if (freq === 'avulso') {
       const sessionsCount = (faturaItens || []).filter(
         (item: any) => item.fatura_id === fatura.id && item.agendamento_id
       ).length;
-      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "") 
-        ? Number(customVal) 
-        : 50.00;
-      return sessionsCount > 0 ? (sessionsCount * rate) : rate;
-    } else {
-      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
-        return Number(customVal);
-      }
-      const defaultRates: Record<string, number> = {
-        "1x": 120.00,
-        "2x": 240.00,
-        "3x": 360.00,
-        semana_toda: 450.00
-      };
-      return defaultRates[freq] ?? 120.00;
+      return sessionsCount > 0 ? (sessionsCount * 50.00) : 50.00;
     }
+
+    return APOIO_RATES_MAP[freq] ?? 240.00;
   };
 
   // Helper to get exact effective value of a fatura (item total sum or fatura valor)
@@ -1699,7 +1716,7 @@ function DiretoriaPageContent() {
     const p = patientDetailsMap.get(pacienteId);
     if (!p) return 0;
     
-    const freq = p.apoio_frequencia || 'avulso';
+    const freq = p.apoio_frequencia || '2x';
     const customVal = p.apoio_valor_personalizado;
     
     const totalSessions = agendamentosRepasses.filter((ag: any) => {
@@ -1720,23 +1737,17 @@ function DiretoriaPageContent() {
     if (totalSessions === 0) return 0;
 
     let fatValue = 0;
-    if (freq === 'avulso') {
-      const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "")
-        ? Number(customVal)
-        : 50.00;
-      fatValue = totalSessions * rate;
-    } else {
-      if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
-        fatValue = Number(customVal);
+    if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+      const numVal = Number(customVal);
+      if (freq !== 'avulso' || numVal > 60) {
+        fatValue = numVal;
       } else {
-        const defaultRates: Record<string, number> = {
-          "1x": 120.00,
-          "2x": 240.00,
-          "3x": 360.00,
-          semana_toda: 450.00
-        };
-        fatValue = defaultRates[freq] ?? 120.00;
+        fatValue = totalSessions * numVal;
       }
+    } else if (freq === 'avulso') {
+      fatValue = totalSessions * 50.00;
+    } else {
+      fatValue = APOIO_RATES_MAP[freq] ?? 240.00;
     }
     
     return fatValue / totalSessions;
@@ -1998,15 +2009,18 @@ function DiretoriaPageContent() {
         let freqLabel = "";
         if (isApoio) {
           const p = patientDetailsMap.get(pacId);
-          const freq = p?.apoio_frequencia || "avulso";
+          const freq = p?.apoio_frequencia || "2x";
           const customVal = p?.apoio_valor_personalizado;
           
-          freqLabel =
-            freq === "avulso"
-              ? `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "50.00"}/sessão)`
-              : `${freq}/semana (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "120.00"}/mês)`;
-          if (freq === "semana_toda") {
-            freqLabel = `Semana Toda (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "450.00"}/mês)`;
+          if (freq === "avulso" && (!customVal || Number(customVal) <= 60)) {
+            freqLabel = `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "50.00"}/sessão)`;
+          } else if (freq.startsWith("semana_toda")) {
+            const defSemana = freq === "semana_toda_500" ? "500.00" : freq === "semana_toda_600" ? "600.00" : "450.00";
+            freqLabel = `Semana Toda (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : defSemana}/mês)`;
+          } else {
+            const defRate = APOIO_RATES_MAP[freq] ? APOIO_RATES_MAP[freq].toFixed(2) : "240.00";
+            const baseFreq = freq.startsWith("1x") ? "1x" : freq.startsWith("2x") ? "2x" : freq.startsWith("3x") ? "3x" : freq;
+            freqLabel = `${baseFreq}/semana (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : defRate}/mês)`;
           }
         }
 
@@ -3092,15 +3106,8 @@ function DiretoriaPageContent() {
         let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual");
         if (isApoio) {
           const p = patientDetailsMap.get(f.paciente_id);
-          const freq = p?.apoio_frequencia || 'avulso';
-          const freqLabels: Record<string, string> = {
-            avulso: "Pacote Apoio - Sessões Avulsas",
-            "1x": "Pacote Apoio - 1x por semana",
-            "2x": "Pacote Apoio - 2x por semana",
-            "3x": "Pacote Apoio - 3x por semana",
-            semana_toda: "Pacote Apoio - Semana Inteira",
-          };
-          rowDesc = freqLabels[freq] || "Pacote Apoio";
+          const freq = p?.apoio_frequencia || '2x';
+          rowDesc = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
         }
 
         let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—";
@@ -3182,15 +3189,8 @@ function DiretoriaPageContent() {
               rowDesc = item.descricao;
             } else {
               const p = patientDetailsMap.get(f.paciente_id);
-              const freq = p?.apoio_frequencia || 'avulso';
-              const freqLabels: Record<string, string> = {
-                avulso: "Pacote Apoio - Sessões Avulsas",
-                "1x": "Pacote Apoio - 1x por semana",
-                "2x": "Pacote Apoio - 2x por semana",
-                "3x": "Pacote Apoio - 3x por semana",
-                semana_toda: "Pacote Apoio - Semana Inteira",
-              };
-              rowDesc = freqLabels[freq] || "Pacote Apoio";
+              const freq = p?.apoio_frequencia || '2x';
+              rowDesc = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
             }
           }
           
@@ -3299,15 +3299,8 @@ function DiretoriaPageContent() {
           let rowDesc = f.observacoes || (f.especialidade ? `${f.especialidade} (Manual)` : "Cobrança Manual");
           if (isApoio) {
             const p = patientDetailsMap.get(f.paciente_id);
-            const freq = p?.apoio_frequencia || 'avulso';
-            const freqLabels: Record<string, string> = {
-              avulso: "Pacote Apoio - Sessões Avulsas",
-              "1x": "Pacote Apoio - 1x por semana",
-              "2x": "Pacote Apoio - 2x por semana",
-              "3x": "Pacote Apoio - 3x por semana",
-              semana_toda: "Pacote Apoio - Semana Inteira",
-            };
-            rowDesc = freqLabels[freq] || "Pacote Apoio";
+            const freq = p?.apoio_frequencia || '2x';
+            rowDesc = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
           }
 
           let profNome = f.profissional_id ? (professionalMap.get(f.profissional_id) || "—") : "—";
@@ -3388,15 +3381,8 @@ function DiretoriaPageContent() {
                 rowDesc = item.descricao;
               } else {
                 const p = patientDetailsMap.get(f.paciente_id);
-                const freq = p?.apoio_frequencia || 'avulso';
-                const freqLabels: Record<string, string> = {
-                  avulso: "Pacote Apoio - Sessões Avulsas",
-                  "1x": "Pacote Apoio - 1x por semana",
-                  "2x": "Pacote Apoio - 2x por semana",
-                  "3x": "Pacote Apoio - 3x por semana",
-                  semana_toda: "Pacote Apoio - Semana Inteira",
-                };
-                rowDesc = freqLabels[freq] || "Pacote Apoio";
+                const freq = p?.apoio_frequencia || '2x';
+                rowDesc = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
               }
             }
 
@@ -3809,15 +3795,8 @@ function DiretoriaPageContent() {
 
         if (isApoio) {
           const p = patientDetailsMap.get(f.paciente_id);
-          const freq = p?.apoio_frequencia || 'avulso';
-          const freqLabels: Record<string, string> = {
-            avulso: "Pacote Apoio - Sessões Avulsas",
-            "1x": "Pacote Apoio - 1x por semana",
-            "2x": "Pacote Apoio - 2x por semana",
-            "3x": "Pacote Apoio - 3x por semana",
-            semana_toda: "Pacote Apoio - Semana Inteira",
-          };
-          const desc = freqLabels[freq] || "Pacote Apoio";
+          const freq = p?.apoio_frequencia || '2x';
+          const desc = APOIO_FREQ_LABELS[freq] || "Pacote Apoio";
           const key = `${desc}-${profNome}`;
           groupedPackages[key] = { desc, profName: profNome };
         } else {
@@ -4024,21 +4003,14 @@ function DiretoriaPageContent() {
     if (isApoioSpec(especialidade)) {
       const p = patientDetailsMap.get(pacienteId);
       if (p) {
-        const freq = p.apoio_frequencia || 'avulso';
+        const freq = p.apoio_frequencia || '2x';
         const customVal = p.apoio_valor_personalizado;
         if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
           return Number(customVal);
         }
-        const defaultRates: Record<string, number> = {
-          avulso: 50.00,
-          "1x": 120.00,
-          "2x": 240.00,
-          "3x": 360.00,
-          semana_toda: 450.00
-        };
-        return defaultRates[freq] ?? 120.00;
+        return APOIO_RATES_MAP[freq] ?? 240.00;
       }
-      return 0;
+      return 240.00;
     }
 
     if (!profissionalId) return 0;
@@ -4092,18 +4064,12 @@ function DiretoriaPageContent() {
     if (!faturaForm.paciente_id || !isApoioSpec(faturaForm.especialidade)) return null;
     const p = patientDetailsMap.get(faturaForm.paciente_id);
     if (!p) return null;
-    const freq = p.apoio_frequencia || 'avulso';
+    const freq = p.apoio_frequencia || '2x';
     const customVal = p.apoio_valor_personalizado;
-    const freqLabels: Record<string, string> = {
-      avulso: "Sessão Avulsa",
-      "1x": "1x por semana",
-      "2x": "2x por semana",
-      "3x": "3x por semana",
-      semana_toda: "Semana Toda",
-    };
+    const freqLabel = (APOIO_FREQ_LABELS[freq] || "2x por semana").replace("Pacote Apoio - ", "");
     return {
       freq,
-      freqLabel: freqLabels[freq] || freq,
+      freqLabel,
       customVal: customVal !== null && customVal !== undefined && String(customVal) !== "" ? Number(customVal) : null,
       price: getFaturaPrice(faturaForm.paciente_id, faturaForm.profissional_id, "Apoio")
     };
@@ -4415,14 +4381,20 @@ function DiretoriaPageContent() {
                         const p = patientDetailsMap.get(c.pacienteId);
                         const hasApoio = p?.cids_secundarios?.some((s: string) => s.toLowerCase() === "apoio" || s.toUpperCase() === "AP");
                         if (hasApoio) {
-                          const freq = p?.apoio_frequencia || 'avulso';
+                          const freq = p?.apoio_frequencia || '2x';
                           const customVal = p?.apoio_valor_personalizado;
+                          const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "")
+                            ? Number(customVal)
+                            : (APOIO_RATES_MAP[freq] || 240);
                           let label = "";
-                          if (freq === 'avulso') label = `Apoio: Avulso (${customVal ? brl(customVal) : "R$ 50,00"}/sessão)`;
-                          else if (freq === '1x') label = `Apoio: 1x/semana (${customVal ? brl(customVal) : "R$ 120,00"}/mês)`;
-                          else if (freq === '2x') label = `Apoio: 2x/semana (${customVal ? brl(customVal) : "R$ 240,00"}/mês)`;
-                          else if (freq === '3x') label = `Apoio: 3x/semana (${customVal ? brl(customVal) : "R$ 360,00"}/mês)`;
-                          else if (freq === 'semana_toda') label = `Apoio: Semana Toda (${customVal ? brl(customVal) : "R$ 450,00"}/mês)`;
+                          if (freq === 'avulso' && (!customVal || Number(customVal) <= 60)) {
+                            label = `Apoio: Avulso (${brl(rate)}/sessão)`;
+                          } else {
+                            const rawFreqName = (APOIO_FREQ_LABELS[freq] || "2x por semana")
+                              .replace("Pacote Apoio - ", "")
+                              .replace(/\s*\(R\$.*?\)/, "");
+                            label = `Apoio: ${rawFreqName} (${brl(rate)}/mês)`;
+                          }
                           return (
                             <div className="space-y-1 mt-0.5">
                               <span className="text-[10px] text-muted-foreground font-normal block bg-primary/5 border border-primary/10 rounded px-1.5 py-0.5 w-max">
