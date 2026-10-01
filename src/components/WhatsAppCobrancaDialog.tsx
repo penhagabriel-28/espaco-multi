@@ -44,17 +44,83 @@ import {
 
 const STORAGE_KEY_COBRANCA_TEMPLATE = "espaco_multi_cobranca_whatsapp_template";
 
-const DEFAULT_COBRANCA_TEMPLATE = `Olá, @responsavel! Gostaríamos de lembrar do pagamento referente aos atendimentos de @mes de *@paciente* no valor total de *@valor*.@resumo
+const DEFAULT_COBRANCA_TEMPLATE = `Olá @tratamento @responsavel,
+@saudacao, tudo bem? 😊
+Gostaríamos de lembrar do pagamento referente aos atendimentos de @mes de *@paciente* no valor total de *@valor*.@resumo
 
 Nosso pix: @pix
 
 Agradecemos a atenção! *@clinica*`;
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeSavedTemplate(raw: string): string {
+  if (!raw || !raw.trim()) return DEFAULT_COBRANCA_TEMPLATE;
+
+  let s = raw;
+
+  // 1. Remove previous hardcoded patient/responsible names from user tests
+  // Replace greetings with hardcoded names like "Dona Magna"
+  s = s.replace(
+    /(?:Olá|Oi|Bom dia|Boa tarde|Boa noite)[\s,]+(?:Dona\s+|Sra\.?\s+|Sr\.?\s+)?Magna(?:[\s,]+dos[\s,]+Santos[\s,]+Pereira)?/gi,
+    (match) => {
+      const greetingMatch = match.match(/^(Olá|Oi|Bom dia|Boa tarde|Boa noite)/i);
+      const greet = greetingMatch ? greetingMatch[1] : "Olá";
+      return `${greet} @tratamento @responsavel`;
+    }
+  );
+  s = s.replace(/\bDona\s+Magna\b/gi, "@tratamento @responsavel");
+  s = s.replace(/\bMagna\s+dos\s+Santos\s+Pereira\b/gi, "@responsavel");
+  s = s.replace(/\bMagna\b/gi, "@responsavel");
+
+  // Replace Francisco dos Santos Pereira
+  s = s.replace(/\*?Francisco\s+dos\s+Santos\s+Pereira\*?/gi, "*@paciente*");
+
+  // 2. Remove hardcoded summary from Francisco's invoice or any previous session details
+  s = s.replace(
+    /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]+[•\-\*]\s*1\s*sessão.*Leandro\s+Moraes/gi,
+    "\n@resumo"
+  );
+  s = s.replace(
+    /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]+(?:[•\-\*].*[\r\n]*)+/gi,
+    "\n@resumo"
+  );
+
+  // 3. Remove hardcoded R$ 120,00 from previous test
+  s = s.replace(/\*?R\$\s*120,00\*?/gi, "*@valor*");
+
+  // 4. If the template contains "Olá, @responsavel!" (old default), modernize it
+  if (s.includes("Olá, @responsavel! Gostaríamos de lembrar")) {
+    s = s.replace(
+      "Olá, @responsavel! Gostaríamos de lembrar",
+      "Olá @tratamento @responsavel,\n@saudacao, tudo bem? 😊\nGostaríamos de lembrar"
+    );
+  }
+
+  // 5. Ensure @resumo is present if absent
+  if (!s.includes("@resumo")) {
+    s = s.replace(/(\*?@valor\*?\.?)/, "$1\n@resumo");
+  }
+
+  // 6. Ensure greeting has @saudacao if it has literal "Boa tarde" etc.
+  s = s.replace(/\b(Boa tarde|Bom dia|Boa noite), tudo bem\?/gi, "@saudacao, tudo bem?");
+
+  return s;
+}
+
 function getSavedCobrancaTemplate(): string {
   if (typeof window === "undefined") return DEFAULT_COBRANCA_TEMPLATE;
   try {
     const saved = localStorage.getItem(STORAGE_KEY_COBRANCA_TEMPLATE);
-    if (saved && saved.trim()) return saved;
+    if (saved && saved.trim()) {
+      const sanitized = sanitizeSavedTemplate(saved);
+      if (sanitized !== saved) {
+        localStorage.setItem(STORAGE_KEY_COBRANCA_TEMPLATE, sanitized);
+      }
+      return sanitized;
+    }
   } catch (e) {
     console.error("Erro ao ler template do localStorage", e);
   }
@@ -75,7 +141,10 @@ function resolveTemplateVariables(
   template: string,
   data: {
     paciente: string;
+    pacientePrimeiroNome: string;
     responsavel: string;
+    responsavelCompleto: string;
+    tratamento: string;
     responsaveis?: string;
     valor: string;
     mes: string;
@@ -87,11 +156,40 @@ function resolveTemplateVariables(
   },
 ): string {
   let result = template;
+
+  // Handle @resumo first:
+  // If data.resumo already contains "Resumo:", prevent double "Resumo:"
+  const cleanResumo = data.resumo ? data.resumo.trim() : "";
+  if (cleanResumo) {
+    result = result.replace(
+      /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*([@\/]|\{\{?)resumo(\}\}?)/gi,
+      `\n\n${cleanResumo}`
+    );
+    result = result.replace(/([@\/]|\{\{?)resumo(\}\}?)/gi, `\n\n${cleanResumo}`);
+  } else {
+    result = result.replace(
+      /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*([@\/]|\{\{?)resumo(\}\}?)/gi,
+      ""
+    );
+    result = result.replace(/([@\/]|\{\{?)resumo(\}\}?)/gi, "");
+  }
+
+  // Handle @tratamento: if empty, remove it cleanly without leaving awkward double spaces
+  if (!data.tratamento) {
+    result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)\s*/gi, "");
+  } else {
+    result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)/gi, data.tratamento);
+  }
+
   const replacements: Record<string, string> = {
     paciente: data.paciente,
     nome_paciente: data.paciente,
+    primeiro_nome_paciente: data.pacientePrimeiroNome,
     responsavel: data.responsavel,
     nome_responsavel: data.responsavel,
+    primeiro_nome_responsavel: data.responsavel,
+    responsavel_completo: data.responsavelCompleto,
+    nome_completo_responsavel: data.responsavelCompleto,
     responsaveis: data.responsaveis || data.responsavel,
     nomes_responsaveis: data.responsaveis || data.responsavel,
     valor: data.valor,
@@ -101,8 +199,6 @@ function resolveTemplateVariables(
     mes_referencia: data.mes,
     pix: data.pix,
     chave_pix: data.pix,
-    resumo: data.resumo,
-    resumo_atendimentos: data.resumo,
     clinica: data.clinica,
     nome_clinica: data.clinica,
     saudacao: data.saudacao,
@@ -117,7 +213,12 @@ function resolveTemplateVariables(
     result = result.replace(regex, val);
   }
 
-  return result;
+  // Clean any accidental multiple spaces (except newlines)
+  result = result.replace(/[ \t]{2,}/g, " ");
+  // Clean 3+ consecutive newlines to 2 newlines
+  result = result.replace(/\n{3,}/g, "\n\n");
+
+  return result.trim();
 }
 
 export interface WhatsAppCobrancaDialogProps {
@@ -183,14 +284,48 @@ export function WhatsAppCobrancaDialog({
       name: r.nome,
     }));
 
+    const respFullName = activeResp?.nome ? activeResp.nome.trim() : "Responsável";
+    const respFirstName = respFullName.split(/\s+/)[0] || "Responsável";
+    const pacienteFullName = patientName ? patientName.trim() : "Paciente";
+    const pacienteFirstName = pacienteFullName.split(/\s+/)[0] || "Paciente";
+
+    // Auto-detect title / treatment (Dona / Sr.) based on parentesco or first name
+    const parentesco = String(activeResp?.parentesco || "").toLowerCase();
+    const isFemale =
+      parentesco.includes("mãe") ||
+      parentesco.includes("mae") ||
+      parentesco.includes("avó") ||
+      parentesco.includes("avo") ||
+      parentesco.includes("tia") ||
+      parentesco.includes("madrasta") ||
+      parentesco.includes("irmã") ||
+      parentesco.includes("irma") ||
+      (parentesco === "" && /[aáã]$/i.test(respFirstName) && !["luca", "lucas"].includes(respFirstName.toLowerCase()));
+
+    const isMale =
+      parentesco.includes("pai") ||
+      parentesco.includes("avô") ||
+      parentesco.includes("avo") ||
+      parentesco.includes("tio") ||
+      parentesco.includes("padrasto") ||
+      parentesco.includes("irmão") ||
+      parentesco.includes("irmao") ||
+      (parentesco === "" && /[oóõ]$/i.test(respFirstName));
+
+    const tratamento = isFemale ? "Dona" : (isMale ? "Sr." : "");
+
     return {
-      paciente: patientName || "Paciente",
-      responsavel: activeResp?.nome || "Responsável",
+      paciente: pacienteFullName,
+      pacientePrimeiroNome: pacienteFirstName,
+      responsavel: respFirstName,
+      responsavelCompleto: respFullName,
+      tratamento,
       responsaveis: allRespsNames,
       valor: brl(totalPendente),
       mes: mesRef || "período",
       pix: defaultPix,
       resumo: summaryText || "",
+      resumoRaw: summaryText || "",
       clinica: clinicaNome,
       saudacao: saudacaoPeriodo,
       extraResps,
@@ -260,23 +395,47 @@ export function WhatsAppCobrancaDialog({
       });
       setActiveTab("message");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, patientId]);
+  }, [open, patientId, templateData]);
 
   // When user changes the responsible in the dropdown, update the name in the message
   const handleRespChange = (newIndex: number) => {
-    const oldResp = activeResp;
     setSelectedRespIndex(newIndex);
     const newResp = validResps[newIndex];
-    if (newResp && oldResp && oldResp.nome !== newResp.nome) {
-      // If the old responsible name was in messageText, replace with new
-      if (messageText.includes(oldResp.nome)) {
-        setMessageText((prev) => prev.replaceAll(oldResp.nome, newResp.nome));
-      } else {
-        // Re-generate if message was unmodified
-        const updatedData = { ...templateData, responsavel: newResp.nome };
-        setMessageText(resolveTemplateVariables(baseTemplateText, updatedData));
-      }
+    if (newResp) {
+      const respFullName = newResp.nome ? newResp.nome.trim() : "Responsável";
+      const respFirstName = respFullName.split(/\s+/)[0] || "Responsável";
+      const parentesco = String(newResp.parentesco || "").toLowerCase();
+      const isFemale =
+        parentesco.includes("mãe") ||
+        parentesco.includes("mae") ||
+        parentesco.includes("avó") ||
+        parentesco.includes("avo") ||
+        parentesco.includes("tia") ||
+        parentesco.includes("madrasta") ||
+        parentesco.includes("irmã") ||
+        parentesco.includes("irma") ||
+        (parentesco === "" && /[aáã]$/i.test(respFirstName) && !["luca", "lucas"].includes(respFirstName.toLowerCase()));
+
+      const isMale =
+        parentesco.includes("pai") ||
+        parentesco.includes("avô") ||
+        parentesco.includes("avo") ||
+        parentesco.includes("tio") ||
+        parentesco.includes("padrasto") ||
+        parentesco.includes("irmão") ||
+        parentesco.includes("irmao") ||
+        (parentesco === "" && /[oóõ]$/i.test(respFirstName));
+
+      const tratamento = isFemale ? "Dona" : (isMale ? "Sr." : "");
+
+      const updatedData = {
+        ...templateData,
+        responsavel: respFirstName,
+        responsavelCompleto: respFullName,
+        tratamento,
+      };
+
+      setMessageText(resolveTemplateVariables(baseTemplateText, updatedData));
     }
   };
 
@@ -293,9 +452,23 @@ export function WhatsAppCobrancaDialog({
       {
         key: "responsavel",
         label: "Nome do Responsável",
-        value: templateData.responsavel,
+        value: templateData.tratamento ? `${templateData.tratamento} ${templateData.responsavel}` : templateData.responsavel,
         icon: <Users className="h-3.5 w-3.5 text-emerald-500" />,
         hint: "Inserir nome do responsável selecionado",
+      },
+      {
+        key: "tratamento",
+        label: "Tratamento (Dona / Sr.)",
+        value: templateData.tratamento,
+        icon: <Sparkles className="h-3.5 w-3.5 text-amber-500" />,
+        hint: "Dona ou Sr. de acordo com o responsável",
+      },
+      {
+        key: "responsavel_completo",
+        label: "Nome Completo do Responsável",
+        value: templateData.responsavelCompleto,
+        icon: <Users className="h-3.5 w-3.5 text-teal-500" />,
+        hint: "Inserir nome completo cadastrado",
       },
       {
         key: "responsaveis",
@@ -484,31 +657,100 @@ export function WhatsAppCobrancaDialog({
   const extractAndSaveLearnedTemplate = () => {
     let generalized = messageText;
 
-    // Check if the user typed tags like @paciente or if they have actual names
+    // 1. Abstract Summary (Resumo)
+    if (templateData.resumoRaw && generalized.includes(templateData.resumoRaw.trim())) {
+      generalized = generalized.replace(templateData.resumoRaw.trim(), "@resumo");
+    } else if (templateData.resumo && generalized.includes(templateData.resumo.trim())) {
+      generalized = generalized.replace(templateData.resumo.trim(), "@resumo");
+    } else {
+      // Abstract any "Resumo:\n• ..." block
+      const summaryRegex = /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]+(?:[•\-\*].*[\r\n]*)+/gi;
+      if (summaryRegex.test(generalized)) {
+        generalized = generalized.replace(summaryRegex, "\n@resumo");
+      }
+    }
+
+    // 2. Abstract Patient (FullName, then FirstName)
+    if (templateData.paciente && generalized.includes(templateData.paciente)) {
+      generalized = generalized.replaceAll(`*${templateData.paciente}*`, "*@paciente*");
+      generalized = generalized.replaceAll(templateData.paciente, "@paciente");
+    }
+    if (templateData.pacientePrimeiroNome && templateData.pacientePrimeiroNome.length > 2) {
+      generalized = generalized.replace(
+        new RegExp(`(de\\s+\\*?)${escapeRegex(templateData.pacientePrimeiroNome)}(\\*?)`, "gi"),
+        `$1@paciente$2`
+      );
+    }
+
+    // 3. Abstract Responsible (with Treatment if present)
+    const respFirst = templateData.responsavel;
+    const respFull = templateData.responsavelCompleto;
+
+    // Check treatment + name e.g. "Dona Magna", "Sra. Magna", "Sr. Antônio"
+    const treatRegex = new RegExp(`(Dona|Sra\\.?|Sr\\.?)\\s+(${escapeRegex(respFirst)}|${escapeRegex(respFull)})`, "gi");
+    if (treatRegex.test(generalized)) {
+      generalized = generalized.replace(treatRegex, "@tratamento @responsavel");
+    }
+
+    // Check greeting followed by name e.g. "Olá Magna", "Olá, Magna,"
+    const greetingRespRegex = new RegExp(`(Ol[aá]|Oi|Bom dia|Boa tarde|Boa noite)[,!]?\\s+(${escapeRegex(respFirst)}|${escapeRegex(respFull)})`, "gi");
+    if (greetingRespRegex.test(generalized)) {
+      generalized = generalized.replace(greetingRespRegex, (match, greet) => {
+        return `${greet}, @responsavel`;
+      });
+    }
+
+    // Check all responsibles
     if (
       templateData.responsaveis &&
-      templateData.responsaveis !== templateData.responsavel &&
+      templateData.responsaveis !== respFull &&
+      templateData.responsaveis !== respFirst &&
       generalized.includes(templateData.responsaveis)
     ) {
       generalized = generalized.replaceAll(templateData.responsaveis, "@responsaveis");
     }
-    if (templateData.responsavel && generalized.includes(templateData.responsavel)) {
-      generalized = generalized.replaceAll(templateData.responsavel, "@responsavel");
+
+    // Check full name and first name anywhere else
+    if (respFull && generalized.includes(respFull)) {
+      generalized = generalized.replaceAll(respFull, "@responsavel");
     }
-    if (templateData.paciente && generalized.includes(templateData.paciente)) {
-      generalized = generalized.replaceAll(templateData.paciente, "@paciente");
+    if (respFirst && respFirst.length >= 3 && generalized.includes(respFirst)) {
+      generalized = generalized.replaceAll(respFirst, "@responsavel");
     }
+
+    // 4. Abstract Value
     if (templateData.valor && generalized.includes(templateData.valor)) {
       generalized = generalized.replaceAll(templateData.valor, "@valor");
     }
+    const valNoSpace = templateData.valor.replace(/\s+/g, "");
+    if (valNoSpace && generalized.includes(valNoSpace)) {
+      generalized = generalized.replaceAll(valNoSpace, "@valor");
+    }
+
+    // 5. Abstract Month
     if (templateData.mes && generalized.includes(templateData.mes)) {
       generalized = generalized.replaceAll(templateData.mes, "@mes");
     }
+
+    // 6. Abstract Pix
     if (templateData.pix && generalized.includes(templateData.pix)) {
       generalized = generalized.replaceAll(templateData.pix, "@pix");
     }
+
+    // 7. Abstract Clinic
     if (templateData.clinica && generalized.includes(templateData.clinica)) {
       generalized = generalized.replaceAll(templateData.clinica, "@clinica");
+    }
+
+    // 8. Abstract Time Greeting (Bom dia / Boa tarde / Boa noite)
+    const timeGreetingRegex = /\b(Bom dia|Boa tarde|Boa noite)\b/gi;
+    if (timeGreetingRegex.test(generalized)) {
+      generalized = generalized.replace(timeGreetingRegex, "@saudacao");
+    }
+
+    // Ensure @resumo is present if it was in the original template or patient has summary
+    if (!generalized.includes("@resumo") && templateData.resumo) {
+      generalized += "\n@resumo";
     }
 
     setBaseTemplateText(generalized);
@@ -746,12 +988,12 @@ export function WhatsAppCobrancaDialog({
                 </button>
                 <button
                   type="button"
-                  onClick={() => insertContentAtCursor(templateData.responsavel)}
+                  onClick={() => insertContentAtCursor(templateData.tratamento ? `${templateData.tratamento} ${templateData.responsavel}` : templateData.responsavel)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
-                  title={`Inserir nome do responsável: ${templateData.responsavel}`}
+                  title={`Inserir responsável: ${templateData.tratamento ? `${templateData.tratamento} ` : ""}${templateData.responsavel}`}
                 >
                   <Users className="h-3 w-3 text-emerald-500" />
-                  <span>{(activeResp?.nome || "Resp").split(" ")[0]} (Resp)</span>
+                  <span>{templateData.tratamento ? `${templateData.tratamento} ` : ""}{templateData.responsavel} (Resp)</span>
                 </button>
                 <button
                   type="button"
@@ -912,14 +1154,14 @@ export function WhatsAppCobrancaDialog({
                 </div>
                 <p className="text-[11px] text-muted-foreground mb-2">
                   Aqui você pode definir o esqueleto padrão do sistema usando as variáveis:{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@tratamento</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@responsavel</code>,{" "}
                   <code className="bg-background px-1 py-0.5 rounded text-[10px]">@paciente</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">
-                    @responsavel
-                  </code>
-                  , <code className="bg-background px-1 py-0.5 rounded text-[10px]">@valor</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@valor</code>,{" "}
                   <code className="bg-background px-1 py-0.5 rounded text-[10px]">@mes</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@resumo</code>,{" "}
                   <code className="bg-background px-1 py-0.5 rounded text-[10px]">@pix</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@resumo</code>.
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@saudacao</code>.
                 </p>
                 <Textarea
                   value={baseTemplateText}
