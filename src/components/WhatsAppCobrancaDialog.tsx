@@ -42,15 +42,15 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
-export const STORAGE_KEY_COBRANCA_TEMPLATE = "espaco_multi_cobranca_whatsapp_template";
+const STORAGE_KEY_COBRANCA_TEMPLATE = "espaco_multi_cobranca_whatsapp_template";
 
-export const DEFAULT_COBRANCA_TEMPLATE = `Olá, @responsavel! Gostaríamos de lembrar do pagamento referente aos atendimentos de @mes de *@paciente* no valor total de *@valor*.@resumo
+const DEFAULT_COBRANCA_TEMPLATE = `Olá, @responsavel! Gostaríamos de lembrar do pagamento referente aos atendimentos de @mes de *@paciente* no valor total de *@valor*.@resumo
 
 Nosso pix: @pix
 
 Agradecemos a atenção! *@clinica*`;
 
-export function getSavedCobrancaTemplate(): string {
+function getSavedCobrancaTemplate(): string {
   if (typeof window === "undefined") return DEFAULT_COBRANCA_TEMPLATE;
   try {
     const saved = localStorage.getItem(STORAGE_KEY_COBRANCA_TEMPLATE);
@@ -61,7 +61,7 @@ export function getSavedCobrancaTemplate(): string {
   return DEFAULT_COBRANCA_TEMPLATE;
 }
 
-export function saveCobrancaTemplate(template: string): void {
+function saveCobrancaTemplate(template: string): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY_COBRANCA_TEMPLATE, template);
@@ -71,7 +71,7 @@ export function saveCobrancaTemplate(template: string): void {
 }
 
 // Helper to resolve variables in a template
-export function resolveTemplateVariables(
+function resolveTemplateVariables(
   template: string,
   data: {
     paciente: string;
@@ -84,7 +84,7 @@ export function resolveTemplateVariables(
     clinica: string;
     saudacao: string;
     extraResps?: { key: string; name: string }[];
-  }
+  },
 ): string {
   let result = template;
   const replacements: Record<string, string> = {
@@ -145,8 +145,7 @@ export function WhatsAppCobrancaDialog({
   defaultPix = "54.747.611/0001-27",
   clinicaNome = "Espaço Multi",
 }: WhatsAppCobrancaDialogProps) {
-  const brl = (val: number) =>
-    val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const brl = (val: number) => val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   // Filter responsaveis with phone/whatsapp
   const validResps = useMemo(() => {
@@ -196,7 +195,18 @@ export function WhatsAppCobrancaDialog({
       saudacao: saudacaoPeriodo,
       extraResps,
     };
-  }, [patientName, activeResp, allRespsNames, totalPendente, mesRef, defaultPix, summaryText, clinicaNome, saudacaoPeriodo, responsaveis]);
+  }, [
+    patientName,
+    activeResp,
+    allRespsNames,
+    totalPendente,
+    mesRef,
+    defaultPix,
+    summaryText,
+    clinicaNome,
+    saudacaoPeriodo,
+    responsaveis,
+  ]);
 
   // Messages state
   // messageText is the REAL editable text for this patient (e.g. "Olá, Amanda! ...")
@@ -250,6 +260,7 @@ export function WhatsAppCobrancaDialog({
       });
       setActiveTab("message");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, patientId]);
 
   // When user changes the responsible in the dropdown, update the name in the message
@@ -364,7 +375,7 @@ export function WhatsAppCobrancaDialog({
       (item) =>
         item.key.toLowerCase().includes(q) ||
         item.label.toLowerCase().includes(q) ||
-        item.value.toLowerCase().includes(q)
+        item.value.toLowerCase().includes(q),
     );
   }, [mentionState.open, mentionState.query, mentionItems]);
 
@@ -376,7 +387,7 @@ export function WhatsAppCobrancaDialog({
 
     const textBeforeCursor = val.slice(0, cursorPos);
     // Matches @ or / followed by word characters right up to cursor
-    const match = textBeforeCursor.match(/(?:^|\s)([@\/])([a-zA-Z0-9_]*)$/);
+    const match = textBeforeCursor.match(/(?:^|\s)([@/])([a-zA-Z0-9_]*)$/);
 
     if (match) {
       const trigger = match[1] as "@" | "/";
@@ -454,8 +465,7 @@ export function WhatsAppCobrancaDialog({
       setMentionState((prev) => ({
         ...prev,
         selectedIndex:
-          (prev.selectedIndex - 1 + filteredMentionItems.length) %
-          filteredMentionItems.length,
+          (prev.selectedIndex - 1 + filteredMentionItems.length) % filteredMentionItems.length,
       }));
     } else if (e.key === "Enter" || e.key === "Tab") {
       e.preventDefault();
@@ -475,7 +485,11 @@ export function WhatsAppCobrancaDialog({
     let generalized = messageText;
 
     // Check if the user typed tags like @paciente or if they have actual names
-    if (templateData.responsaveis && templateData.responsaveis !== templateData.responsavel && generalized.includes(templateData.responsaveis)) {
+    if (
+      templateData.responsaveis &&
+      templateData.responsaveis !== templateData.responsavel &&
+      generalized.includes(templateData.responsaveis)
+    ) {
       generalized = generalized.replaceAll(templateData.responsaveis, "@responsaveis");
     }
     if (templateData.responsavel && generalized.includes(templateData.responsavel)) {
@@ -594,12 +608,19 @@ export function WhatsAppCobrancaDialog({
               <div>
                 <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
                   Cobrança via WhatsApp
-                  <Badge variant="outline" className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5">
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5"
+                  >
                     Aprendizado Ativo ✨
                   </Badge>
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  Texto pronto para envio. Edite livremente ou use <kbd className="px-1 py-0.5 text-[10px] font-mono bg-muted border rounded">@</kbd> ou <kbd className="px-1 py-0.5 text-[10px] font-mono bg-muted border rounded">/</kbd> para inserir e personalizar dados.
+                  Texto pronto para envio. Edite livremente ou use{" "}
+                  <kbd className="px-1 py-0.5 text-[10px] font-mono bg-muted border rounded">@</kbd>{" "}
+                  ou{" "}
+                  <kbd className="px-1 py-0.5 text-[10px] font-mono bg-muted border rounded">/</kbd>{" "}
+                  para inserir e personalizar dados.
                 </DialogDescription>
               </div>
             </div>
@@ -612,19 +633,29 @@ export function WhatsAppCobrancaDialog({
           <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-muted/40 border border-border/60 text-xs">
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <div>
-                <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">Paciente:</span>
+                <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">
+                  Paciente:
+                </span>
                 <span className="font-semibold text-foreground">{patientName}</span>
               </div>
               <div className="text-muted-foreground/40">•</div>
               <div>
-                <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">Pendente:</span>
-                <span className="font-bold text-rose-600 dark:text-rose-400">{brl(totalPendente)}</span>
-                <span className="text-[10px] text-muted-foreground ml-1">({mesRef || "Geral"})</span>
+                <span className="text-[10px] uppercase font-bold text-muted-foreground mr-1">
+                  Pendente:
+                </span>
+                <span className="font-bold text-rose-600 dark:text-rose-400">
+                  {brl(totalPendente)}
+                </span>
+                <span className="text-[10px] text-muted-foreground ml-1">
+                  ({mesRef || "Geral"})
+                </span>
               </div>
             </div>
 
             <div className="flex items-center gap-1.5 w-full sm:w-auto pt-1 sm:pt-0 border-t sm:border-t-0 border-border/40 justify-between sm:justify-end">
-              <span className="text-[10px] uppercase font-bold text-muted-foreground whitespace-nowrap">Enviar para:</span>
+              <span className="text-[10px] uppercase font-bold text-muted-foreground whitespace-nowrap">
+                Enviar para:
+              </span>
               {validResps.length > 1 ? (
                 <Select
                   value={String(selectedRespIndex)}
@@ -636,14 +667,16 @@ export function WhatsAppCobrancaDialog({
                   <SelectContent>
                     {validResps.map((r, idx) => (
                       <SelectItem key={idx} value={String(idx)} className="text-xs">
-                        {r.nome} {r.parentesco ? `(${r.parentesco})` : ""} — {r.whatsapp || r.telefone}
+                        {r.nome} {r.parentesco ? `(${r.parentesco})` : ""} —{" "}
+                        {r.whatsapp || r.telefone}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               ) : (
                 <span className="font-medium text-foreground text-xs truncate max-w-[260px]">
-                  {activeResp?.nome || "Responsável"} ({activeResp?.whatsapp || activeResp?.telefone || "Sem telefone"})
+                  {activeResp?.nome || "Responsável"} (
+                  {activeResp?.whatsapp || activeResp?.telefone || "Sem telefone"})
                 </span>
               )}
             </div>
@@ -653,15 +686,24 @@ export function WhatsAppCobrancaDialog({
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
             <div className="flex items-center justify-between mb-2">
               <TabsList className="h-8 p-0.5 bg-muted/60 border border-border/60">
-                <TabsTrigger value="message" className="text-xs h-7 px-3 gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-xs">
+                <TabsTrigger
+                  value="message"
+                  className="text-xs h-7 px-3 gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-xs"
+                >
                   <Edit3 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                   Mensagem para Envio (Texto Real)
                 </TabsTrigger>
-                <TabsTrigger value="preview" className="text-xs h-7 px-3 gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-xs">
+                <TabsTrigger
+                  value="preview"
+                  className="text-xs h-7 px-3 gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-xs"
+                >
                   <MessageCircle className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                   Prévia do WhatsApp
                 </TabsTrigger>
-                <TabsTrigger value="template" className="text-xs h-7 px-2.5 gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-xs text-muted-foreground">
+                <TabsTrigger
+                  value="template"
+                  className="text-xs h-7 px-2.5 gap-1.5 data-[state=active]:bg-background data-[state=active]:shadow-xs text-muted-foreground"
+                >
                   <SlidersHorizontal className="h-3 w-3" />
                   Modelo com @
                 </TabsTrigger>
@@ -683,7 +725,10 @@ export function WhatsAppCobrancaDialog({
             </div>
 
             {/* TAB 1: Mensagem para Envio (Texto Real 100% Editável) */}
-            <TabsContent value="message" className="mt-0 space-y-2 relative focus-visible:outline-hidden">
+            <TabsContent
+              value="message"
+              className="mt-0 space-y-2 relative focus-visible:outline-hidden"
+            >
               {/* Quick Insertion Chips (Inserts actual editable text) */}
               <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-muted/30 border border-border/50 text-xs">
                 <span className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1 mr-1">
@@ -762,9 +807,7 @@ export function WhatsAppCobrancaDialog({
 
                 {/* Autocomplete Mention Floating Dropdown */}
                 {mentionState.open && filteredMentionItems.length > 0 && (
-                  <div
-                    className="absolute z-50 left-2 bottom-full mb-1.5 w-72 sm:w-80 max-h-60 overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 text-popover-foreground shadow-xl animate-in fade-in zoom-in-95 duration-100"
-                  >
+                  <div className="absolute z-50 left-2 bottom-full mb-1.5 w-72 sm:w-80 max-h-60 overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 text-popover-foreground shadow-xl animate-in fade-in zoom-in-95 duration-100">
                     <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border/40 flex items-center justify-between">
                       <span>Inserir Dados ({mentionState.trigger})</span>
                       <span className="text-[9px] lowercase font-normal">Use ↑↓ e Enter</span>
@@ -798,7 +841,8 @@ export function WhatsAppCobrancaDialog({
                               </div>
                             </div>
                             <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 ml-1 shrink-0">
-                              {mentionState.trigger}{item.key}
+                              {mentionState.trigger}
+                              {item.key}
                             </span>
                           </button>
                         );
@@ -824,7 +868,8 @@ export function WhatsAppCobrancaDialog({
                 <div className="flex items-center justify-between text-[11px] text-muted-foreground pb-2 border-b border-border/40">
                   <span className="font-semibold text-foreground flex items-center gap-1.5">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
-                    Destinatário: {activeResp?.nome || "Responsável"} ({activeResp?.whatsapp || activeResp?.telefone || "—"})
+                    Destinatário: {activeResp?.nome || "Responsável"} (
+                    {activeResp?.whatsapp || activeResp?.telefone || "—"})
                   </span>
                   <span>Visualização no WhatsApp</span>
                 </div>
@@ -866,7 +911,15 @@ export function WhatsAppCobrancaDialog({
                   </Button>
                 </div>
                 <p className="text-[11px] text-muted-foreground mb-2">
-                  Aqui você pode definir o esqueleto padrão do sistema usando as variáveis: <code className="bg-background px-1 py-0.5 rounded text-[10px]">@paciente</code>, <code className="bg-background px-1 py-0.5 rounded text-[10px]">@responsavel</code>, <code className="bg-background px-1 py-0.5 rounded text-[10px]">@valor</code>, <code className="bg-background px-1 py-0.5 rounded text-[10px]">@mes</code>, <code className="bg-background px-1 py-0.5 rounded text-[10px]">@pix</code>, <code className="bg-background px-1 py-0.5 rounded text-[10px]">@resumo</code>.
+                  Aqui você pode definir o esqueleto padrão do sistema usando as variáveis:{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@paciente</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">
+                    @responsavel
+                  </code>
+                  , <code className="bg-background px-1 py-0.5 rounded text-[10px]">@valor</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@mes</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@pix</code>,{" "}
+                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@resumo</code>.
                 </p>
                 <Textarea
                   value={baseTemplateText}
