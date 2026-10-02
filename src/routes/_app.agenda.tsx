@@ -846,28 +846,46 @@ const FragmentRow = memo(
                       {getEspecialidade(a)}
                     </div>
                   )}
-                  <Badge
-                    variant="outline"
-                    className={cn(
-                      "mt-1 h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
-                      a.status === "confirmado" &&
-                        "border-green-500/30 text-green-600 bg-green-50/50",
-                      a.status === "pago" &&
-                        "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                      a.status === "cancelado" &&
-                        "border-red-500/30 text-red-600 bg-red-50/50",
-                      a.status === "realizado" &&
-                        "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                      a.status === "falta" &&
-                        "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                      a.status === "pendente" &&
-                        "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
-                      a.status === "ferias" &&
-                        "border-sky-500/30 text-sky-600 bg-sky-50/50",
-                    )}
-                  >
-                    {STATUS_LABEL[a.status] || a.status}
-                  </Badge>
+                  {(() => {
+                    const meioMatch = a.observacoes?.match(
+                      /\[Meio:\s*(Pix|Espécie|Especie|Débito|Debito|Crédito|Credito|Boleto)\]/i,
+                    );
+                    const meio = meioMatch ? meioMatch[1] : null;
+                    return (
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
+                            a.status === "confirmado" &&
+                              "border-green-500/30 text-green-600 bg-green-50/50",
+                            a.status === "pago" &&
+                              "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                            a.status === "cancelado" &&
+                              "border-red-500/30 text-red-600 bg-red-50/50",
+                            a.status === "realizado" &&
+                              "border-blue-500/30 text-blue-600 bg-blue-50/50",
+                            a.status === "falta" &&
+                              "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                            a.status === "pendente" &&
+                              "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
+                            a.status === "ferias" &&
+                              "border-sky-500/30 text-sky-600 bg-sky-50/50",
+                          )}
+                        >
+                          {STATUS_LABEL[a.status] || a.status}
+                        </Badge>
+                        {a.status === "pago" && meio && (
+                          <Badge
+                            variant="secondary"
+                            className="h-4 px-1 text-[8px] font-semibold shrink-0 bg-emerald-100/80 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-none"
+                          >
+                            {meio}
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </button>
               ))}
             </div>
@@ -923,15 +941,26 @@ function AgendamentoDialog({
     : "sessao";
   const [tipoAgendamento, setTipoAgendamento] = useState<"sessao" | "anamnese">(initialTipo);
 
-  const paymentMethodMatch = editing?.observacoes?.match(/\[Meio: (Pix|Espécie)\]/);
-  const initialPaymentMethod = paymentMethodMatch ? paymentMethodMatch[1] : "Pix";
+  const paymentMethodMatch = editing?.observacoes?.match(
+    /\[Meio:\s*(Pix|Espécie|Especie|Débito|Debito|Crédito|Credito|Boleto)\]/i,
+  );
+  const normalizePaymentMethod = (val?: string | null) => {
+    if (!val) return "Pix";
+    const v = val.trim().toLowerCase();
+    if (v === "espécie" || v === "especie" || v === "dinheiro") return "Espécie";
+    if (v === "débito" || v === "debito") return "Débito";
+    if (v === "crédito" || v === "credito") return "Crédito";
+    if (v === "boleto") return "Boleto";
+    return "Pix";
+  };
+  const initialPaymentMethod = paymentMethodMatch ? normalizePaymentMethod(paymentMethodMatch[1]) : "Pix";
   const initialPacientePagouFalta = editing?.status === "falta" && paymentMethodMatch ? "sim" : "nao";
   const [pacientePagouFalta, setPacientePagouFalta] = useState<"sim" | "nao">(initialPacientePagouFalta);
 
   const initialObservacoes = editing?.observacoes
     ? editing.observacoes
-        .replace(/^\[Tipo: (Anamnese|Sessão Padrão)\]\n?/, "")
-        .replace(/\[Meio: (Pix|Espécie)\]\n?/, "")
+        .replace(/^\[Tipo: (Anamnese|Sessão Padrão)\]\n?/i, "")
+        .replace(/\[Meio:\s*(Pix|Espécie|Especie|Débito|Debito|Crédito|Credito|Boleto)\]\n?/i, "")
     : "";
 
   const initialProfId = editing?.profissional_id ?? defaults?.professionalId ?? "";
@@ -1137,8 +1166,7 @@ function AgendamentoDialog({
   const selectedPaciente = Array.isArray(pacientes) ? pacientes.find((p: any) => p.id === form.paciente_id) : undefined;
   const isMensal = !!(selectedPaciente?.valor_mensal && selectedPaciente.valor_mensal > 0);
   const showMeioPagamento =
-    !isMensal &&
-    (form.status === "pago" || (form.status === "falta" && pacientePagouFalta === "sim"));
+    form.status === "pago" || (form.status === "falta" && pacientePagouFalta === "sim");
 
   const whatsappUrl = useMemo(() => {
     if (!Array.isArray(responsaveisPaciente) || !responsaveisPaciente.length) return null;
@@ -1482,7 +1510,7 @@ Fico à disposição para qualquer dúvida!`;
             ? "[Tipo: Anamnese]\n"
             : "[Tipo: Sessão Padrão]\n"
           : "";
-      const paymentPrefix = showMeioPagamento ? `[Meio: ${form.meio_pagamento}]\n` : "";
+      const paymentPrefix = showMeioPagamento ? `[Meio: ${form.meio_pagamento || "Pix"}]\n` : "";
       const finalObservacoes = typePrefix + paymentPrefix + form.observacoes;
 
       // Calculate valor for sync
@@ -1828,7 +1856,7 @@ Fico à disposição para qualquer dúvida!`;
                             Meio de Pagamento:
                           </span>{" "}
                           <span className="text-foreground font-semibold">
-                            {isMensal ? "Mensal" : form.meio_pagamento || "Pix"}
+                            {showMeioPagamento ? (form.meio_pagamento || "Pix") : (isMensal ? "Mensal" : form.meio_pagamento || "Pix")}
                           </span>
                         </div>
                       )}
@@ -2403,7 +2431,9 @@ Fico à disposição para qualquer dúvida!`;
                 <div
                   className={cn(
                     "grid gap-3",
-                    form.status === "pendente" ? "grid-cols-2" : "grid-cols-1",
+                    form.status === "pendente" || form.status === "pago"
+                      ? "grid-cols-1 sm:grid-cols-2"
+                      : "grid-cols-1",
                   )}
                 >
                   <div className="space-y-1.5">
@@ -2435,6 +2465,38 @@ Fico à disposição para qualquer dúvida!`;
                       {whatsappUrl ? "WhatsApp Paciente" : "Sem WhatsApp"}
                     </Button>
                   </div>
+
+                  {form.status === "pago" && (
+                    <div className="space-y-1.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-foreground/90">
+                          Forma de Pagamento
+                        </Label>
+                        <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded border border-muted/80">
+                          Discreto
+                        </span>
+                      </div>
+                      <Select
+                        value={form.meio_pagamento || "Pix"}
+                        onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
+                      >
+                        <SelectTrigger className="h-10 border-input bg-background/50 hover:bg-background transition-colors">
+                          <SelectValue placeholder="Selecione a forma..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pix">Pix</SelectItem>
+                          <SelectItem value="Espécie">Espécie</SelectItem>
+                          <SelectItem value="Débito">Débito</SelectItem>
+                          <SelectItem value="Crédito">Crédito</SelectItem>
+                          <SelectItem value="Boleto">Boleto</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Registrado na sessão: <span className="font-medium text-foreground">{form.meio_pagamento || "Pix"}</span>
+                      </p>
+                    </div>
+                  )}
+
                   {form.status === "pendente" && (
                     <div className="space-y-1.5 animate-in fade-in duration-200">
                       <Label>Recorrência</Label>
@@ -2457,38 +2519,48 @@ Fico à disposição para qualquer dúvida!`;
                 </div>
 
                 {form.status === "falta" && (
-                  <div className="space-y-1.5 animate-in fade-in duration-200">
-                    <Label>O paciente pagou por esta sessão?</Label>
-                    <Select
-                      value={pacientePagouFalta}
-                      onValueChange={(v) => setPacientePagouFalta(v as "sim" | "nao")}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="nao">Não</SelectItem>
-                        <SelectItem value="sim">Sim</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 animate-in fade-in duration-200">
+                    <div className="space-y-1.5">
+                      <Label>O paciente pagou por esta sessão?</Label>
+                      <Select
+                        value={pacientePagouFalta}
+                        onValueChange={(v) => setPacientePagouFalta(v as "sim" | "nao")}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="nao">Não</SelectItem>
+                          <SelectItem value="sim">Sim</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                {showMeioPagamento && (
-                  <div className="space-y-1.5 animate-in fade-in duration-200">
-                    <Label>Meio de pagamento realizado na sessão</Label>
-                    <Select
-                      value={form.meio_pagamento}
-                      onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o meio de pagamento..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Pix">Pix</SelectItem>
-                        <SelectItem value="Espécie">Espécie</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {pacientePagouFalta === "sim" && (
+                      <div className="space-y-1.5 animate-in fade-in duration-200">
+                        <Label className="text-xs font-semibold text-foreground/90">
+                          Forma de Pagamento
+                        </Label>
+                        <Select
+                          value={form.meio_pagamento || "Pix"}
+                          onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
+                        >
+                          <SelectTrigger className="h-10 border-input bg-background/50 hover:bg-background transition-colors">
+                            <SelectValue placeholder="Selecione a forma..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pix">Pix</SelectItem>
+                            <SelectItem value="Espécie">Espécie</SelectItem>
+                            <SelectItem value="Débito">Débito</SelectItem>
+                            <SelectItem value="Crédito">Crédito</SelectItem>
+                            <SelectItem value="Boleto">Boleto</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Registrado na sessão: <span className="font-medium text-foreground">{form.meio_pagamento || "Pix"}</span>
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
