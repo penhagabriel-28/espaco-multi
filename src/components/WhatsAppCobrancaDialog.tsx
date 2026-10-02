@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,13 +41,18 @@ import {
   CheckCheck,
   Edit3,
   SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
+  Eye,
 } from "lucide-react";
 
 const STORAGE_KEY_COBRANCA_TEMPLATE = "espaco_multi_cobranca_whatsapp_template";
 
 const DEFAULT_COBRANCA_TEMPLATE = `Olá @tratamento @responsavel,
 @saudacao, tudo bem? 😊
-Gostaríamos de lembrar do pagamento referente aos atendimentos de @mes de *@paciente* no valor total de *@valor*.@resumo
+Gostaríamos de lembrar do pagamento referente aos atendimentos de @mes de *@paciente* no valor total de *@valor*.
+
+@resumo
 
 Nosso pix: @pix
 
@@ -171,14 +177,15 @@ function resolveTemplateVariables(
       /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*([@\/]|\{\{?)resumo(\}\}?)/gi,
       ""
     );
-    result = result.replace(/([@\/]|\{\{?)resumo(\}\}?)/gi, "");
+    result = result.replace(/(?:\.?\s*)?([@\/]|\{\{?)resumo(\}\}?)/gi, "");
   }
 
   // Handle @tratamento: if empty, remove it cleanly without leaving awkward double spaces
-  if (!data.tratamento) {
+  const cleanTratamento = data.tratamento ? data.tratamento.trim() : "";
+  if (!cleanTratamento) {
     result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)\s*/gi, "");
   } else {
-    result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)/gi, data.tratamento);
+    result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)/gi, cleanTratamento);
   }
 
   const replacements: Record<string, string> = {
@@ -344,16 +351,41 @@ export function WhatsAppCobrancaDialog({
   ]);
 
   // Messages state
-  // messageText is the REAL editable text for this patient (e.g. "Olá, Amanda! ...")
   const [messageText, setMessageText] = useState("");
-  // baseTemplateText is the underlying template with @ variables (e.g. "Olá, @responsavel! ...")
   const [baseTemplateText, setBaseTemplateText] = useState("");
+
+  // Custom overrides for "@" variables (allows editing individual "@" values)
+  const [customVariables, setCustomVariables] = useState<{
+    tratamento?: string;
+    responsavel?: string;
+    paciente?: string;
+    valor?: string;
+    mes?: string;
+    pix?: string;
+    saudacao?: string;
+    clinica?: string;
+  }>({});
+  const [isEditingVariablesOpen, setIsEditingVariablesOpen] = useState(false);
+
+  const activeTemplateData = useMemo(() => {
+    return {
+      ...templateData,
+      tratamento: customVariables.tratamento !== undefined ? customVariables.tratamento : templateData.tratamento,
+      responsavel: customVariables.responsavel !== undefined ? customVariables.responsavel : templateData.responsavel,
+      paciente: customVariables.paciente !== undefined ? customVariables.paciente : templateData.paciente,
+      valor: customVariables.valor !== undefined ? customVariables.valor : templateData.valor,
+      mes: customVariables.mes !== undefined ? customVariables.mes : templateData.mes,
+      pix: customVariables.pix !== undefined ? customVariables.pix : templateData.pix,
+      saudacao: customVariables.saudacao !== undefined ? customVariables.saudacao : templateData.saudacao,
+      clinica: customVariables.clinica !== undefined ? customVariables.clinica : templateData.clinica,
+    };
+  }, [templateData, customVariables]);
 
   const [copied, setCopied] = useState(false);
   const [learnAndSave, setLearnAndSave] = useState(true);
   const [activeTab, setActiveTab] = useState<"message" | "template" | "preview">("message");
 
-  // Mention State for @ or /
+  // Mention State for @ or / in Message Textarea
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [mentionState, setMentionState] = useState<{
     open: boolean;
@@ -371,9 +403,52 @@ export function WhatsAppCobrancaDialog({
     selectedIndex: 0,
   });
 
+  // Mention State for @ or / in Template Formula Textarea
+  const templateTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [templateMentionState, setTemplateMentionState] = useState<{
+    open: boolean;
+    trigger: "@" | "/";
+    query: string;
+    startIndex: number;
+    endIndex: number;
+    selectedIndex: number;
+  }>({
+    open: false,
+    trigger: "@",
+    query: "",
+    startIndex: -1,
+    endIndex: -1,
+    selectedIndex: 0,
+  });
+
+  // Unified updater: updates template in state, localStorage, and immediately computes real message
+  const updateTemplateAndMessage = (newTemplate: string, customVars = customVariables) => {
+    setBaseTemplateText(newTemplate);
+    saveCobrancaTemplate(newTemplate);
+    const dataToUse = {
+      ...templateData,
+      tratamento: customVars.tratamento !== undefined ? customVars.tratamento : templateData.tratamento,
+      responsavel: customVars.responsavel !== undefined ? customVars.responsavel : templateData.responsavel,
+      paciente: customVars.paciente !== undefined ? customVars.paciente : templateData.paciente,
+      valor: customVars.valor !== undefined ? customVars.valor : templateData.valor,
+      mes: customVars.mes !== undefined ? customVars.mes : templateData.mes,
+      pix: customVars.pix !== undefined ? customVars.pix : templateData.pix,
+      saudacao: customVars.saudacao !== undefined ? customVars.saudacao : templateData.saudacao,
+      clinica: customVars.clinica !== undefined ? customVars.clinica : templateData.clinica,
+    };
+    const realMsg = resolveTemplateVariables(newTemplate, dataToUse);
+    setMessageText(realMsg);
+  };
+
+  const handleUpdateCustomVariable = (key: string, value: string) => {
+    const updatedCustom = { ...customVariables, [key]: value };
+    setCustomVariables(updatedCustom);
+    updateTemplateAndMessage(baseTemplateText, updatedCustom);
+  };
+
   // Function to generate the default real message from base template
-  const generateRealMessageFromTemplate = (template: string) => {
-    return resolveTemplateVariables(template, templateData);
+  const generateRealMessageFromTemplate = (template: string, data = activeTemplateData) => {
+    return resolveTemplateVariables(template, data);
   };
 
   // Initialize on open
@@ -381,11 +456,20 @@ export function WhatsAppCobrancaDialog({
     if (open) {
       const savedTemplate = getSavedCobrancaTemplate();
       setBaseTemplateText(savedTemplate);
+      setCustomVariables({});
       const initialRealMsg = resolveTemplateVariables(savedTemplate, templateData);
       setMessageText(initialRealMsg);
       setSelectedRespIndex(0);
       setCopied(false);
       setMentionState({
+        open: false,
+        trigger: "@",
+        query: "",
+        startIndex: -1,
+        endIndex: -1,
+        selectedIndex: 0,
+      });
+      setTemplateMentionState({
         open: false,
         trigger: "@",
         query: "",
@@ -428,94 +512,101 @@ export function WhatsAppCobrancaDialog({
 
       const tratamento = isFemale ? "Dona" : (isMale ? "Sr." : "");
 
+      const updatedCustom = {
+        ...customVariables,
+        responsavel: respFirstName,
+        tratamento: customVariables.tratamento !== undefined ? customVariables.tratamento : tratamento,
+      };
+      setCustomVariables(updatedCustom);
+
       const updatedData = {
-        ...templateData,
+        ...activeTemplateData,
         responsavel: respFirstName,
         responsavelCompleto: respFullName,
-        tratamento,
+        tratamento: updatedCustom.tratamento,
       };
 
       setMessageText(resolveTemplateVariables(baseTemplateText, updatedData));
     }
   };
 
-  // Autocomplete variables items
+  // Autocomplete variables items (for Message tab)
   const mentionItems = useMemo(() => {
     const items = [
       {
         key: "paciente",
         label: "Nome do Paciente",
-        value: templateData.paciente,
+        value: activeTemplateData.paciente,
         icon: <User className="h-3.5 w-3.5 text-sky-500" />,
         hint: "Inserir nome do paciente",
       },
       {
         key: "responsavel",
         label: "Nome do Responsável",
-        value: templateData.tratamento ? `${templateData.tratamento} ${templateData.responsavel}` : templateData.responsavel,
+        value: activeTemplateData.tratamento ? `${activeTemplateData.tratamento} ${activeTemplateData.responsavel}` : activeTemplateData.responsavel,
         icon: <Users className="h-3.5 w-3.5 text-emerald-500" />,
         hint: "Inserir nome do responsável selecionado",
       },
       {
         key: "tratamento",
         label: "Tratamento (Dona / Sr.)",
-        value: templateData.tratamento,
+        value: activeTemplateData.tratamento,
         icon: <Sparkles className="h-3.5 w-3.5 text-amber-500" />,
         hint: "Dona ou Sr. de acordo com o responsável",
       },
       {
         key: "responsavel_completo",
         label: "Nome Completo do Responsável",
-        value: templateData.responsavelCompleto,
+        value: activeTemplateData.responsavelCompleto,
         icon: <Users className="h-3.5 w-3.5 text-teal-500" />,
         hint: "Inserir nome completo cadastrado",
       },
       {
         key: "responsaveis",
         label: "Todos os Responsáveis",
-        value: templateData.responsaveis,
+        value: activeTemplateData.responsaveis,
         icon: <Users className="h-3.5 w-3.5 text-indigo-500" />,
         hint: "Inserir nome de todos os responsáveis",
       },
       {
         key: "valor",
         label: "Valor Total Pendente",
-        value: templateData.valor,
+        value: activeTemplateData.valor,
         icon: <DollarSign className="h-3.5 w-3.5 text-rose-500" />,
         hint: "Inserir valor pendente formatado em R$",
       },
       {
         key: "mes",
         label: "Mês de Referência",
-        value: templateData.mes,
+        value: activeTemplateData.mes,
         icon: <Calendar className="h-3.5 w-3.5 text-amber-500" />,
         hint: "Inserir mês de competência",
       },
       {
         key: "pix",
         label: "Chave Pix",
-        value: templateData.pix,
+        value: activeTemplateData.pix,
         icon: <QrCode className="h-3.5 w-3.5 text-teal-500" />,
         hint: "Inserir chave PIX",
       },
       {
         key: "resumo",
         label: "Resumo dos Atendimentos",
-        value: templateData.resumo,
+        value: activeTemplateData.resumo,
         icon: <FileText className="h-3.5 w-3.5 text-blue-500" />,
         hint: "Inserir detalhamento de sessões e pacotes",
       },
       {
         key: "clinica",
         label: "Nome da Clínica",
-        value: templateData.clinica,
+        value: activeTemplateData.clinica,
         icon: <Building className="h-3.5 w-3.5 text-purple-500" />,
         hint: "Inserir nome da clínica",
       },
       {
         key: "saudacao",
         label: "Saudação (Horário)",
-        value: templateData.saudacao,
+        value: activeTemplateData.saudacao,
         icon: <Sparkles className="h-3.5 w-3.5 text-amber-500" />,
         hint: "Inserir Bom dia / Boa tarde / Olá",
       },
@@ -537,7 +628,7 @@ export function WhatsAppCobrancaDialog({
     }
 
     return items;
-  }, [templateData, responsaveis]);
+  }, [activeTemplateData, responsaveis]);
 
   // Filter mention items by user query
   const filteredMentionItems = useMemo(() => {
@@ -551,6 +642,207 @@ export function WhatsAppCobrancaDialog({
         item.value.toLowerCase().includes(q),
     );
   }, [mentionState.open, mentionState.query, mentionItems]);
+
+  // Template autocomplete variables items (for Formula tab)
+  const templateMentionItems = useMemo(() => {
+    const items = [
+      {
+        tag: "@paciente",
+        label: "Paciente",
+        example: activeTemplateData.paciente,
+        icon: <User className="h-3.5 w-3.5 text-sky-500" />,
+        hint: "Nome completo do paciente",
+      },
+      {
+        tag: "@responsavel",
+        label: "Responsável",
+        example: activeTemplateData.responsavel,
+        icon: <Users className="h-3.5 w-3.5 text-emerald-500" />,
+        hint: "Nome do responsável",
+      },
+      {
+        tag: "@tratamento",
+        label: "Tratamento",
+        example: activeTemplateData.tratamento || "(vazio)",
+        icon: <Sparkles className="h-3.5 w-3.5 text-indigo-500" />,
+        hint: "Dona, Sr., Sra. (ou vazio)",
+      },
+      {
+        tag: "@saudacao",
+        label: "Saudação",
+        example: activeTemplateData.saudacao,
+        icon: <Sparkles className="h-3.5 w-3.5 text-amber-500" />,
+        hint: "Bom dia, Boa tarde ou Olá",
+      },
+      {
+        tag: "@valor",
+        label: "Valor Total",
+        example: activeTemplateData.valor,
+        icon: <DollarSign className="h-3.5 w-3.5 text-rose-500" />,
+        hint: "Valor pendente formatado em R$",
+      },
+      {
+        tag: "@mes",
+        label: "Mês",
+        example: activeTemplateData.mes,
+        icon: <Calendar className="h-3.5 w-3.5 text-amber-500" />,
+        hint: "Mês de referência (ex: Setembro)",
+      },
+      {
+        tag: "@pix",
+        label: "Chave Pix",
+        example: activeTemplateData.pix,
+        icon: <QrCode className="h-3.5 w-3.5 text-teal-500" />,
+        hint: "Chave Pix da clínica",
+      },
+      {
+        tag: "@resumo",
+        label: "Resumo",
+        example: activeTemplateData.resumo ? "Detalhamento das sessões" : "(sem sessões)",
+        icon: <FileText className="h-3.5 w-3.5 text-blue-500" />,
+        hint: "Lista detalhada dos atendimentos",
+      },
+      {
+        tag: "@clinica",
+        label: "Clínica",
+        example: activeTemplateData.clinica,
+        icon: <Building className="h-3.5 w-3.5 text-purple-500" />,
+        hint: "Nome da clínica",
+      },
+      {
+        tag: "@responsaveis",
+        label: "Todos os Responsáveis",
+        example: activeTemplateData.responsaveis,
+        icon: <Users className="h-3.5 w-3.5 text-teal-500" />,
+        hint: "Nomes de todos os responsáveis",
+      },
+    ];
+
+    if ((responsaveis || []).length > 1) {
+      responsaveis.forEach((r, idx) => {
+        if (r?.nome) {
+          items.push({
+            tag: `@responsavel_${idx + 1}`,
+            label: `${r.nome} (${r.parentesco || "Resp. " + (idx + 1)})`,
+            example: r.nome,
+            icon: <Users className="h-3.5 w-3.5 text-teal-500" />,
+            hint: `Inserir ${r.nome}`,
+          });
+        }
+      });
+    }
+
+    return items;
+  }, [activeTemplateData, responsaveis]);
+
+  const filteredTemplateMentionItems = useMemo(() => {
+    if (!templateMentionState.open) return [];
+    const q = templateMentionState.query.toLowerCase().trim();
+    if (!q) return templateMentionItems;
+    return templateMentionItems.filter(
+      (item) =>
+        item.tag.toLowerCase().includes(q) ||
+        item.label.toLowerCase().includes(q) ||
+        item.example.toLowerCase().includes(q),
+    );
+  }, [templateMentionState.open, templateMentionState.query, templateMentionItems]);
+
+  const handleTemplateTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart;
+
+    updateTemplateAndMessage(val);
+
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const match = textBeforeCursor.match(/(?:^|\s)([@/])([a-zA-Z0-9_]*)$/);
+
+    if (match) {
+      const trigger = match[1] as "@" | "/";
+      const query = match[2];
+      const triggerIndex = textBeforeCursor.lastIndexOf(trigger);
+
+      setTemplateMentionState({
+        open: true,
+        trigger,
+        query,
+        startIndex: triggerIndex,
+        endIndex: cursorPos,
+        selectedIndex: 0,
+      });
+    } else {
+      if (templateMentionState.open) {
+        setTemplateMentionState((prev) => ({ ...prev, open: false }));
+      }
+    }
+  };
+
+  const insertTemplateTagAtCursor = (tag: string) => {
+    const textarea = templateTextareaRef.current;
+    let newTemplate = "";
+    let newCursorPos = 0;
+
+    if (templateMentionState.open && templateMentionState.startIndex >= 0) {
+      const before = baseTemplateText.slice(0, templateMentionState.startIndex);
+      const after = baseTemplateText.slice(templateMentionState.endIndex);
+      newTemplate = before + tag + " " + after;
+      newCursorPos = before.length + tag.length + 1;
+    } else if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const before = baseTemplateText.slice(0, start);
+      const after = baseTemplateText.slice(end);
+      newTemplate = before + tag + " " + after;
+      newCursorPos = before.length + tag.length + 1;
+    } else {
+      newTemplate = baseTemplateText + (baseTemplateText ? " " : "") + tag;
+      newCursorPos = newTemplate.length;
+    }
+
+    updateTemplateAndMessage(newTemplate);
+    setTemplateMentionState({
+      open: false,
+      trigger: "@",
+      query: "",
+      startIndex: -1,
+      endIndex: -1,
+      selectedIndex: 0,
+    });
+
+    setTimeout(() => {
+      if (templateTextareaRef.current) {
+        templateTextareaRef.current.focus();
+        templateTextareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    }, 10);
+  };
+
+  const handleTemplateKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!templateMentionState.open || filteredTemplateMentionItems.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setTemplateMentionState((prev) => ({
+        ...prev,
+        selectedIndex: (prev.selectedIndex + 1) % filteredTemplateMentionItems.length,
+      }));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setTemplateMentionState((prev) => ({
+        ...prev,
+        selectedIndex:
+          (prev.selectedIndex - 1 + filteredTemplateMentionItems.length) % filteredTemplateMentionItems.length,
+      }));
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      const selected = filteredTemplateMentionItems[templateMentionState.selectedIndex];
+      if (selected) {
+        insertTemplateTagAtCursor(selected.tag);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setTemplateMentionState((prev) => ({ ...prev, open: false }));
+    }
+  };
 
   // Handle typing in textarea for @ or /
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -760,14 +1052,15 @@ export function WhatsAppCobrancaDialog({
 
   // Copy message to clipboard
   const handleCopyMessage = async () => {
-    if (!messageText) return;
+    const textToCopy = resolveTemplateVariables(messageText, activeTemplateData);
+    if (!textToCopy) return;
 
     try {
       if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(messageText);
+        await navigator.clipboard.writeText(textToCopy);
       } else {
         const textarea = document.createElement("textarea");
-        textarea.value = messageText;
+        textarea.value = textToCopy;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand("copy");
@@ -817,23 +1110,21 @@ export function WhatsAppCobrancaDialog({
       extractAndSaveLearnedTemplate();
     }
 
-    const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(messageText)}`;
+    const textToSend = resolveTemplateVariables(messageText, activeTemplateData);
+    const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textToSend)}`;
     window.open(url, "_blank");
   };
 
   // Restore current message from template
   const handleResetCurrentMessage = () => {
-    const regenerated = generateRealMessageFromTemplate(baseTemplateText);
+    const regenerated = generateRealMessageFromTemplate(baseTemplateText, activeTemplateData);
     setMessageText(regenerated);
     toast.info("Mensagem restaurada a partir do modelo ativo!");
   };
 
   // Reset base template to factory default
   const handleResetToFactoryDefault = () => {
-    setBaseTemplateText(DEFAULT_COBRANCA_TEMPLATE);
-    saveCobrancaTemplate(DEFAULT_COBRANCA_TEMPLATE);
-    const regenerated = generateRealMessageFromTemplate(DEFAULT_COBRANCA_TEMPLATE);
-    setMessageText(regenerated);
+    updateTemplateAndMessage(DEFAULT_COBRANCA_TEMPLATE);
     toast.info("Modelo original de fábrica restaurado com sucesso!");
   };
 
@@ -924,6 +1215,178 @@ export function WhatsAppCobrancaDialog({
             </div>
           </div>
 
+          {/* Quick Edit Variables Section */}
+          <div className="rounded-xl border border-border/70 bg-muted/30 overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setIsEditingVariablesOpen(!isEditingVariablesOpen)}
+              className="w-full px-3 py-2 flex items-center justify-between text-xs font-semibold text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                <span>Editar Valores dos "@"</span>
+                <Badge variant="secondary" className="text-[10px] py-0 px-1.5 font-normal">
+                  Personalizar dados nesta cobrança
+                </Badge>
+              </div>
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1 font-medium">
+                {isEditingVariablesOpen ? "Ocultar" : "Personalizar @"}
+                {isEditingVariablesOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </span>
+            </button>
+
+            {isEditingVariablesOpen && (
+              <div className="p-3 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 bg-background/60 animate-in fade-in duration-150">
+                {/* @tratamento */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[11px] font-semibold text-muted-foreground">@tratamento</Label>
+                    <span className="text-[10px] text-muted-foreground/80">Título / Cortesia</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      value={
+                        ["", "Dona", "Sr.", "Sra.", "Seu", "Dra.", "Dr."].includes(activeTemplateData.tratamento)
+                          ? (activeTemplateData.tratamento || "__vazio__")
+                          : "__outro__"
+                      }
+                      onValueChange={(val) => {
+                        if (val === "__vazio__") {
+                          handleUpdateCustomVariable("tratamento", "");
+                        } else if (val !== "__outro__") {
+                          handleUpdateCustomVariable("tratamento", val);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-24 shrink-0">
+                        <SelectValue placeholder="Escolha..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__vazio__">(Vazio)</SelectItem>
+                        <SelectItem value="Dona">Dona</SelectItem>
+                        <SelectItem value="Sr.">Sr.</SelectItem>
+                        <SelectItem value="Sra.">Sra.</SelectItem>
+                        <SelectItem value="Seu">Seu</SelectItem>
+                        <SelectItem value="Dra.">Dra.</SelectItem>
+                        <SelectItem value="Dr.">Dr.</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      className="h-7 text-xs flex-1"
+                      value={activeTemplateData.tratamento}
+                      onChange={(e) => handleUpdateCustomVariable("tratamento", e.target.value)}
+                      placeholder="Ex: Dona, Sr., ou vazio"
+                    />
+                  </div>
+                </div>
+
+                {/* @responsavel */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@responsavel</Label>
+                  <Input
+                    className="h-7 text-xs"
+                    value={activeTemplateData.responsavel}
+                    onChange={(e) => handleUpdateCustomVariable("responsavel", e.target.value)}
+                    placeholder="Nome do responsável..."
+                  />
+                </div>
+
+                {/* @paciente */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@paciente</Label>
+                  <Input
+                    className="h-7 text-xs"
+                    value={activeTemplateData.paciente}
+                    onChange={(e) => handleUpdateCustomVariable("paciente", e.target.value)}
+                    placeholder="Nome do paciente..."
+                  />
+                </div>
+
+                {/* @valor */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@valor</Label>
+                  <Input
+                    className="h-7 text-xs font-mono font-medium text-rose-600 dark:text-rose-400"
+                    value={activeTemplateData.valor}
+                    onChange={(e) => handleUpdateCustomVariable("valor", e.target.value)}
+                    placeholder="Valor..."
+                  />
+                </div>
+
+                {/* @mes */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@mes</Label>
+                  <Input
+                    className="h-7 text-xs"
+                    value={activeTemplateData.mes}
+                    onChange={(e) => handleUpdateCustomVariable("mes", e.target.value)}
+                    placeholder="Mês de referência..."
+                  />
+                </div>
+
+                {/* @saudacao */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@saudacao</Label>
+                  <Select
+                    value={activeTemplateData.saudacao}
+                    onValueChange={(val) => handleUpdateCustomVariable("saudacao", val)}
+                  >
+                    <SelectTrigger className="h-7 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Bom dia">Bom dia</SelectItem>
+                      <SelectItem value="Boa tarde">Boa tarde</SelectItem>
+                      <SelectItem value="Boa noite">Boa noite</SelectItem>
+                      <SelectItem value="Olá">Olá</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* @pix */}
+                <div className="space-y-1 sm:col-span-2">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@pix (Chave Pix)</Label>
+                  <Input
+                    className="h-7 text-xs font-mono"
+                    value={activeTemplateData.pix}
+                    onChange={(e) => handleUpdateCustomVariable("pix", e.target.value)}
+                    placeholder="Chave Pix..."
+                  />
+                </div>
+
+                {/* @clinica */}
+                <div className="space-y-1">
+                  <Label className="text-[11px] font-semibold text-muted-foreground">@clinica</Label>
+                  <Input
+                    className="h-7 text-xs"
+                    value={activeTemplateData.clinica}
+                    onChange={(e) => handleUpdateCustomVariable("clinica", e.target.value)}
+                    placeholder="Nome da clínica..."
+                  />
+                </div>
+
+                {/* Reset custom variables button */}
+                <div className="flex items-end justify-end sm:col-span-3 pt-1 border-t border-border/40">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setCustomVariables({});
+                      const real = resolveTemplateVariables(baseTemplateText, templateData);
+                      setMessageText(real);
+                      toast.info("Valores das variáveis restaurados para o padrão!");
+                    }}
+                    className="h-7 text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    <RotateCcw className="h-3 w-3 mr-1" />
+                    Restaurar Padrão dos @
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Navigation Tabs */}
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
             <div className="flex items-center justify-between mb-2">
@@ -952,6 +1415,23 @@ export function WhatsAppCobrancaDialog({
               </TabsList>
 
               <div className="flex items-center gap-1.5">
+                {/@(tratamento|responsavel|paciente|valor|mes|pix|resumo|saudacao|clinica)/i.test(messageText) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const resolved = resolveTemplateVariables(messageText, activeTemplateData);
+                      setMessageText(resolved);
+                      toast.success("Variáveis @ no texto foram convertidas!");
+                    }}
+                    className="h-7 px-2 text-[11px] text-emerald-600 dark:text-emerald-400 border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10 gap-1"
+                    title="Converter variáveis @ digitadas no texto para os dados reais"
+                  >
+                    <Sparkles className="h-3 w-3 text-emerald-500" />
+                    Converter @
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="ghost"
@@ -979,58 +1459,80 @@ export function WhatsAppCobrancaDialog({
                 </span>
                 <button
                   type="button"
-                  onClick={() => insertContentAtCursor(templateData.paciente)}
+                  onClick={() => insertContentAtCursor(activeTemplateData.paciente)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
-                  title={`Inserir nome do paciente: ${templateData.paciente}`}
+                  title={`Inserir nome do paciente: ${activeTemplateData.paciente}`}
                 >
                   <User className="h-3 w-3 text-sky-500" />
                   <span>{patientName.split(" ")[0]} (Paciente)</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => insertContentAtCursor(templateData.tratamento ? `${templateData.tratamento} ${templateData.responsavel}` : templateData.responsavel)}
+                  onClick={() =>
+                    insertContentAtCursor(
+                      activeTemplateData.tratamento
+                        ? `${activeTemplateData.tratamento} ${activeTemplateData.responsavel}`
+                        : activeTemplateData.responsavel
+                    )
+                  }
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
-                  title={`Inserir responsável: ${templateData.tratamento ? `${templateData.tratamento} ` : ""}${templateData.responsavel}`}
+                  title={`Inserir responsável: ${
+                    activeTemplateData.tratamento ? `${activeTemplateData.tratamento} ` : ""
+                  }${activeTemplateData.responsavel}`}
                 >
                   <Users className="h-3 w-3 text-emerald-500" />
-                  <span>{templateData.tratamento ? `${templateData.tratamento} ` : ""}{templateData.responsavel} (Resp)</span>
+                  <span>
+                    {activeTemplateData.tratamento ? `${activeTemplateData.tratamento} ` : ""}
+                    {activeTemplateData.responsavel} (Resp)
+                  </span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => insertContentAtCursor(templateData.valor)}
+                  onClick={() => insertContentAtCursor(activeTemplateData.valor)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
-                  title={`Inserir valor: ${templateData.valor}`}
+                  title={`Inserir valor: ${activeTemplateData.valor}`}
                 >
                   <DollarSign className="h-3 w-3 text-rose-500" />
-                  <span>{templateData.valor}</span>
+                  <span>{activeTemplateData.valor}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => insertContentAtCursor(templateData.mes)}
+                  onClick={() => insertContentAtCursor(activeTemplateData.mes)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
-                  title={`Inserir mês: ${templateData.mes}`}
+                  title={`Inserir mês: ${activeTemplateData.mes}`}
                 >
                   <Calendar className="h-3 w-3 text-amber-500" />
-                  <span>{templateData.mes}</span>
+                  <span>{activeTemplateData.mes}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => insertContentAtCursor(templateData.pix)}
+                  onClick={() => insertContentAtCursor(activeTemplateData.pix)}
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
                   title="Inserir Chave Pix"
                 >
                   <QrCode className="h-3 w-3 text-teal-500" />
                   <span>Pix</span>
                 </button>
-                {templateData.resumo && (
+                {activeTemplateData.resumo && (
                   <button
                     type="button"
-                    onClick={() => insertContentAtCursor(templateData.resumo)}
+                    onClick={() => insertContentAtCursor(activeTemplateData.resumo)}
                     className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
                     title="Inserir Resumo dos atendimentos"
                   >
                     <FileText className="h-3 w-3 text-blue-500" />
                     <span>Resumo</span>
+                  </button>
+                )}
+                {activeTemplateData.clinica && (
+                  <button
+                    type="button"
+                    onClick={() => insertContentAtCursor(activeTemplateData.clinica)}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-background hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
+                    title={`Inserir clínica: ${activeTemplateData.clinica}`}
+                  >
+                    <Building className="h-3 w-3 text-purple-500" />
+                    <span>{activeTemplateData.clinica}</span>
                   </button>
                 )}
               </div>
@@ -1134,13 +1636,21 @@ export function WhatsAppCobrancaDialog({
             </TabsContent>
 
             {/* TAB 3: Configurar Modelo Base com @ */}
-            <TabsContent value="template" className="mt-0 space-y-2 focus-visible:outline-hidden">
-              <div className="p-2.5 rounded-lg bg-muted/40 border border-border/60 text-xs">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-semibold text-foreground flex items-center gap-1.5">
-                    <AtSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                    Fórmula do Modelo Base
-                  </span>
+            <TabsContent value="template" className="mt-0 space-y-2.5 focus-visible:outline-hidden">
+              <div className="p-3 rounded-xl bg-muted/40 border border-border/60 text-xs space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground flex items-center gap-1.5 text-xs sm:text-sm">
+                      <AtSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                      Fórmula do Modelo Base com @
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/5 font-normal"
+                    >
+                      Sincronização ao vivo ✨
+                    </Badge>
+                  </div>
                   <Button
                     type="button"
                     variant="ghost"
@@ -1152,41 +1662,130 @@ export function WhatsAppCobrancaDialog({
                     Restaurar Padrão de Fábrica
                   </Button>
                 </div>
-                <p className="text-[11px] text-muted-foreground mb-2">
-                  Aqui você pode definir o esqueleto padrão do sistema usando as variáveis:{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@tratamento</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@responsavel</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@paciente</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@valor</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@mes</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@resumo</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@pix</code>,{" "}
-                  <code className="bg-background px-1 py-0.5 rounded text-[10px]">@saudacao</code>.
-                </p>
-                <Textarea
-                  value={baseTemplateText}
-                  onChange={(e) => {
-                    const newTemplate = e.target.value;
-                    setBaseTemplateText(newTemplate);
-                    saveCobrancaTemplate(newTemplate);
-                  }}
-                  rows={6}
-                  className="font-mono text-xs leading-relaxed bg-background"
-                />
-                <div className="flex justify-end mt-2">
+
+                {/* Quick variable insertion chips for the formula */}
+                <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg bg-background border border-border/60">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1 mr-1">
+                    <Sparkles className="h-3 w-3 text-amber-500" />
+                    Inserir @ na fórmula:
+                  </span>
+                  {templateMentionItems.map((item) => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      onClick={() => insertTemplateTagAtCursor(item.tag)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono font-medium bg-muted/50 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 border border-border/70 hover:border-emerald-500/40 transition-colors shadow-2xs cursor-pointer"
+                      title={`${item.label}: insere ${item.tag} (ex: ${item.example})`}
+                    >
+                      <span className="text-emerald-600 dark:text-emerald-400">{item.tag}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* Formula Textarea with Mention Dropdown */}
+                <div className="relative">
+                  <Textarea
+                    ref={templateTextareaRef}
+                    value={baseTemplateText}
+                    onChange={handleTemplateTextareaChange}
+                    onKeyDown={handleTemplateKeyDown}
+                    rows={7}
+                    className="font-mono text-xs sm:text-[13px] leading-relaxed resize-y bg-background border-border/80 focus-visible:ring-emerald-500/30"
+                    placeholder="Defina a mensagem padrão usando as tags @paciente, @responsavel, @valor, @mes, etc. Digite @ ou / para autocompletar."
+                  />
+
+                  {/* Autocomplete Mention Floating Dropdown for Template */}
+                  {templateMentionState.open && filteredTemplateMentionItems.length > 0 && (
+                    <div className="absolute z-50 left-2 bottom-full mb-1.5 w-72 sm:w-80 max-h-60 overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 text-popover-foreground shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                      <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border/40 flex items-center justify-between">
+                        <span>Inserir Tag ({templateMentionState.trigger})</span>
+                        <span className="text-[9px] lowercase font-normal">Use ↑↓ e Enter</span>
+                      </div>
+                      <div className="py-1 space-y-0.5">
+                        {filteredTemplateMentionItems.map((item, index) => {
+                          const isSelected = index === templateMentionState.selectedIndex;
+                          return (
+                            <button
+                              key={item.tag}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                insertTemplateTagAtCursor(item.tag);
+                              }}
+                              className={`w-full text-left px-2 py-1.5 rounded-md flex items-center justify-between text-xs transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "bg-emerald-500/15 text-emerald-900 dark:text-emerald-200 font-semibold"
+                                  : "hover:bg-muted text-foreground"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="shrink-0">{item.icon}</span>
+                                <div className="truncate">
+                                  <span className="font-semibold text-foreground text-xs block font-mono">
+                                    {item.tag}
+                                  </span>
+                                  <span className="text-muted-foreground text-[10px] block truncate">
+                                    {item.label} • Ex: {item.example}
+                                  </span>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="h-3 w-3 text-emerald-500" />
+                    Digite <kbd className="px-1 py-0.5 text-[9px] font-mono bg-muted border rounded">@</kbd> ou clique nos botões para inserir as variáveis.
+                  </span>
+                  <span>{baseTemplateText.length} caracteres</span>
+                </div>
+
+                {/* Real-Time Live Preview of the Rendered Result */}
+                <div className="p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-500/30 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 text-xs">
+                      <Eye className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      Resultado em Tempo Real (Aba "Mensagem para Envio"):
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setActiveTab("message")}
+                      className="h-6 px-2 text-[10px] text-emerald-700 dark:text-emerald-300 border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 gap-1"
+                    >
+                      <Edit3 className="h-3 w-3" />
+                      Ver na Mensagem Real
+                    </Button>
+                  </div>
+                  <div className="p-2.5 rounded-md bg-background border border-border/60 text-xs font-sans whitespace-pre-wrap text-foreground max-h-36 overflow-y-auto leading-relaxed select-text shadow-2xs">
+                    {messageText}
+                  </div>
+                  <div className="text-[10px] text-emerald-800/70 dark:text-emerald-300/70 flex items-center gap-1">
+                    <CheckCheck className="h-3 w-3 text-emerald-600" />
+                    Este é o texto final real gerado pela fórmula acima para <strong>{patientName}</strong>.
+                  </div>
+                </div>
+
+                {/* Quick button to open variables editor if collapsed */}
+                <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                  <span className="text-[11px] text-muted-foreground">
+                    Precisa alterar algum dado dos @ (como nome, valor ou pix)?
+                  </span>
                   <Button
                     type="button"
-                    size="sm"
                     variant="outline"
-                    onClick={() => {
-                      const updated = generateRealMessageFromTemplate(baseTemplateText);
-                      setMessageText(updated);
-                      setActiveTab("message");
-                      toast.success("Mensagem do paciente atualizada com o novo modelo!");
-                    }}
-                    className="text-xs h-7"
+                    size="sm"
+                    onClick={() => setIsEditingVariablesOpen(true)}
+                    className="h-6 px-2 text-[11px] gap-1 text-foreground"
                   >
-                    Aplicar este modelo na mensagem atual
+                    <SlidersHorizontal className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                    {isEditingVariablesOpen ? "Editar Valores dos @" : "Personalizar Valores dos @"}
                   </Button>
                 </div>
               </div>
