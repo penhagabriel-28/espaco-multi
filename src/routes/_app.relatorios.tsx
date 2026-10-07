@@ -30,7 +30,10 @@ import {
   UserCheck,
   Loader2,
   Info as InfoIcon,
+  Sparkles,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { GrupoNotasFiscaisDialog } from "@/components/GrupoNotasFiscaisDialog";
 import {
   ResponsiveContainer,
   LineChart,
@@ -102,8 +105,12 @@ function RelatoriosPage() {
   const [editingTypeId, setEditingTypeId] = useState("");
   const [editingTypeName, setEditingTypeName] = useState("");
 
-  // 3. Accountant communication state
+  // 3. Accountant communication and recurring invoices state
   const [accountantDialogOpen, setAccountantDialogOpen] = useState(false);
+  const [accountantFilterMonth, setAccountantFilterMonth] = useState<string>("");
+  const [accountantSelectedIds, setAccountantSelectedIds] = useState<Record<string, boolean>>({});
+  const [grupoNfDialogOpen, setGrupoNfDialogOpen] = useState(false);
+  const [manterNoGrupoNf, setManterNoGrupoNf] = useState(false);
   const [accountantPhone, setAccountantPhone] = useState(() => {
     if (typeof window !== "undefined") {
       return window.localStorage.getItem("telefone_contador") || "";
@@ -187,13 +194,13 @@ function RelatoriosPage() {
       try {
         const { data, error } = await supabase
           .from("pacientes")
-          .select("id, nome, cids_secundarios, cpf, endereco, valor_mensal")
+          .select("id, nome, cids_secundarios, cpf, endereco, valor_mensal, observacoes")
           .eq("status", "ativo")
           .order("nome");
         if (error) {
           const { data: fbData, error: fbErr } = await supabase
             .from("pacientes")
-            .select("id, nome, cids_secundarios, cpf, valor_mensal")
+            .select("id, nome, cids_secundarios, cpf, valor_mensal, observacoes")
             .eq("status", "ativo")
             .order("nome");
           if (fbErr) throw fbErr;
@@ -616,14 +623,40 @@ function RelatoriosPage() {
     }));
   };
 
-  // Filter invoice requests within selected month
+  // Filter invoice requests within selected month or accountant filter
   const invoiceRequestsForSelectedMonth = useMemo(() => {
     return computedRequests.filter((req: any) => {
       const isInvoice = req.tipo_documento?.nome?.toLowerCase() === "nota fiscal";
       if (!isInvoice) return false;
+
+      if (accountantFilterMonth && accountantFilterMonth !== "todos" && accountantFilterMonth !== "periodo") {
+        const reqMeses = req.meses_referencia || "";
+        const reqObs = req.observacoes || "";
+        const reqDateMonth = req.data_solicitacao ? req.data_solicitacao.substring(0, 7) : "";
+        return (
+          reqMeses.includes(accountantFilterMonth) ||
+          reqObs.includes(accountantFilterMonth) ||
+          (reqDateMonth === accountantFilterMonth && !reqMeses)
+        );
+      }
+
       return req.data_solicitacao >= inicio && req.data_solicitacao <= fim;
     });
-  }, [computedRequests, inicio, fim]);
+  }, [computedRequests, accountantFilterMonth, inicio, fim]);
+
+  // Invoices currently selected by user checkboxes inside accountant dialog
+  const activeInvoicesForAccountant = useMemo(() => {
+    return invoiceRequestsForSelectedMonth.filter(
+      (req) => accountantSelectedIds[req.id] !== false
+    );
+  }, [invoiceRequestsForSelectedMonth, accountantSelectedIds]);
+
+  const accountantTotalAmount = useMemo(() => {
+    return activeInvoicesForAccountant.reduce(
+      (sum, req) => sum + (Number(req.valor_total) || 0),
+      0
+    );
+  }, [activeInvoicesForAccountant]);
 
   // Função para calcular o total das consultas/faturas para os meses selecionados
   const calcTotalForMonths = async (monthsToCalc: string[], patientId: string) => {
@@ -743,19 +776,42 @@ function RelatoriosPage() {
   }, [formData.paciente_id, formData.meses_referencia, formData.data_solicitacao, isTipoNotaFiscal, activePatients]);
 
   const getInvoicesTextSummary = () => {
-    const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
-    const dateEnd = format(parseISO(fim), "dd/MM/yyyy");
-    
+    const isFilteredByMonth =
+      accountantFilterMonth &&
+      accountantFilterMonth !== "todos" &&
+      accountantFilterMonth !== "periodo";
+
+    let periodoDesc = "";
+    if (isFilteredByMonth) {
+      try {
+        const parsed = parseISO(`${accountantFilterMonth}-01`);
+        const mName = format(parsed, "MMMM 'de' yyyy", { locale: ptBR });
+        periodoDesc = mName.charAt(0).toUpperCase() + mName.slice(1);
+      } catch {
+        periodoDesc = accountantFilterMonth;
+      }
+    } else {
+      const dateStart = format(parseISO(inicio), "dd/MM/yyyy");
+      const dateEnd = format(parseISO(fim), "dd/MM/yyyy");
+      periodoDesc = `${dateStart} a ${dateEnd}`;
+    }
+
+    const formattedTotalConsolidado = new Intl.NumberFormat("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    }).format(accountantTotalAmount);
+
     let text = `*Relatório de Solicitações de Notas Fiscais*\n`;
-    text += `Período: ${dateStart} a ${dateEnd}\n`;
-    text += `Total de solicitações no período: ${invoiceRequestsForSelectedMonth.length}\n\n`;
-    
-    if (invoiceRequestsForSelectedMonth.length === 0) {
-      text += `Nenhum pedido de nota fiscal registrado neste período.`;
+    text += `*Competência/Período:* ${periodoDesc}\n`;
+    text += `*Total de Solicitações:* ${activeInvoicesForAccountant.length}\n`;
+    text += `*Valor Total Consolidado:* ${formattedTotalConsolidado}\n\n`;
+
+    if (activeInvoicesForAccountant.length === 0) {
+      text += `Nenhum pedido de nota fiscal selecionado neste período.`;
       return text;
     }
 
-    invoiceRequestsForSelectedMonth.forEach((req: any, index: number) => {
+    activeInvoicesForAccountant.forEach((req: any, index: number) => {
       const paciente = req.paciente?.nome || "—";
       const responsavel = req.responsavel_nome || "—";
       const cpf = req.responsavel_cpf ? formatCPF(req.responsavel_cpf) : "—";
@@ -777,7 +833,10 @@ function RelatoriosPage() {
       text += `   *Valor Total:* ${valorTotal}\n`;
       text += `   *Especialidades:* ${especialidades}\n`;
       text += `   *Data Solicitação:* ${dataSol}\n`;
-      text += `   *Observações:* ${obs}\n\n`;
+      if (obs !== "Nenhuma" && !obs.includes("Mês de Referência")) {
+        text += `   *Observações:* ${obs}\n`;
+      }
+      text += `\n`;
     });
     
     return text;
@@ -797,8 +856,8 @@ function RelatoriosPage() {
   };
 
   const exportInvoicesToCSV = () => {
-    if (invoiceRequestsForSelectedMonth.length === 0) {
-      toast.error("Nenhuma nota fiscal encontrada no período selecionado.");
+    if (activeInvoicesForAccountant.length === 0) {
+      toast.error("Nenhuma nota fiscal selecionada para exportação.");
       return;
     }
     
@@ -819,7 +878,7 @@ function RelatoriosPage() {
       "Observações"
     ];
     
-    const rows = invoiceRequestsForSelectedMonth.map((req: any) => [
+    const rows = activeInvoicesForAccountant.map((req: any) => [
       req.paciente?.nome || "—",
       req.responsavel_nome || "—",
       req.responsavel_cpf ? formatCPF(req.responsavel_cpf) : "—",
@@ -845,7 +904,8 @@ function RelatoriosPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `solicitacoes_notas_fiscais_${inicio}_a_${fim}.csv`);
+    const filenameSuffix = accountantFilterMonth && accountantFilterMonth !== "periodo" ? accountantFilterMonth : `${inicio}_a_${fim}`;
+    link.setAttribute("download", `solicitacoes_notas_fiscais_${filenameSuffix}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -952,6 +1012,44 @@ function RelatoriosPage() {
                 delete newRespPayload.endereco;
                 await supabase.from("responsaveis").insert(newRespPayload);
               }
+            }
+          }
+
+          // 3. Se marcado para manter no Grupo Recorrente de Notas Fiscais
+          if (manterNoGrupoNf && isTipoNotaFiscal) {
+            const pac = activePatients.find((p: any) => p.id === data.paciente_id);
+            const currentObs = pac?.observacoes || "";
+            const cleanObs = currentObs.replace(/<!--GRUPO_NF:.*?-->/g, "").trim();
+            const tagPayload = {
+              ativo: true,
+              responsavel_id: data.responsavel_id || null,
+              responsavel_nome: data.responsavel_nome,
+              responsavel_cpf: cleanCpf,
+              responsavel_email: data.responsavel_email || null,
+              responsavel_endereco: data.responsavel_endereco || null,
+              profissional_id: data.profissional_id === "none" ? null : data.profissional_id,
+              especialidades: data.especialidades || null,
+              valor_padrao: data.valor_total ? Number(data.valor_total) : null,
+            };
+            const newObs = `${cleanObs}\n\n<!--GRUPO_NF:${JSON.stringify(tagPayload)}-->`.trim();
+            await supabase.from("pacientes").update({ observacoes: newObs }).eq("id", data.paciente_id);
+
+            if (typeof window !== "undefined") {
+              const localStr = window.localStorage.getItem("grupo_recorrente_notas_fiscais");
+              let localArr: any[] = [];
+              try { localArr = JSON.parse(localStr || "[]"); } catch {}
+              const existingIdx = localArr.findIndex((m: any) => m.paciente_id === data.paciente_id);
+              const memberObj = {
+                paciente_id: data.paciente_id,
+                paciente_nome: pac?.nome || data.responsavel_nome,
+                ...tagPayload,
+              };
+              if (existingIdx >= 0) {
+                localArr[existingIdx] = memberObj;
+              } else {
+                localArr.push(memberObj);
+              }
+              window.localStorage.setItem("grupo_recorrente_notas_fiscais", JSON.stringify(localArr));
             }
           }
         } catch (syncErr) {
@@ -1074,6 +1172,7 @@ function RelatoriosPage() {
     });
     setCalculationSummary("");
     setEditingRequest(null);
+    setManterNoGrupoNf(false);
     isInitialEditRef.current = false;
     initialEditMonthsRef.current = "";
   };
@@ -1093,6 +1192,11 @@ function RelatoriosPage() {
   const handleOpenEditDialog = (req: any) => {
     setEditingRequest(req);
     isInitialEditRef.current = true;
+
+    // Checar se o paciente já é do grupo de nota fiscal
+    const pac = activePatients.find((p: any) => p.id === req.paciente_id);
+    const hasTag = (pac?.observacoes || "").includes("<!--GRUPO_NF:");
+    setManterNoGrupoNf(hasTag);
 
     // Checar se o tipo de documento é Nota Fiscal
     const tipo = tiposDocumento.find((t: any) => t.id === req.tipo_documento_id);
@@ -1875,11 +1979,24 @@ function RelatoriosPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <Button onClick={() => setAccountantDialogOpen(true)} variant="outline" className="gap-1.5 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600/20 dark:text-emerald-400 dark:hover:bg-emerald-950/20">
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <Button
+                onClick={() => setGrupoNfDialogOpen(true)}
+                className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm font-medium"
+              >
+                <Sparkles className="h-4 w-4" /> Solicitações do Mês (Grupo NF)
+              </Button>
+              <Button
+                onClick={() => {
+                  setAccountantFilterMonth("periodo");
+                  setAccountantDialogOpen(true);
+                }}
+                variant="outline"
+                className="gap-1.5 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600/20 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
+              >
                 <FileText className="h-4 w-4" /> Enviar para Contador
               </Button>
-              <Button onClick={handleOpenNewDialog} className="gap-1.5">
+              <Button onClick={handleOpenNewDialog} variant="outline" className="gap-1.5">
                 <Plus className="h-4 w-4" /> Registrar Solicitação
               </Button>
             </div>
@@ -3097,6 +3214,20 @@ function RelatoriosPage() {
                   rows={3}
                 />
               </div>
+
+              {/* Opção para manter no grupo fixo de notas fiscais */}
+              {isTipoNotaFiscal && (
+                <div className="flex items-center gap-2 rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20 p-3">
+                  <Checkbox
+                    id="manter_grupo_nf"
+                    checked={manterNoGrupoNf}
+                    onCheckedChange={(c) => setManterNoGrupoNf(!!c)}
+                  />
+                  <Label htmlFor="manter_grupo_nf" className="text-xs cursor-pointer text-indigo-950 dark:text-indigo-200 font-medium">
+                    Manter este paciente no <strong>Grupo Recorrente de Notas Fiscais</strong> (solicitações mensais)
+                  </Label>
+                </div>
+              )}
             </div>
 
             <DialogFooter>
@@ -3224,84 +3355,233 @@ function RelatoriosPage() {
 
       {/* Dialog for sending invoices to Accountant */}
       <Dialog open={accountantDialogOpen} onOpenChange={setAccountantDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Enviar Notas ao Contador</DialogTitle>
+        <DialogContent className="sm:max-w-[620px] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-3 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-emerald-600" />
+              Enviar Notas ao Contador
+            </DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Revise as notas fiscais do período, selecione os itens desejados e dispare para a contabilidade com um clique.
+            </p>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-1 text-muted-foreground">
-              <p className="font-semibold text-foreground">Resumo do Período</p>
-              <p>Período selecionado: <span className="font-medium text-foreground">{format(parseISO(inicio), "dd/MM/yyyy")}</span> até <span className="font-medium text-foreground">{format(parseISO(fim), "dd/MM/yyyy")}</span></p>
-              <p>Total de pedidos de Nota Fiscal: <span className="font-medium text-foreground">{invoiceRequestsForSelectedMonth.length}</span></p>
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            {/* Filtro do Período/Mês */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-muted/20 p-3.5 rounded-xl border">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-primary" />
+                  Filtrar por Mês de Referência
+                </Label>
+                <Select
+                  value={accountantFilterMonth || "periodo"}
+                  onValueChange={(val) => setAccountantFilterMonth(val === "periodo" ? "" : val)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Selecione o período" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="periodo">
+                      Período da Tela ({format(parseISO(inicio), "dd/MM")} a {format(parseISO(fim), "dd/MM/yyyy")})
+                    </SelectItem>
+                    {availableMonths.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.fullLabel}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="accountant_phone" className="text-xs font-semibold">
+                  WhatsApp do Contador
+                </Label>
+                <Input
+                  id="accountant_phone"
+                  value={accountantPhone}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setAccountantPhone(val);
+                    if (typeof window !== "undefined") {
+                      window.localStorage.setItem("telefone_contador", val);
+                    }
+                  }}
+                  placeholder="Ex: (11) 99999-9999"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="accountant_phone">WhatsApp do Contador</Label>
-              <Input
-                id="accountant_phone"
-                value={accountantPhone}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setAccountantPhone(val);
-                  if (typeof window !== "undefined") {
-                    window.localStorage.setItem("telefone_contador", val);
-                  }
-                }}
-                placeholder="Ex: (11) 99999-9999"
-              />
-              <p className="text-[10px] text-muted-foreground">
-                O número fica salvo no seu navegador para os próximos envios.
-              </p>
+            {/* Resumo do Lote */}
+            <div className="flex items-center justify-between p-3 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-800/40 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-emerald-900 dark:text-emerald-300">
+                  Total Selecionado: {activeInvoicesForAccountant.length} de {invoiceRequestsForSelectedMonth.length}
+                </span>
+              </div>
+              <div className="font-bold text-emerald-700 dark:text-emerald-400 font-mono text-sm">
+                Soma: {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(accountantTotalAmount)}
+              </div>
             </div>
 
+            {/* Lista com Seleção Individual */}
             <div className="space-y-1.5">
-              <Label>Pré-visualização da Lista</Label>
-              <div className="border rounded-md p-3 text-xs max-h-[160px] overflow-y-auto space-y-3 bg-card font-mono whitespace-pre-wrap">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">
+                  Notas Inclusas no Envio ({activeInvoicesForAccountant.length})
+                </Label>
+                {invoiceRequestsForSelectedMonth.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allChecked = invoiceRequestsForSelectedMonth.every(
+                        (r) => accountantSelectedIds[r.id] !== false
+                      );
+                      const nextVal = !allChecked;
+                      const nextState: Record<string, boolean> = {};
+                      invoiceRequestsForSelectedMonth.forEach((r) => {
+                        nextState[r.id] = nextVal;
+                      });
+                      setAccountantSelectedIds(nextState);
+                    }}
+                    className="text-[11px] text-primary hover:underline font-medium cursor-pointer"
+                  >
+                    {invoiceRequestsForSelectedMonth.every((r) => accountantSelectedIds[r.id] !== false)
+                      ? "Desmarcar Todos"
+                      : "Marcar Todos"}
+                  </button>
+                )}
+              </div>
+
+              <div className="border rounded-lg divide-y max-h-[180px] overflow-y-auto bg-card">
+                {invoiceRequestsForSelectedMonth.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground">
+                    Nenhuma nota fiscal encontrada para o filtro selecionado.
+                  </div>
+                ) : (
+                  invoiceRequestsForSelectedMonth.map((req) => {
+                    const isChecked = accountantSelectedIds[req.id] !== false;
+                    const valorFmt = req.valor_total
+                      ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
+                          Number(req.valor_total)
+                        )
+                      : "R$ 0,00";
+
+                    return (
+                      <div
+                        key={req.id}
+                        className={cn(
+                          "flex items-center justify-between p-2.5 text-xs transition-colors hover:bg-muted/10 gap-2",
+                          !isChecked && "opacity-50 bg-muted/20"
+                        )}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Checkbox
+                            id={`acc-chk-${req.id}`}
+                            checked={isChecked}
+                            onCheckedChange={(c) => {
+                              setAccountantSelectedIds((prev) => ({
+                                ...prev,
+                                [req.id]: !!c,
+                              }));
+                            }}
+                          />
+                          <div className="truncate">
+                            <label
+                              htmlFor={`acc-chk-${req.id}`}
+                              className="font-semibold cursor-pointer truncate text-foreground block"
+                            >
+                              {req.paciente?.nome || "—"}
+                            </label>
+                            <span className="text-[11px] text-muted-foreground truncate block">
+                              Resp: {req.responsavel_nome} {req.responsavel_cpf ? `(CPF: ${formatCPF(req.responsavel_cpf)})` : ""}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="font-mono font-medium text-emerald-700 dark:text-emerald-400 shrink-0">
+                          {valorFmt}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Pré-visualização do Texto */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">Pré-visualização da Mensagem</Label>
+              <div className="border rounded-md p-3 text-xs max-h-[140px] overflow-y-auto bg-muted/15 font-mono whitespace-pre-wrap">
                 {getInvoicesTextSummary()}
               </div>
             </div>
           </div>
 
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={exportInvoicesToCSV}
-              disabled={invoiceRequestsForSelectedMonth.length === 0}
-            >
-              Exportar CSV
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleCopyInvoicesSummary}
-              disabled={invoiceRequestsForSelectedMonth.length === 0}
-            >
-              Copiar Texto
-            </Button>
-            {accountantPhone ? (
-              <a
-                href={getAccountantWhatsAppLink()}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors"
-                onClick={() => setAccountantDialogOpen(false)}
-              >
-                Enviar por WhatsApp
-              </a>
-            ) : (
+          <DialogFooter className="p-4 border-t bg-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
               <Button
                 type="button"
-                disabled
-                title="Insira o número do contador para enviar"
+                variant="outline"
+                size="sm"
+                onClick={exportInvoicesToCSV}
+                disabled={activeInvoicesForAccountant.length === 0}
               >
-                Enviar por WhatsApp
+                Exportar CSV
               </Button>
-            )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleCopyInvoicesSummary}
+                disabled={activeInvoicesForAccountant.length === 0}
+              >
+                Copiar Texto
+              </Button>
+            </div>
+
+            <div>
+              {accountantPhone ? (
+                <a
+                  href={getAccountantWhatsAppLink()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition-colors shadow-sm"
+                  onClick={() => setAccountantDialogOpen(false)}
+                >
+                  Enviar por WhatsApp
+                </a>
+              ) : (
+                <Button
+                  type="button"
+                  disabled
+                  title="Insira o número do contador para enviar"
+                >
+                  Enviar por WhatsApp
+                </Button>
+              )}
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog for recurring group of monthly invoices */}
+      <GrupoNotasFiscaisDialog
+        open={grupoNfDialogOpen}
+        onOpenChange={setGrupoNfDialogOpen}
+        activePatients={activePatients}
+        responsaveis={responsaveis}
+        activeProfessionals={activeProfessionals}
+        pacienteProfissionais={pacienteProfissionais}
+        tiposDocumento={tiposDocumento}
+        reportRequests={reportRequests}
+        onOpenAccountantDialog={(targetMonth) => {
+          if (targetMonth) setAccountantFilterMonth(targetMonth);
+          setAccountantDialogOpen(true);
+        }}
+      />
       {editAbaSession && (
         <PlanoAbaDialog
           open={editAbaOpen}

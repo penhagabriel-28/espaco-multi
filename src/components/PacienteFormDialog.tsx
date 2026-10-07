@@ -241,9 +241,11 @@ export function PacienteFormDialog({
       }
       let finalObservacoes = form.observacoes || null;
       if (paciente?.observacoes) {
-        const match = paciente.observacoes.match(/<!--DIAS_FIXOS:.*?-->/);
-        if (match) {
-          finalObservacoes = `${form.observacoes || ""}\n\n${match[0]}`.trim() || null;
+        const matchDias = paciente.observacoes.match(/<!--DIAS_FIXOS:.*?-->/);
+        const matchGrupoNf = paciente.observacoes.match(/<!--GRUPO_NF:.*?-->/);
+        const extras = [matchDias?.[0], matchGrupoNf?.[0]].filter(Boolean).join("\n\n");
+        if (extras) {
+          finalObservacoes = `${form.observacoes || ""}\n\n${extras}`.trim() || null;
         }
       }
 

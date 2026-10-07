@@ -660,7 +660,10 @@ const serializeObservacoes = (rawObs: string | null | undefined, diasFixos: DiaF
 };
 
 const getCleanObservacoes = (rawObs: string | null | undefined): string => {
-  return (rawObs || "").replace(/<!--DIAS_FIXOS:.*?-->/, "").trim();
+  return (rawObs || "")
+    .replace(/<!--DIAS_FIXOS:.*?-->/g, "")
+    .replace(/<!--GRUPO_NF:.*?-->/g, "")
+    .trim();
 };
 
 // ============ DIALOGS FOR AGENDA FIXA & FERIAS ============
