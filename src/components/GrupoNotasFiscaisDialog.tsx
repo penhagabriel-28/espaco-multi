@@ -30,6 +30,7 @@ import {
   Users,
   Settings,
   Send,
+  Check,
   CheckCircle2,
   AlertCircle,
   Plus,
