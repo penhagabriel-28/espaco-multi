@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { GrupoNotasFiscaisDialog } from "@/components/GrupoNotasFiscaisDialog";
+import { BatchEditRelatoriosDialog } from "@/components/BatchEditRelatoriosDialog";
 import {
   ResponsiveContainer,
   LineChart,
@@ -117,6 +118,11 @@ function RelatoriosPage() {
     }
     return "";
   });
+
+  // 4. Batch selection and batch edit state
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [batchEditDialogOpen, setBatchEditDialogOpen] = useState(false);
+  const [isBatchUpdating, setIsBatchUpdating] = useState(false);
 
   const [formData, setFormData] = useState({
     id: "",
@@ -1327,6 +1333,107 @@ function RelatoriosPage() {
     toggleDeliveryMutation.mutate({ id, dataEntrega: null });
   };
 
+  // Batch selection and batch action handlers
+  const handleToggleSelectRequest = (id: string) => {
+    setSelectedRequestIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAllRequests = () => {
+    const allFilteredIds = filteredRequests.map((r) => r.id);
+    const isAllSelected =
+      allFilteredIds.length > 0 &&
+      allFilteredIds.every((id) => selectedRequestIds.includes(id));
+
+    if (isAllSelected) {
+      setSelectedRequestIds((prev) =>
+        prev.filter((id) => !allFilteredIds.includes(id))
+      );
+    } else {
+      setSelectedRequestIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
+    }
+  };
+
+  const handleBatchMarkDelivered = async () => {
+    if (selectedRequestIds.length === 0) return;
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    setIsBatchUpdating(true);
+    try {
+      const { error } = await supabase
+        .from("controle_relatorios")
+        .update({ data_entrega: todayStr })
+        .in("id", selectedRequestIds);
+      if (error) throw error;
+      toast.success(
+        `${selectedRequestIds.length} ${
+          selectedRequestIds.length === 1 ? "solicitação marcada" : "solicitações marcadas"
+        } como entregue!`
+      );
+      qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+      setSelectedRequestIds([]);
+    } catch (err: any) {
+      toast.error("Erro ao marcar entregas: " + err.message);
+    } finally {
+      setIsBatchUpdating(false);
+    }
+  };
+
+  const handleBatchUndoDelivered = async () => {
+    if (selectedRequestIds.length === 0) return;
+    setIsBatchUpdating(true);
+    try {
+      const { error } = await supabase
+        .from("controle_relatorios")
+        .update({ data_entrega: null })
+        .in("id", selectedRequestIds);
+      if (error) throw error;
+      toast.success(
+        `Entrega de ${selectedRequestIds.length} ${
+          selectedRequestIds.length === 1 ? "solicitação desmarcada" : "solicitações desmarcada"
+        }!`
+      );
+      qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+      setSelectedRequestIds([]);
+    } catch (err: any) {
+      toast.error("Erro ao desmarcar entregas: " + err.message);
+    } finally {
+      setIsBatchUpdating(false);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedRequestIds.length === 0) return;
+    if (
+      !confirm(
+        `Tem certeza que deseja excluir ${selectedRequestIds.length} ${
+          selectedRequestIds.length === 1 ? "solicitação selecionada" : "solicitações selecionadas"
+        }? Esta ação não pode ser desfeita.`
+      )
+    ) {
+      return;
+    }
+    setIsBatchUpdating(true);
+    try {
+      const { error } = await supabase
+        .from("controle_relatorios")
+        .delete()
+        .in("id", selectedRequestIds);
+      if (error) throw error;
+      toast.success(
+        `${selectedRequestIds.length} ${
+          selectedRequestIds.length === 1 ? "solicitação excluída" : "solicitações excluídas"
+        } com sucesso!`
+      );
+      qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+      setSelectedRequestIds([]);
+    } catch (err: any) {
+      toast.error("Erro ao excluir solicitações: " + err.message);
+    } finally {
+      setIsBatchUpdating(false);
+    }
+  };
+
   const getWhatsAppReminderLink = (req: any) => {
     const profNome = req.profissional?.nome || "";
     const profTelefone = req.profissional?.telefone || "";
@@ -2049,10 +2156,75 @@ function RelatoriosPage() {
 
           <Card>
             <CardContent className="p-0">
+              {/* Barra de Ações em Lote */}
+              {selectedRequestIds.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-primary/10 border-b border-primary/20 px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-primary">
+                      {selectedRequestIds.length} {selectedRequestIds.length === 1 ? "solicitação selecionada" : "solicitações selecionadas"}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => setSelectedRequestIds([])}
+                    >
+                      Limpar seleção
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => setBatchEditDialogOpen(true)}
+                      className="gap-1.5 h-8 bg-primary hover:bg-primary/90 text-primary-foreground font-medium shadow-xs"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Editar em Lote
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isBatchUpdating}
+                      onClick={handleBatchMarkDelivered}
+                      className="gap-1.5 h-8 border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600/20 dark:text-emerald-400 dark:hover:bg-emerald-950/20"
+                    >
+                      <Check className="h-3.5 w-3.5" /> Marcar Entregues
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isBatchUpdating}
+                      onClick={handleBatchUndoDelivered}
+                      className="gap-1.5 h-8 text-muted-foreground hover:text-foreground"
+                    >
+                      Desmarcar Entrega
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isBatchUpdating}
+                      onClick={handleBatchDelete}
+                      className="gap-1.5 h-8 border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Excluir
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10 text-center">
+                        <Checkbox
+                          checked={
+                            filteredRequests.length > 0 &&
+                            filteredRequests.every((r) => selectedRequestIds.includes(r.id))
+                          }
+                          onCheckedChange={handleToggleSelectAllRequests}
+                          aria-label="Selecionar todas as solicitações"
+                        />
+                      </TableHead>
                       <TableHead>Paciente</TableHead>
                       <TableHead>Documento</TableHead>
                       <TableHead>Responsável Solicitante</TableHead>
@@ -2067,7 +2239,7 @@ function RelatoriosPage() {
                   <TableBody>
                     {filteredRequests.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={10} className="h-24 text-center text-muted-foreground">
                           Nenhum registro encontrado.
                         </TableCell>
                       </TableRow>
@@ -2077,9 +2249,17 @@ function RelatoriosPage() {
                         const profNome = req.profissional?.nome || "Não atribuído";
                         const docTipo = req.tipo_documento?.nome || "Relatório de Evolução";
                         const hasPhone = !!req.profissional?.telefone;
+                        const isSelected = selectedRequestIds.includes(req.id);
                         
                         return (
-                          <TableRow key={req.id} className="group">
+                          <TableRow key={req.id} className={cn("group transition-colors", isSelected && "bg-primary/5")}>
+                            <TableCell className="w-10 text-center">
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => handleToggleSelectRequest(req.id)}
+                                aria-label={`Selecionar ${pacienteNome}`}
+                              />
+                            </TableCell>
                             <TableCell className="font-medium">{pacienteNome}</TableCell>
                             <TableCell>
                               <Badge variant="outline" className="font-normal border-primary/20 bg-primary/5 text-primary text-[11px] px-2 py-0.5 whitespace-nowrap">
@@ -3625,6 +3805,19 @@ function RelatoriosPage() {
         onOpenAccountantDialog={(targetMonth) => {
           if (targetMonth) setAccountantFilterMonth(targetMonth);
           setAccountantDialogOpen(true);
+        }}
+      />
+
+      {/* Dialog for batch editing selected requests */}
+      <BatchEditRelatoriosDialog
+        open={batchEditDialogOpen}
+        onOpenChange={setBatchEditDialogOpen}
+        selectedIds={selectedRequestIds}
+        activeProfessionals={activeProfessionals}
+        tiposDocumento={tiposDocumento}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ["controle-relatorios"] });
+          setSelectedRequestIds([]);
         }}
       />
       {editAbaSession && (
