@@ -194,13 +194,13 @@ function RelatoriosPage() {
       try {
         const { data, error } = await supabase
           .from("pacientes")
-          .select("id, nome, cids_secundarios, cpf, endereco, valor_mensal, observacoes")
+          .select("id, nome, cids_secundarios, cpf, endereco, valor_mensal, observacoes, apoio_frequencia, apoio_valor_personalizado")
           .eq("status", "ativo")
           .order("nome");
         if (error) {
           const { data: fbData, error: fbErr } = await supabase
             .from("pacientes")
-            .select("id, nome, cids_secundarios, cpf, valor_mensal, observacoes")
+            .select("id, nome, cids_secundarios, cpf, valor_mensal, observacoes, apoio_frequencia, apoio_valor_personalizado")
             .eq("status", "ativo")
             .order("nome");
           if (fbErr) throw fbErr;
@@ -658,7 +658,7 @@ function RelatoriosPage() {
     );
   }, [activeInvoicesForAccountant]);
 
-  // Função para calcular o total das consultas/faturas para os meses selecionados
+  // Função para calcular o total das consultas/faturas para os meses selecionados (alinhado com a Diretoria)
   const calcTotalForMonths = async (monthsToCalc: string[], patientId: string) => {
     if (!patientId || monthsToCalc.length === 0) {
       setCalculationSummary("");
@@ -668,31 +668,80 @@ function RelatoriosPage() {
     setIsCalculatingTotal(true);
     try {
       const sortedMonths = [...monthsToCalc].sort();
-      const minDate = `${sortedMonths[0]}-01`;
-      const maxDate = `${sortedMonths[sortedMonths.length - 1]}-31`;
+      const firstMonthDate = parseISO(`${sortedMonths[0]}-01`);
+      const lastMonthDate = parseISO(`${sortedMonths[sortedMonths.length - 1]}-01`);
+      const minDate = format(startOfMonth(firstMonthDate), "yyyy-MM-dd");
+      const maxDate = format(endOfMonth(lastMonthDate), "yyyy-MM-dd");
 
-      // 1. Buscar faturas do paciente para estes meses (incluindo itens para sessões avulsas)
-      let faturasData: any[] = [];
-      const { data: dataWithItens, error: errWithItens } = await supabase
+      // 1. Buscar faturas do paciente para estes meses
+      const { data: faturasData } = await supabase
         .from("faturas")
-        .select("id, competencia, valor, status, fatura_itens(total)")
+        .select("id, competencia, valor, status, especialidade, profissional_id, observacoes")
         .eq("paciente_id", patientId)
         .gte("competencia", minDate)
         .lte("competencia", maxDate)
         .neq("status", "cancelada");
 
-      if (!errWithItens && dataWithItens) {
-        faturasData = dataWithItens;
-      } else {
-        const { data: simpleData } = await supabase
-          .from("faturas")
-          .select("id, competencia, valor, status")
-          .eq("paciente_id", patientId)
-          .gte("competencia", minDate)
-          .lte("competencia", maxDate)
-          .neq("status", "cancelada");
-        faturasData = simpleData || [];
+      const fatIds = (faturasData || []).map((f: any) => f.id);
+      let faturaItensData: any[] = [];
+      if (fatIds.length > 0) {
+        const { data: itemsData } = await supabase
+          .from("fatura_itens")
+          .select("id, fatura_id, total, valor_unitario, agendamento_id, descricao")
+          .in("fatura_id", fatIds);
+        faturaItensData = itemsData || [];
       }
+
+      const pac = activePatients.find((p: any) => p.id === patientId);
+
+      const isApoioSpec = (spec: any) => {
+        if (!spec) return false;
+        const s = String(spec).trim().toLowerCase();
+        return s === "apoio" || s === "ap";
+      };
+
+      const APOIO_RATES_MAP: Record<string, number> = {
+        "1x": 140.0,
+        "2x": 240.0,
+        "3x": 340.0,
+      };
+
+      const getApoioFaturaValor = (fatura: any) => {
+        if (!pac) return Number(fatura?.valor) || 0;
+        const freq = pac.apoio_frequencia || "2x";
+        const customVal = pac.apoio_valor_personalizado;
+        if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+          const numVal = Number(customVal);
+          if (freq !== "avulso" || numVal > 60) return numVal;
+          const sessionsCount = faturaItensData.filter(
+            (item: any) => item.fatura_id === fatura?.id && item.agendamento_id
+          ).length;
+          return sessionsCount > 0 ? sessionsCount * numVal : numVal;
+        }
+        if (freq === "avulso") {
+          const sessionsCount = faturaItensData.filter(
+            (item: any) => item.fatura_id === fatura?.id && item.agendamento_id
+          ).length;
+          return sessionsCount > 0 ? sessionsCount * 50.0 : 50.0;
+        }
+        return APOIO_RATES_MAP[freq] ?? 240.0;
+      };
+
+      const getFaturaEffectiveValue = (fatura: any) => {
+        if (!fatura) return 0;
+        if (isApoioSpec(fatura.especialidade)) {
+          if (fatura.status === "paga" && Number(fatura.valor) > 0) return Number(fatura.valor);
+          return getApoioFaturaValor(fatura);
+        }
+        if (fatura.status === "paga" && Number(fatura.valor) > 0) return Number(fatura.valor);
+        if (fatura.observacoes?.includes("Saldo restante") && Number(fatura.valor) > 0) return Number(fatura.valor);
+        const items = faturaItensData.filter((item: any) => item.fatura_id === fatura.id);
+        if (items.length > 0) {
+          const itemsTotal = items.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0);
+          if (itemsTotal > 0) return itemsTotal;
+        }
+        return Number(fatura.valor) || 0;
+      };
 
       let total = 0;
       const monthsWithFatura = new Set<string>();
@@ -701,11 +750,7 @@ function RelatoriosPage() {
         faturasData.forEach((f: any) => {
           const compMonth = f.competencia ? f.competencia.substring(0, 7) : "";
           if (monthsToCalc.includes(compMonth)) {
-            const itemsSum = Array.isArray(f.fatura_itens)
-              ? f.fatura_itens.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0)
-              : 0;
-            const fatVal = itemsSum > 0 ? itemsSum : Number(f.valor || 0);
-
+            const fatVal = getFaturaEffectiveValue(f);
             total += fatVal;
             if (fatVal > 0) {
               monthsWithFatura.add(compMonth);
@@ -717,14 +762,14 @@ function RelatoriosPage() {
       // 2. Se algum mês selecionado não possui fatura gerada no banco:
       const missingMonths = monthsToCalc.filter((m) => !monthsWithFatura.has(m));
       if (missingMonths.length > 0) {
-        const pac = activePatients.find((p: any) => p.id === patientId);
         const pacValorMensal = pac?.valor_mensal ? Number(pac.valor_mensal) : 0;
-        
-        if (pacValorMensal > 0) {
+        const apoioMensal = getApoioFaturaValor(null);
+
+        if (apoioMensal > 0) {
+          total += apoioMensal * missingMonths.length;
+        } else if (pacValorMensal > 1) {
           total += pacValorMensal * missingMonths.length;
-        } else if (editingRequest?.valor_total && monthsWithFatura.size === 0) {
-          // Se o paciente não tem valor mensal cadastrado e não achou fatura,
-          // multiplica proporcionalmente pela quantidade de meses selecionados
+        } else if (editingRequest?.valor_total && Number(editingRequest.valor_total) > 1 && monthsWithFatura.size === 0) {
           const oldMonthsCount = editingRequest.meses_referencia
             ? editingRequest.meses_referencia.split(",").length
             : 1;

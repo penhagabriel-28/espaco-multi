@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { format, subMonths, parseISO, addDays } from "date-fns";
+import { format, subMonths, parseISO, addDays, startOfMonth, endOfMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -72,6 +72,18 @@ interface GrupoNotasFiscaisDialogProps {
 }
 
 const STORAGE_KEY = "grupo_recorrente_notas_fiscais";
+
+const APOIO_RATES_MAP: Record<string, number> = {
+  "1x": 140.0,
+  "2x": 240.0,
+  "3x": 340.0,
+};
+
+const isApoioSpec = (spec: any) => {
+  if (!spec) return false;
+  const s = String(spec).trim().toLowerCase();
+  return s === "apoio" || s === "ap";
+};
 
 // Helper to extract <!--GRUPO_NF:...--> from patient observations
 export function parseGrupoNfTag(observacoes: string | null | undefined): Partial<GrupoNfMembro> | null {
@@ -241,7 +253,7 @@ export function GrupoNotasFiscaisDialog({
           especialidades:
             req.especialidades ||
             (Array.isArray(pac.cids_secundarios) ? pac.cids_secundarios.join(", ") : ""),
-          valor_padrao: req.valor_total || (pac.valor_mensal ? Number(pac.valor_mensal) : null),
+          valor_padrao: (req.valor_total && req.valor_total > 1 ? req.valor_total : null) || (pac.valor_mensal && Number(pac.valor_mensal) > 1 ? Number(pac.valor_mensal) : null),
           ativo: true,
         });
       });
@@ -259,6 +271,7 @@ export function GrupoNotasFiscaisDialog({
   }, [activePatients, reportRequests]);
 
   // 2. Fetch and calculate month totals for all members whenever selectedMonth or membros changes
+  // Exactly matches the calculation used in the 'Diretoria' page
   useEffect(() => {
     if (!open || membros.length === 0) return;
 
@@ -267,33 +280,93 @@ export function GrupoNotasFiscaisDialog({
       setIsLoadingFaturas(true);
 
       const patientIds = membros.map((m) => m.paciente_id);
-      const minDate = `${selectedMonth}-01`;
-      const maxDate = `${selectedMonth}-31`;
+      const monthDate = parseISO(`${selectedMonth}-01`);
+      const minDate = format(startOfMonth(monthDate), "yyyy-MM-dd");
+      const maxDate = format(endOfMonth(monthDate), "yyyy-MM-dd");
 
       try {
-        // Query faturas with items for this month
+        // Query faturas for this month period exactly like Diretoria
         const { data: faturasData } = await supabase
           .from("faturas")
-          .select("id, paciente_id, competencia, valor, status, fatura_itens(total)")
+          .select("id, paciente_id, competencia, vencimento, valor, status, especialidade, profissional_id, observacoes")
           .in("paciente_id", patientIds)
           .gte("competencia", minDate)
           .lte("competencia", maxDate)
           .neq("status", "cancelada");
 
-        // Map totals by patient
+        // Query fatura_itens for these faturas
+        const fatIds = (faturasData || []).map((f: any) => f.id);
+        let faturaItensData: any[] = [];
+        if (fatIds.length > 0) {
+          const { data: itemsData } = await supabase
+            .from("fatura_itens")
+            .select("id, fatura_id, total, valor_unitario, agendamento_id, descricao")
+            .in("fatura_id", fatIds);
+          faturaItensData = itemsData || [];
+        }
+
+        // Query patient details (valor_mensal, apoio_frequencia, apoio_valor_personalizado)
+        const { data: dbPacientes } = await supabase
+          .from("pacientes")
+          .select("id, nome, valor_mensal, apoio_frequencia, apoio_valor_personalizado")
+          .in("id", patientIds);
+        const patientDetailsMap = new Map((dbPacientes || []).map((p: any) => [p.id, p]));
+
+        const getApoioFaturaValor = (fatura: any, p: any) => {
+          if (!p) return Number(fatura?.valor) || 0;
+          const freq = p.apoio_frequencia || "2x";
+          const customVal = p.apoio_valor_personalizado;
+          if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+            const numVal = Number(customVal);
+            if (freq !== "avulso" || numVal > 60) return numVal;
+            const sessionsCount = faturaItensData.filter(
+              (item: any) => item.fatura_id === fatura?.id && item.agendamento_id
+            ).length;
+            return sessionsCount > 0 ? sessionsCount * numVal : numVal;
+          }
+          if (freq === "avulso") {
+            const sessionsCount = faturaItensData.filter(
+              (item: any) => item.fatura_id === fatura?.id && item.agendamento_id
+            ).length;
+            return sessionsCount > 0 ? sessionsCount * 50.0 : 50.0;
+          }
+          return APOIO_RATES_MAP[freq] ?? 240.0;
+        };
+
+        const getFaturaEffectiveValue = (fatura: any) => {
+          if (!fatura) return 0;
+          const p = patientDetailsMap.get(fatura.paciente_id);
+          if (isApoioSpec(fatura.especialidade)) {
+            if (fatura.status === "paga" && Number(fatura.valor) > 0) {
+              return Number(fatura.valor);
+            }
+            return getApoioFaturaValor(fatura, p);
+          }
+          if (fatura.status === "paga" && Number(fatura.valor) > 0) {
+            return Number(fatura.valor);
+          }
+          if (fatura.observacoes?.includes("Saldo restante") && Number(fatura.valor) > 0) {
+            return Number(fatura.valor);
+          }
+          const items = faturaItensData.filter((item: any) => item.fatura_id === fatura.id);
+          if (items.length > 0) {
+            const itemsTotal = items.reduce(
+              (acc: number, item: any) => acc + (Number(item.total) || 0),
+              0
+            );
+            if (itemsTotal > 0) return itemsTotal;
+          }
+          return Number(fatura.valor) || 0;
+        };
+
+        // Map totals by patient (consolidated across all faturas in the competence)
         const totalByPatient = new Map<string, number>();
         (faturasData || []).forEach((f: any) => {
-          const itemsSum = Array.isArray(f.fatura_itens)
-            ? f.fatura_itens.reduce((acc: number, item: any) => acc + (Number(item.total) || 0), 0)
-            : 0;
-          const fatVal = itemsSum > 0 ? itemsSum : Number(f.valor || 0);
-          totalByPatient.set(f.paciente_id, (totalByPatient.get(f.paciente_id) || 0) + fatVal);
+          const val = getFaturaEffectiveValue(f);
+          totalByPatient.set(f.paciente_id, (totalByPatient.get(f.paciente_id) || 0) + val);
         });
 
         // Check which patients ALREADY have a Nota Fiscal request for this reference month
-        // We check:
-        // 1. Data da solicitação within that month or current month with reference month mentioned
-        // 2. controle_relatorios with tipo 'Nota Fiscal' and matching paciente_id
         const existingReqsByPatient = new Map<string, any>();
         reportRequests.forEach((req: any) => {
           const isNotaFiscal = req.tipo_documento?.nome?.toLowerCase() === "nota fiscal";
@@ -322,17 +395,31 @@ export function GrupoNotasFiscaisDialog({
         > = {};
 
         membros.forEach((m) => {
-          const pac = activePatients.find((p) => p.id === m.paciente_id);
+          const pacFromProp = activePatients.find((p) => p.id === m.paciente_id);
+          const pacDetails = patientDetailsMap.get(m.paciente_id) || pacFromProp;
           const calculatedVal = totalByPatient.get(m.paciente_id);
-          const pacValorMensal = pac?.valor_mensal ? Number(pac.valor_mensal) : 0;
+          const pacValorMensal = pacDetails?.valor_mensal ? Number(pacDetails.valor_mensal) : 0;
           const defaultVal = m.valor_padrao ? Number(m.valor_padrao) : 0;
+
+          // If no faturas in this month, check if there's an active monthly plan
+          let fallbackVal = 0;
+          if (pacDetails) {
+            const apoioVal = getApoioFaturaValor({ paciente_id: m.paciente_id }, pacDetails);
+            if (apoioVal > 0) {
+              fallbackVal = apoioVal;
+            } else if (pacValorMensal > 1) {
+              fallbackVal = pacValorMensal;
+            } else if (defaultVal > 1) {
+              fallbackVal = defaultVal;
+            }
+          } else if (defaultVal > 1) {
+            fallbackVal = defaultVal;
+          }
 
           const finalValNum =
             calculatedVal !== undefined && calculatedVal > 0
               ? calculatedVal
-              : pacValorMensal > 0
-              ? pacValorMensal
-              : defaultVal;
+              : fallbackVal;
 
           const existing = existingReqsByPatient.get(m.paciente_id);
           const isExisting = !!existing;
