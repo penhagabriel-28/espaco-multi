@@ -111,6 +111,23 @@ export function isApoioSpec(specialty?: string | null): boolean {
   return s === "APOIO" || s === "AP";
 }
 
+export function isProfApoio(prof?: any): boolean {
+  if (!prof?.especialidade) return false;
+  return prof.especialidade
+    .split(",")
+    .some((s: string) => isApoioSpec(s.trim()));
+}
+
+export function isPatientApoio(p?: any): boolean {
+  if (!p) return false;
+  const cids = (p.cids_secundarios || []).map((c: any) => String(c).trim().toUpperCase());
+  return (
+    cids.some((c: string) => c === "APOIO" || c === "AP") ||
+    (p.apoio_frequencia && p.apoio_frequencia !== "avulso") ||
+    (p.apoio_valor_personalizado !== null && p.apoio_valor_personalizado !== undefined && Number(p.apoio_valor_personalizado) > 0)
+  );
+}
+
 const APOIO_FREQ_LABELS: Record<string, string> = {
   avulso: "Pacote Apoio - Sessões Avulsas",
   "1x": "Pacote Apoio - 1x por semana",
@@ -1733,8 +1750,6 @@ function DiretoriaPageContent() {
       const isApoio = specName === "Apoio" || specName === "AP";
       return isApoio && agCompetencia === competenciaStr;
     }).length;
-    
-    if (totalSessions === 0) return 0;
 
     let fatValue = 0;
     if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
@@ -1742,15 +1757,16 @@ function DiretoriaPageContent() {
       if (freq !== 'avulso' || numVal > 60) {
         fatValue = numVal;
       } else {
-        fatValue = totalSessions * numVal;
+        fatValue = (totalSessions > 0 ? totalSessions : 1) * numVal;
       }
     } else if (freq === 'avulso') {
-      fatValue = totalSessions * 50.00;
+      fatValue = (totalSessions > 0 ? totalSessions : 1) * 50.00;
     } else {
       fatValue = APOIO_RATES_MAP[freq] ?? 240.00;
     }
     
-    return fatValue / totalSessions;
+    const effectiveSessions = totalSessions > 0 ? totalSessions : 1;
+    return fatValue / effectiveSessions;
   };
 
   // Helper to get session value
@@ -2036,12 +2052,104 @@ function DiretoriaPageContent() {
       groups[pacId].totalVal += val;
     });
 
+    // Ensure all active Apoio patients linked to this professional are included in the breakdown
+    if (isApoio) {
+      const { profPct } = getRepasseRates(spec);
+      patientDetailsMap.forEach((p, pId) => {
+        if (!isPatientApoio(p)) return;
+        if (groups[pId]) return; // Already present from sessions
+
+        const isLinked = (p.paciente_profissional || []).some((pp: any) => pp.profissional_id === profId);
+        if (!isLinked) return;
+
+        const linkedApoioProfs = (p.paciente_profissional || []).filter((pp: any) => {
+          const pr = (profissionais || []).find((x: any) => x.id === pp.profissional_id);
+          return isProfApoio(pr);
+        });
+
+        const hasSessionsWithOtherApoioProf = (agendamentosRepasses || []).some((a: any) => {
+          if (a.paciente_id !== pId) return false;
+          if (a.profissional_id === profId) return false;
+          const statusOk = a.status === "realizado" || a.status === "pago" || a.status === "falta";
+          if (!statusOk) return false;
+          const aSpec = getAppointmentSpecialty(a);
+          if (!isApoioSpec(aSpec)) return false;
+          return linkedApoioProfs.some((pp: any) => pp.profissional_id === a.profissional_id);
+        });
+
+        const shouldBelong = !hasSessionsWithOtherApoioProf || linkedApoioProfs.length === 1;
+        if (!shouldBelong) return;
+
+        const freq = p?.apoio_frequencia || "2x";
+        const customVal = p?.apoio_valor_personalizado;
+
+        let freqLabel = "";
+        if (freq === "avulso" && (!customVal || Number(customVal) <= 60)) {
+          freqLabel = `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "50.00"}/sessão)`;
+        } else if (freq.startsWith("semana_toda")) {
+          const defSemana = freq === "semana_toda_500" ? "500.00" : freq === "semana_toda_600" ? "600.00" : "450.00";
+          freqLabel = `Semana Toda (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : defSemana}/mês)`;
+        } else {
+          const defRate = APOIO_RATES_MAP[freq] ? APOIO_RATES_MAP[freq].toFixed(2) : "240.00";
+          const baseFreq = freq.startsWith("1x") ? "1x" : freq.startsWith("2x") ? "2x" : freq.startsWith("3x") ? "3x" : freq;
+          freqLabel = `${baseFreq}/semana (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : defRate}/mês)`;
+        }
+
+        let planVal = 0;
+        if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+          planVal = Number(customVal);
+        } else if (freq === "avulso") {
+          planVal = 50.00;
+        } else {
+          planVal = APOIO_RATES_MAP[freq] ?? 240.00;
+        }
+
+        let defaultSessions = 0;
+        agendamentosRepasses.forEach((ag: any) => {
+          if (ag.paciente_id === pId && ag.profissional_id === profId) {
+            const agSpec = getAppointmentSpecialty(ag);
+            if (isApoioSpec(agSpec)) {
+              if (ag.status === "realizado" || ag.status === "pago" || ag.status === "falta") {
+                defaultSessions++;
+              }
+            }
+          }
+        });
+
+        groups[pId] = {
+          sessions: defaultSessions,
+          totalVal: planVal,
+          defaultRate: profPct * 100,
+          pacienteNome: p.nome || "Paciente Sem Nome",
+          freqLabel,
+        };
+      });
+    }
+
     const list = Object.entries(groups).map(([pacId, data]) => {
       const key = isApoio ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
       const override = customRepasses[profId]?.[key];
       const patientDefault = customPatientDefaults[profId]?.[key];
 
-      const defaultBaseValue = isApoio ? data.totalVal : (data.sessions > 0 ? data.totalVal / data.sessions : 0);
+      let defaultBaseValue = 0;
+      if (isApoio) {
+        if (data.totalVal > 0) {
+          defaultBaseValue = data.totalVal;
+        } else {
+          const p = patientDetailsMap.get(pacId);
+          const freq = p?.apoio_frequencia || "2x";
+          const customVal = p?.apoio_valor_personalizado;
+          if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+            defaultBaseValue = Number(customVal);
+          } else if (freq === "avulso") {
+            defaultBaseValue = 50.00;
+          } else {
+            defaultBaseValue = APOIO_RATES_MAP[freq] ?? 240.00;
+          }
+        }
+      } else {
+        defaultBaseValue = data.sessions > 0 ? data.totalVal / data.sessions : 0;
+      }
       const defaultBaseRate = data.defaultRate;
 
       const currentDefaultValue = patientDefault?.value !== undefined ? patientDefault.value : defaultBaseValue;
@@ -2093,6 +2201,7 @@ function DiretoriaPageContent() {
         isRateModified,
         isCustomized,
         hasCustomDefault: patientDefault !== undefined,
+        defaultSessions: data.sessions,
       };
     });
 
@@ -2840,6 +2949,73 @@ function DiretoriaPageContent() {
         patientSpecGroups[groupKey].totalVal += val;
       });
 
+      // Ensure all active Apoio patients linked to this professional are included in calculation
+      const profObj = (profissionais || []).find((pr: any) => pr.id === profId);
+      const isProfApoioObj = isProfApoio(profObj) || group.especialidades.has("Apoio") || group.especialidades.has("AP");
+
+      if (isProfApoioObj) {
+        group.especialidades.add("Apoio");
+        const { profPct } = getRepasseRates("Apoio");
+        patientDetailsMap.forEach((p, pId) => {
+          if (!isPatientApoio(p)) return;
+          const groupKey = `Apoio_${pId}`;
+          if (patientSpecGroups[groupKey]) return; // already present from sessions
+
+          const isLinked = (p.paciente_profissional || []).some((pp: any) => pp.profissional_id === profId);
+          if (!isLinked) return;
+
+          const linkedApoioProfs = (p.paciente_profissional || []).filter((pp: any) => {
+            const pr = (profissionais || []).find((x: any) => x.id === pp.profissional_id);
+            return isProfApoio(pr);
+          });
+
+          const hasSessionsWithOtherApoioProf = (agendamentosRepasses || []).some((a: any) => {
+            if (a.paciente_id !== pId) return false;
+            if (a.profissional_id === profId) return false;
+            const statusOk = a.status === "realizado" || a.status === "pago" || a.status === "falta";
+            if (!statusOk) return false;
+            const aSpec = getAppointmentSpecialty(a);
+            if (!isApoioSpec(aSpec)) return false;
+            return linkedApoioProfs.some((pp: any) => pp.profissional_id === a.profissional_id);
+          });
+
+          const shouldBelong = !hasSessionsWithOtherApoioProf || linkedApoioProfs.length === 1;
+          if (!shouldBelong) return;
+
+          const freq = p?.apoio_frequencia || "2x";
+          const customVal = p?.apoio_valor_personalizado;
+          let planVal = 0;
+          if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+            planVal = Number(customVal);
+          } else if (freq === "avulso") {
+            planVal = 50.00;
+          } else {
+            planVal = APOIO_RATES_MAP[freq] ?? 240.00;
+          }
+
+          let defaultSessions = 0;
+          agendamentosRepasses.forEach((ag: any) => {
+            if (ag.paciente_id === pId && ag.profissional_id === profId) {
+              const agSpec = getAppointmentSpecialty(ag);
+              if (isApoioSpec(agSpec)) {
+                if (ag.status === "realizado" || ag.status === "pago" || ag.status === "falta") {
+                  defaultSessions++;
+                }
+              }
+            }
+          });
+
+          patientSpecGroups[groupKey] = {
+            spec: "Apoio",
+            pacId: pId,
+            sessions: defaultSessions,
+            totalVal: planVal,
+            defaultRate: profPct * 100,
+            key: `apoio_paciente_${pId}`,
+          };
+        });
+      }
+
       let totalSess = 0;
       let totalFat = 0;
       let totalRep = 0;
@@ -2852,7 +3028,20 @@ function DiretoriaPageContent() {
         const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
 
         if (isApoioSpec(data.spec)) {
-          const defaultVal = patientDefault?.value !== undefined ? patientDefault.value : data.totalVal;
+          let baseVal = data.totalVal;
+          if (baseVal <= 0) {
+            const p = patientDetailsMap.get(data.pacId);
+            const freq = p?.apoio_frequencia || "2x";
+            const customVal = p?.apoio_valor_personalizado;
+            if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+              baseVal = Number(customVal);
+            } else if (freq === "avulso") {
+              baseVal = 50.00;
+            } else {
+              baseVal = APOIO_RATES_MAP[freq] ?? 240.00;
+            }
+          }
+          const defaultVal = patientDefault?.value !== undefined ? patientDefault.value : baseVal;
           const totalVal = override?.value !== undefined ? override.value : defaultVal;
           const repVal = totalVal * (rate / 100);
 
@@ -2885,7 +3074,7 @@ function DiretoriaPageContent() {
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, profissionais, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, inicio, fim, selectedProfId]);
+  }, [filteredRepasses, agendamentosRepasses, profissionais, patientDetailsMap, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, inicio, fim, selectedProfId]);
 
   const repasseStats = useMemo(() => {
     let totalSessões = 0;
@@ -5439,7 +5628,7 @@ function DiretoriaPageContent() {
                                   {brl(group.faturamentoBruto)}
                                 </TableCell>
                                 <TableCell className="font-semibold text-emerald-600 dark:text-emerald-400">
-                                  {group.sessoes.length === 0 ? (
+                                  {group.sessoes.length === 0 && group.faturamentoBruto === 0 ? (
                                     <div className="flex items-center justify-end gap-1">
                                       <div className="relative max-w-[120px] w-full">
                                         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
@@ -5606,8 +5795,9 @@ function DiretoriaPageContent() {
                                       {(() => {
                                         const specs = Array.from(group.especialidades).sort();
                                         const hasAnySessions = group.sessoes.length > 0;
+                                        const hasAnyBreakdown = specs.some((s) => getPatientBreakdownForSpecialty(group.profissionalId, s, group.sessoes).length > 0);
 
-                                        if (!hasAnySessions && group.salario === 0 && !isCoordenadora(group.profissionalId)) {
+                                        if (!hasAnySessions && !hasAnyBreakdown && group.salario === 0 && !isCoordenadora(group.profissionalId)) {
                                           return (
                                             <div className="p-4 text-center text-xs text-muted-foreground border border-dashed rounded-lg bg-background">
                                               Nenhuma sessão correspondente e nenhum salário fixo configurado para este profissional no período.
@@ -5677,6 +5867,9 @@ function DiretoriaPageContent() {
                                                            defaultFaturamento += getAppointmentValue(a);
                                                          }
                                                        });
+                                                       if (defaultSessions === 0 && (item as any).defaultSessions !== undefined) {
+                                                         defaultSessions = (item as any).defaultSessions;
+                                                       }
 
                                                        return (
                                                          <TableRow key={item.key} className="hover:bg-muted/30">
