@@ -519,18 +519,7 @@ function DiretoriaPageContent() {
       metodo: string;
       observacoes?: string;
     }) => {
-      const { error } = await supabase
-        .from("faturas")
-        .update({
-          status: "paga",
-          pago_em,
-          metodo: (metodo || "pix") as any,
-          observacoes: observacoes || null,
-        })
-        .eq("id", id);
-      if (error) throw error;
-
-      // Also update linked agendamentos if any
+      // 1. Also update linked agendamentos if any FIRST
       const { data: items } = await supabase
         .from("fatura_itens")
         .select("agendamento_id")
@@ -546,6 +535,18 @@ function DiretoriaPageContent() {
           .update({ status: "pago" })
           .in("id", agIds);
       }
+
+      // 2. Then update fatura with pago_em, metodo, observacoes
+      const { error } = await supabase
+        .from("faturas")
+        .update({
+          status: "paga",
+          pago_em,
+          metodo: (metodo || "pix") as any,
+          observacoes: observacoes || null,
+        })
+        .eq("id", id);
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
@@ -611,6 +612,19 @@ function DiretoriaPageContent() {
       profissional_id?: string | null;
       especialidade?: string | null;
     }) => {
+      // 1. If status is paga, also update linked agendamentos first
+      if (updatedFatura.status === "paga") {
+        const { data: items } = await supabase
+          .from("fatura_itens")
+          .select("agendamento_id")
+          .eq("fatura_id", updatedFatura.id);
+        const agIds = (items || []).map((i: any) => i.agendamento_id).filter(Boolean);
+        if (agIds.length > 0) {
+          await supabase.from("agendamentos").update({ status: "pago" }).in("id", agIds);
+        }
+      }
+
+      // 2. Then update fatura with pago_em so it is never overwritten by triggers
       const { error } = await supabase
         .from("faturas")
         .update({
@@ -854,6 +868,23 @@ function DiretoriaPageContent() {
         .update({ status })
         .eq("id", id);
       if (error) throw error;
+
+      if (status === "pago") {
+        const { data: it } = await supabase
+          .from("fatura_itens")
+          .select("fatura_id")
+          .eq("agendamento_id", id)
+          .maybeSingle();
+        if (it?.fatura_id) {
+          await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              pago_em: new Date().toISOString(),
+            })
+            .eq("id", it.fatura_id);
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
@@ -1403,6 +1434,19 @@ function DiretoriaPageContent() {
             ? noteToAdd ? `${fat.observacoes} | ${noteToAdd}` : fat.observacoes
             : noteToAdd || null;
 
+          // 1. Update linked agendamentos to 'pago' FIRST
+          const agIds = fat.items
+            .map((i: any) => i.agendamento_id)
+            .filter(Boolean);
+
+          if (agIds.length > 0) {
+            await supabase
+              .from("agendamentos")
+              .update({ status: "pago" })
+              .in("id", agIds);
+          }
+
+          // 2. Update faturas with paymentDateIso AFTER agendamentos to guarantee exact settlement date
           const { error: updFatErr } = await supabase
             .from("faturas")
             .update({
@@ -1416,18 +1460,6 @@ function DiretoriaPageContent() {
 
           if (updFatErr) throw updFatErr;
 
-          // Update linked agendamentos to 'pago'
-          const agIds = fat.items
-            .map((i: any) => i.agendamento_id)
-            .filter(Boolean);
-
-          if (agIds.length > 0) {
-            await supabase
-              .from("agendamentos")
-              .update({ status: "pago" })
-              .in("id", agIds);
-          }
-
           remaining = Math.round((remaining - fatVal) * 100) / 100;
           fullyPaidCount++;
         } else {
@@ -1439,21 +1471,7 @@ function DiretoriaPageContent() {
           const paidNote = `Pagamento parcial: ${brl(paidPart)} quitados de ${brl(fatVal)}${userNote}`;
           const finalPaidNote = fat.observacoes ? `${fat.observacoes} | ${paidNote}` : paidNote;
 
-          // 1. Update existing fatura to paid with paidPart
-          const { error: updErr } = await supabase
-            .from("faturas")
-            .update({
-              status: "paga",
-              valor: paidPart,
-              pago_em: paymentDateIso,
-              metodo: metodo as any,
-              observacoes: finalPaidNote,
-            })
-            .eq("id", fat.id);
-
-          if (updErr) throw updErr;
-
-          // 2. Adjust its items
+          // 1. Adjust its items and update paid agendamentos FIRST
           if (fat.items.length === 1) {
             const singleItem = fat.items[0];
             await supabase
@@ -1489,6 +1507,20 @@ function DiretoriaPageContent() {
               }
             }
           }
+
+          // 2. Update existing fatura to paid with paidPart and paymentDateIso AFTER agendamentos!
+          const { error: updErr } = await supabase
+            .from("faturas")
+            .update({
+              status: "paga",
+              valor: paidPart,
+              pago_em: paymentDateIso,
+              metodo: metodo as any,
+              observacoes: finalPaidNote,
+            })
+            .eq("id", fat.id);
+
+          if (updErr) throw updErr;
 
           // 3. Create new fatura for unpaidPart
           const unpaidNote = `Saldo restante de pagamento parcial (${brl(unpaidPart)} pendentes de ${brl(fatVal)})`;
@@ -7256,19 +7288,9 @@ function DiretoriaPageContent() {
                                   size="icon"
                                   title="Confirmar Pagamento"
                                   className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                                  onClick={async () => {
-                                    if (row.isFaturaOnly || !row.item?.agendamento_id) {
-                                      handleOpenConfirmPayment(row.fatura);
-                                    } else {
-                                      if (confirm(`Confirmar o pagamento da sessão "${row.descricao}"?`)) {
-                                        await updateAppointmentStatusMutation.mutateAsync({
-                                          id: row.item.agendamento_id,
-                                          status: "pago",
-                                        });
-                                      }
-                                    }
+                                  onClick={() => {
+                                    handleOpenConfirmPayment(row.fatura);
                                   }}
-                                  disabled={!row.isFaturaOnly && row.item?.agendamento_id && updateAppointmentStatusMutation.isPending}
                                 >
                                   <Check className="h-4 w-4" />
                                 </Button>

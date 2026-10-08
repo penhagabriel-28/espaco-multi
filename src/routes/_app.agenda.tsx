@@ -1593,6 +1593,23 @@ Fico à disposição para qualquer dúvida!`;
             .update(explicitPayload)
             .eq("id", editing.id);
           if (error) throw error;
+
+          if (form.status === "pago") {
+            const { data: it } = await supabase
+              .from("fatura_itens")
+              .select("fatura_id")
+              .eq("agendamento_id", editing.id)
+              .maybeSingle();
+            if (it?.fatura_id) {
+              await supabase
+                .from("faturas")
+                .update({
+                  status: "paga",
+                  pago_em: new Date().toISOString(),
+                })
+                .eq("id", it.fatura_id);
+            }
+          }
         }
       } else {
         const {
