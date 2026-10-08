@@ -460,6 +460,11 @@ export function GerenciarContasRecorrentesDialog({
                             Empréstimo ({c.totalParcelas}x)
                           </Badge>
                         )}
+                        {(c.id === "pagamento-pessoal" || c.nome.toLowerCase().includes("pagamento de pessoal")) && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-indigo-500/40 text-indigo-600 dark:text-indigo-400">
+                            Repasses Mês Anterior
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                         <span>Cat: {c.categoria}</span>

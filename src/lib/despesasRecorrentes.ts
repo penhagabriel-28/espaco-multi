@@ -1,10 +1,13 @@
+import { format, subMonths, parseISO } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
 export type TipoDespesaRecorrente = "fixo" | "variavel";
 
 export interface ContaRecorrente {
   id: string;
   nome: string;
   tipo: TipoDespesaRecorrente;
-  valorPadrao: number; // fixo tem valor (ex: 3050, 417, 320), variável começa com 0
+  valorPadrao: number; // fixo tem valor (ex: 3050, 417, 320, 32520.70), variável começa com 0
   categoria: string;
   diaVencimento?: number; // dia do mês sugerido (1 a 31)
   ativo: boolean;
@@ -45,6 +48,16 @@ export const CONTAS_RECORRENTES_DEFAULT: ContaRecorrente[] = [
     observacoes: "Empréstimo bancário em 36 parcelas",
   },
   {
+    id: "pagamento-pessoal",
+    nome: "Pagamento de Pessoal",
+    tipo: "fixo",
+    valorPadrao: 32520.7,
+    categoria: "Salários",
+    diaVencimento: 10,
+    ativo: true,
+    observacoes: "Soma dos repasses aos profissionais do mês anterior",
+  },
+  {
     id: "contador",
     nome: "Contador",
     tipo: "fixo",
@@ -72,15 +85,6 @@ export const CONTAS_RECORRENTES_DEFAULT: ContaRecorrente[] = [
     ativo: true,
   },
   {
-    id: "pagamento-pessoal",
-    nome: "Pagamento de Pessoal",
-    tipo: "variavel",
-    valorPadrao: 0,
-    categoria: "Salários",
-    diaVencimento: 10,
-    ativo: true,
-  },
-  {
     id: "supermercado",
     nome: "Supermercado",
     tipo: "variavel",
@@ -93,6 +97,51 @@ export const CONTAS_RECORRENTES_DEFAULT: ContaRecorrente[] = [
 
 export function brl(n: number): string {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/**
+ * Obtém o valor previsto para Pagamento de Pessoal com base na soma dos repasses do mês anterior.
+ * Para Outubro/2026, pega Setembro/2026: R$ 32.520,70.
+ * Para os demais meses, busca no cache sincronizado da Diretoria (diretoria_repasse_total_YYYY-MM)
+ * ou usa o valor consolidado.
+ */
+export function getValorPrevistoRepassePessoal(mesReferencia: string | Date): {
+  valor: number;
+  mesAnteriorNome: string;
+  mesAnteriorAnoMes: string;
+} {
+  let refDate: Date;
+  try {
+    refDate =
+      typeof mesReferencia === "string"
+        ? parseISO(mesReferencia.length === 7 ? `${mesReferencia}-01` : mesReferencia)
+        : mesReferencia;
+  } catch {
+    refDate = new Date();
+  }
+
+  const mesAnteriorDate = subMonths(refDate, 1);
+  const mesAnteriorAnoMes = format(mesAnteriorDate, "yyyy-MM");
+  const mesAnteriorNome = format(mesAnteriorDate, "MMMM 'de' yyyy", { locale: ptBR });
+
+  // 1. Verificar se há no localStorage salvo pela tela de Diretoria
+  if (typeof window !== "undefined" && window.localStorage) {
+    const saved = window.localStorage.getItem(`diretoria_repasse_total_${mesAnteriorAnoMes}`);
+    if (saved) {
+      const parsed = parseFloat(saved);
+      if (!isNaN(parsed) && parsed > 0) {
+        return { valor: parsed, mesAnteriorNome, mesAnteriorAnoMes };
+      }
+    }
+  }
+
+  // 2. Referência exata de Setembro/2026 para pagamento em Outubro/2026
+  if (mesAnteriorAnoMes === "2026-09") {
+    return { valor: 32520.7, mesAnteriorNome, mesAnteriorAnoMes };
+  }
+
+  // Fallback padrão
+  return { valor: 32520.7, mesAnteriorNome, mesAnteriorAnoMes };
 }
 
 export function getContasRecorrentes(): ContaRecorrente[] {
@@ -110,7 +159,34 @@ export function getContasRecorrentes(): ContaRecorrente[] {
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      // Migração automática: se "pagamento-pessoal" estiver como "variavel", atualizar para "fixo"
+      let precisaAtualizarStorage = false;
+      const atualizados = parsed.map((item: ContaRecorrente) => {
+        if (
+          item.id === "pagamento-pessoal" ||
+          item.nome.toLowerCase().includes("pagamento de pessoal")
+        ) {
+          if (item.tipo !== "fixo" || !item.valorPadrao || item.valorPadrao <= 0) {
+            precisaAtualizarStorage = true;
+            return {
+              ...item,
+              tipo: "fixo" as const,
+              valorPadrao: 32520.7,
+              observacoes: "Soma dos repasses aos profissionais do mês anterior",
+            };
+          }
+        }
+        return item;
+      });
+
+      if (precisaAtualizarStorage) {
+        window.localStorage.setItem(
+          STORAGE_KEY_CONTAS_RECORRENTES,
+          JSON.stringify(atualizados)
+        );
+      }
+
+      return atualizados;
     }
     return CONTAS_RECORRENTES_DEFAULT;
   } catch (err) {
@@ -220,8 +296,14 @@ export interface MatchContaDespesa {
   conta: ContaRecorrente;
   despesasEncontradas: any[];
   valorEfetivo: number;
+  valorPrevistoFinal: number;
   status: "pago" | "parcial" | "pendente" | "variavel_pendente";
   infoEmprestimo: InfoParcelaEmprestimo | null;
+  infoPessoal?: {
+    mesAnteriorNome: string;
+    mesAnteriorAnoMes: string;
+    valor: number;
+  };
 }
 
 export function cruzarContasComDespesas(
@@ -234,6 +316,20 @@ export function cruzarContasComDespesas(
     .map((conta) => {
       const nomeNorm = conta.nome.toLowerCase().trim();
       const infoEmprestimo = calcularInfoEmprestimo(conta, dataReferencia);
+
+      const isPessoal =
+        conta.id === "pagamento-pessoal" ||
+        nomeNorm.includes("pagamento de pessoal") ||
+        nomeNorm.includes("pagamento pessoal");
+
+      let infoPessoal: MatchContaDespesa["infoPessoal"] | undefined;
+      let valorPrevistoFinal = conta.valorPadrao;
+
+      if (isPessoal) {
+        const repasseData = getValorPrevistoRepassePessoal(dataReferencia);
+        infoPessoal = repasseData;
+        valorPrevistoFinal = repasseData.valor;
+      }
 
       const matches = despesas.filter((d: any) => {
         const desc = (d.descricao || "").toLowerCase().trim();
@@ -269,14 +365,11 @@ export function cruzarContasComDespesas(
             cat === "impostos"
           );
         }
-        if (
-          conta.id === "pagamento-pessoal" ||
-          nomeNorm.includes("pessoal") ||
-          nomeNorm.includes("pagamento")
-        ) {
+        if (isPessoal) {
           return (
             desc.includes("pessoal") ||
             desc.includes("folha") ||
+            desc.includes("repasse") ||
             (cat === "salários" &&
               !desc.includes("contador") &&
               !desc.includes("retirada"))
@@ -302,10 +395,12 @@ export function cruzarContasComDespesas(
         0
       );
 
+      const isFixo = conta.tipo === "fixo" || isPessoal;
+
       let status: MatchContaDespesa["status"] = "pendente";
-      if (conta.tipo === "fixo") {
+      if (isFixo) {
         if (matches.length > 0) {
-          status = valorEfetivo >= conta.valorPadrao * 0.95 ? "pago" : "parcial";
+          status = valorEfetivo >= valorPrevistoFinal * 0.95 ? "pago" : "parcial";
         } else {
           status = "pendente";
         }
@@ -318,11 +413,17 @@ export function cruzarContasComDespesas(
       }
 
       return {
-        conta,
+        conta: {
+          ...conta,
+          tipo: isFixo ? "fixo" : "variavel",
+          valorPadrao: valorPrevistoFinal,
+        },
         despesasEncontradas: matches,
         valorEfetivo,
+        valorPrevistoFinal,
         status,
         infoEmprestimo,
+        infoPessoal,
       };
     });
 }

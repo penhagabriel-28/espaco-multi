@@ -245,9 +245,12 @@ function DespesasPage() {
 
   // Totais e KPIs
   const totais = useMemo(() => {
-    // Fixas Previstas: soma de valorPadrao das fixas ativas
-    const fixasAtivas = contasRecorrentes.filter((c) => c.ativo && c.tipo === "fixo");
-    const totalFixasPrevistas = fixasAtivas.reduce((acc, cur) => acc + (cur.valorPadrao || 0), 0);
+    // Fixas Previstas: soma dos valores previstos das contas fixas ativas (incluindo Pagamento de Pessoal com repasse do mês anterior)
+    const fixasAtivas = matchesRecorrentes.filter((m) => m.conta.tipo === "fixo");
+    const totalFixasPrevistas = fixasAtivas.reduce(
+      (acc, cur) => acc + (cur.valorPrevistoFinal || cur.conta.valorPadrao || 0),
+      0
+    );
 
     // Fixas Pagas no mês:
     let totalFixasPagas = 0;
@@ -294,7 +297,7 @@ function DespesasPage() {
       qtdFixasPagas,
       progressoFixas,
     };
-  }, [contasRecorrentes, matchesRecorrentes, despesas]);
+  }, [matchesRecorrentes, despesas]);
 
   // Insert Expense mutation
   const createExpenseMutation = useMutation({
@@ -390,15 +393,21 @@ function DespesasPage() {
   };
 
   // Preencher formulário rápido a partir da conta recorrente
-  const handleLancarRecorrente = (conta: ContaRecorrente, infoEmprestimo: any) => {
+  const handleLancarRecorrente = (
+    conta: ContaRecorrente,
+    infoEmprestimo: any,
+    infoPessoal?: any
+  ) => {
     let descSugerida = conta.nome;
     if (conta.isEmprestimo && infoEmprestimo) {
       descSugerida = `Empréstimo ${infoEmprestimo.parcelaAtual}/${infoEmprestimo.totalParcelas}`;
+    } else if (infoPessoal) {
+      descSugerida = `Pagamento de Pessoal - Repasses de ${infoPessoal.mesAnteriorNome}`;
     }
 
     let valSugerido = "";
     if (conta.tipo === "fixo") {
-      valSugerido = String(conta.valorPadrao || "");
+      valSugerido = String(infoPessoal ? infoPessoal.valor : conta.valorPadrao || "");
     }
 
     const diaVenc = conta.diaVencimento || 10;
@@ -576,7 +585,7 @@ function DespesasPage() {
             <div className="text-[11px] text-muted-foreground flex items-center justify-between">
               <span>{totais.qtdFixasTotal} contas fixas configuradas</span>
               <Badge variant="outline" className="text-[10px] font-normal py-0">
-                Aluguel + Empr. + Cont.
+                Aluguel + Pessoal + Empr. + Cont.
               </Badge>
             </div>
           </CardContent>
@@ -744,7 +753,7 @@ function DespesasPage() {
                         </Badge>
                       </TableCell>
 
-                      {/* Detalhamento / Empréstimo */}
+                      {/* Detalhamento / Empréstimo / Repasse Pessoal */}
                       <TableCell>
                         {conta.isEmprestimo && infoEmprestimo ? (
                           <div className="space-y-1 py-1 max-w-[280px]">
@@ -764,6 +773,16 @@ function DespesasPage() {
                               />
                             </div>
                           </div>
+                        ) : m.infoPessoal ? (
+                          <div className="space-y-0.5 max-w-[280px]">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                              <Users className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                              <span>Repasses de {m.infoPessoal.mesAnteriorNome}</span>
+                            </div>
+                            <span className="text-[11px] text-muted-foreground">
+                              Sessões já realizadas • Vencimento dia {conta.diaVencimento || 10}
+                            </span>
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">
                             {conta.diaVencimento ? `Vencimento sugerido dia ${conta.diaVencimento}` : "Mensal"}
@@ -782,7 +801,7 @@ function DespesasPage() {
                       <TableCell className="text-right font-medium">
                         {isFixo ? (
                           <span className="text-foreground font-semibold">
-                            {brl(conta.valorPadrao)}
+                            {brl(m.valorPrevistoFinal || conta.valorPadrao)}
                           </span>
                         ) : (
                           <span className="text-xs italic text-muted-foreground">
@@ -840,7 +859,7 @@ function DespesasPage() {
                             variant="outline"
                             size="sm"
                             className="h-7 text-xs gap-1 border-primary/30 hover:bg-primary hover:text-primary-foreground transition-all"
-                            onClick={() => handleLancarRecorrente(conta, infoEmprestimo)}
+                            onClick={() => handleLancarRecorrente(conta, infoEmprestimo, m.infoPessoal)}
                           >
                             <Plus className="h-3 w-3" /> Lançar Despesa
                           </Button>

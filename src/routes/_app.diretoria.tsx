@@ -3119,6 +3119,18 @@ function DiretoriaPageContent() {
     };
   }, [consolidatedRepasses]);
 
+  // Auto-sync monthly repasse total to localStorage for Despesas forecasting
+  useEffect(() => {
+    if (repasseCardsStats.repasseTotal > 0 && inicio && typeof window !== "undefined") {
+      const anoMes = inicio.substring(0, 7);
+      try {
+        localStorage.setItem(`diretoria_repasse_total_${anoMes}`, String(repasseCardsStats.repasseTotal));
+      } catch (e) {
+        console.error("Failed to sync diretoria_repasse_total to localStorage", e);
+      }
+    }
+  }, [repasseCardsStats.repasseTotal, inicio]);
+
   const caixaLiquidoReal =
     stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
   const caixaLiquidoPrevisto =
