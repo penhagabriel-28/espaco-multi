@@ -1684,49 +1684,6 @@ function DiretoriaPageContent() {
 
   const confirmAllPatientPaymentsMutation = confirmBatchPatientPaymentMutation;
 
-  // Calculations
-  const stats = useMemo(() => {
-    // Faturamento Recebido (Pagas)
-    const faturamentoRecebido = (faturas || [])
-      .filter((f) => f.status === "paga")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Faturamento A Receber (Abertas)
-    const faturamentoAReceber = (faturas || [])
-      .filter((f) => f.status === "aberta")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Faturamento Vencido (Vencidas)
-    const faturamentoVencido = (faturas || [])
-      .filter((f) => f.status === "vencida")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Faturamento Pendente (Abertas/Vencidas)
-    const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
-
-    // Faturamento Geral (Total Faturas)
-    const faturamentoTotal = (faturas || [])
-      .filter((f) => f.status !== "cancelada")
-      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
-
-    // Despesas
-    const totalDespesas = despesas.reduce((acc, d) => acc + Number(d.valor), 0);
-
-    // Balanços
-    const balancoReal = faturamentoRecebido - totalDespesas;
-    const balancoEstimado = faturamentoTotal - totalDespesas;
-
-    return {
-      faturamentoRecebido,
-      faturamentoAReceber,
-      faturamentoVencido,
-      faturamentoPendente,
-      faturamentoTotal,
-      totalDespesas,
-      balancoReal,
-      balancoEstimado,
-    };
-  }, [faturas, faturaItens, despesas, patientDetailsMap]);
 
   const agendamentoProfMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -2791,11 +2748,9 @@ function DiretoriaPageContent() {
     }
   };
 
-  const filteredRepasses = useMemo(() => {
+  const validStatusRepasses = useMemo(() => {
     return agendamentosRepasses.filter((a: any) => {
       if (a.status === "cancelado") return false;
-
-      const matchesProf = selectedProfId === "all" || a.profissional_id === selectedProfId;
 
       let matchesStatus = true;
       if (sessionStatusFilter === "realizado_pago_falta") {
@@ -2808,9 +2763,14 @@ function DiretoriaPageContent() {
         matchesStatus = a.status === "realizado";
       }
 
-      return matchesProf && matchesStatus;
+      return matchesStatus;
     });
-  }, [agendamentosRepasses, selectedProfId, sessionStatusFilter]);
+  }, [agendamentosRepasses, sessionStatusFilter]);
+
+  const filteredRepasses = useMemo(() => {
+    if (selectedProfId === "all") return validStatusRepasses;
+    return validStatusRepasses.filter((a: any) => a.profissional_id === selectedProfId);
+  }, [validStatusRepasses, selectedProfId]);
 
   const getDefaultVencimento = (competencia: string | Date | null | undefined): string | null => {
     if (!competencia) return null;
@@ -2908,7 +2868,7 @@ function DiretoriaPageContent() {
     return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome));
   }, [filteredRepasses, viewingProfDetail]);
 
-  const consolidatedRepasses = useMemo(() => {
+  const allConsolidatedRepasses = useMemo(() => {
     const groups = new Map<
       string,
       {
@@ -2934,10 +2894,9 @@ function DiretoriaPageContent() {
       }
     >();
 
-    // 1. Initialize all active professionals in the period (or matching selected filter)
+    // 1. Initialize all active professionals in the period
     (profissionais || []).forEach((p: any) => {
       if (!isProfActiveInPeriod(p, inicio, fim, true)) return;
-      if (selectedProfId !== "all" && p.id !== selectedProfId) return;
 
       const isAdm = isProfissionalAdmin(p);
       const cargo = (p as any).cargo || (p.valores_config as any)?.cargo || (isAdm ? p.especialidade : null);
@@ -2979,8 +2938,8 @@ function DiretoriaPageContent() {
       });
     });
 
-    // 2. Add sessions from filteredRepasses
-    filteredRepasses.forEach((a: any) => {
+    // 2. Add sessions from validStatusRepasses
+    validStatusRepasses.forEach((a: any) => {
       const profId = a.profissional_id;
       if (!profId) return;
 
@@ -3178,7 +3137,16 @@ function DiretoriaPageContent() {
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [filteredRepasses, agendamentosRepasses, profissionais, patientDetailsMap, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, inicio, fim, selectedProfId]);
+  }, [validStatusRepasses, agendamentosRepasses, profissionais, patientDetailsMap, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, inicio, fim]);
+
+  const consolidatedRepasses = useMemo(() => {
+    if (selectedProfId === "all") return allConsolidatedRepasses;
+    return allConsolidatedRepasses.filter((g) => g.profissionalId === selectedProfId);
+  }, [allConsolidatedRepasses, selectedProfId]);
+
+  const totalRepasseProfissionaisGeral = useMemo(() => {
+    return allConsolidatedRepasses.reduce((acc, g) => acc + g.repasseProfissional, 0);
+  }, [allConsolidatedRepasses]);
 
   const repasseStats = useMemo(() => {
     let totalSessões = 0;
@@ -3225,20 +3193,70 @@ function DiretoriaPageContent() {
 
   // Auto-sync monthly repasse total to localStorage for Despesas forecasting
   useEffect(() => {
-    if (repasseCardsStats.repasseTotal > 0 && inicio && typeof window !== "undefined") {
+    if (totalRepasseProfissionaisGeral > 0 && inicio && typeof window !== "undefined") {
       const anoMes = inicio.substring(0, 7);
       try {
-        localStorage.setItem(`diretoria_repasse_total_${anoMes}`, String(repasseCardsStats.repasseTotal));
+        localStorage.setItem(`diretoria_repasse_total_${anoMes}`, String(totalRepasseProfissionaisGeral));
       } catch (e) {
         console.error("Failed to sync diretoria_repasse_total to localStorage", e);
       }
     }
-  }, [repasseCardsStats.repasseTotal, inicio]);
+  }, [totalRepasseProfissionaisGeral, inicio]);
 
-  const caixaLiquidoReal =
-    stats.faturamentoRecebido - repasseStats.repasseApto - stats.totalDespesas;
-  const caixaLiquidoPrevisto =
-    stats.faturamentoTotal - repasseStats.repasseProfissional - stats.totalDespesas;
+  // Calculations
+  const stats = useMemo(() => {
+    // Faturamento Recebido (Pagas)
+    const faturamentoRecebido = (faturas || [])
+      .filter((f) => f.status === "paga")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Faturamento A Receber (Abertas)
+    const faturamentoAReceber = (faturas || [])
+      .filter((f) => f.status === "aberta")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Faturamento Vencido (Vencidas)
+    const faturamentoVencido = (faturas || [])
+      .filter((f) => f.status === "vencida")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Faturamento Pendente (Abertas/Vencidas)
+    const faturamentoPendente = faturamentoAReceber + faturamentoVencido;
+
+    // Faturamento Geral (Total Faturas)
+    const faturamentoTotal = (faturas || [])
+      .filter((f) => f.status !== "cancelada")
+      .reduce((acc, f) => acc + getFaturaEffectiveValue(f), 0);
+
+    // Despesas Operacionais (Registradas no sistema de despesas)
+    const despesasOperacionais = (despesas || []).reduce((acc, d) => acc + Number(d.valor), 0);
+
+    // Pagamento dos Profissionais (Repasses de todo o período selecionado)
+    const repasseProfissionais = totalRepasseProfissionaisGeral;
+
+    // Despesas Totais = Operacionais + Repasses dos Profissionais
+    const totalDespesas = despesasOperacionais + repasseProfissionais;
+
+    // Balanços
+    const balancoReal = faturamentoRecebido - totalDespesas;
+    const balancoEstimado = faturamentoTotal - totalDespesas;
+
+    return {
+      faturamentoRecebido,
+      faturamentoAReceber,
+      faturamentoVencido,
+      faturamentoPendente,
+      faturamentoTotal,
+      despesasOperacionais,
+      repasseProfissionais,
+      totalDespesas,
+      balancoReal,
+      balancoEstimado,
+    };
+  }, [faturas, faturaItens, despesas, patientDetailsMap, totalRepasseProfissionaisGeral]);
+
+  const caixaLiquidoReal = stats.balancoReal;
+  const caixaLiquidoPrevisto = stats.balancoEstimado;
 
   // Billing Filters
   const [searchPatient, setSearchPatient] = useState("");
@@ -5325,7 +5343,7 @@ function DiretoriaPageContent() {
                 {brl(stats.totalDespesas)}
               </div>
               <div className="text-[11px] text-muted-foreground">
-                Comprometimento de receita no período selecionado
+                Operacional: <span className="font-medium">{brl(stats.despesasOperacionais)}</span> | Profissionais: <span className="font-medium">{brl(stats.repasseProfissionais)}</span>
               </div>
             </div>
           </CardContent>
