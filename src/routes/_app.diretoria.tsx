@@ -791,6 +791,78 @@ function DiretoriaPageContent() {
     },
   });
 
+  // Batch update payment date mutation
+  const batchUpdatePaymentDateMutation = useMutation({
+    mutationFn: async ({
+      rows,
+      pago_em,
+      metodo,
+      observacoes,
+    }: {
+      rows: any[];
+      pago_em: string;
+      metodo?: string;
+      observacoes?: string;
+    }) => {
+      if (!rows || rows.length === 0) return;
+
+      const paymentDateIso = new Date(pago_em + "T12:00:00").toISOString();
+      const faturaIds = Array.from(new Set(rows.map((r: any) => r.faturaId).filter(Boolean)));
+      const agendamentoIds = Array.from(
+        new Set(
+          rows
+            .map((r: any) => r.item?.agendamento_id)
+            .filter(Boolean)
+        )
+      );
+
+      // 1. Update linked agendamentos to 'pago' first
+      if (agendamentoIds.length > 0) {
+        const { error: agErr } = await supabase
+          .from("agendamentos")
+          .update({ status: "pago" })
+          .in("id", agendamentoIds);
+        if (agErr) throw agErr;
+      }
+
+      // 2. Update faturas with status 'paga', exact pago_em, and optional metodo/observacoes
+      const updatePayload: any = {
+        status: "paga",
+        pago_em: paymentDateIso,
+      };
+      if (metodo) {
+        updatePayload.metodo = metodo as any;
+      }
+      if (observacoes !== undefined && observacoes.trim() !== "") {
+        updatePayload.observacoes = observacoes.trim();
+      }
+
+      const { error: fatErr } = await supabase
+        .from("faturas")
+        .update(updatePayload)
+        .in("id", faturaIds);
+
+      if (fatErr) throw fatErr;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
+      queryClient.invalidateQueries({ queryKey: ["faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
+      setSelectedRowIds([]);
+      toast.success(
+        `Data de pagamento atualizada para ${variables.rows.length} ${
+          variables.rows.length === 1 ? "fatura" : "faturas"
+        } com sucesso!`
+      );
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao atualizar data de pagamento em lote: " + err.message);
+    },
+  });
+
   // Edit fatura item mutation
   const editFaturaItemMutation = useMutation({
     mutationFn: async ({
@@ -3203,6 +3275,17 @@ function DiretoriaPageContent() {
   }>({ open: false, pacienteId: "", pacienteNome: "" });
 
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [batchEditPaymentDialog, setBatchEditPaymentDialog] = useState<{
+    open: boolean;
+    pago_em: string;
+    metodo: string;
+    observacoes: string;
+  }>({
+    open: false,
+    pago_em: format(new Date(), "yyyy-MM-dd"),
+    metodo: "pix",
+    observacoes: "",
+  });
 
   const handleOpenPatientFaturas = (pacienteId: string, pacienteNome: string) => {
     setPatientFaturasDialog({ open: true, pacienteId, pacienteNome });
@@ -3470,6 +3553,14 @@ function DiretoriaPageContent() {
       return dateA - dateB;
     });
   }, [patientFaturas, faturaItens, professionalMap, agendamentoProfMap, agendamentoProfIdMap, agendamentoStatusMap, agendamentoDateMap, selectedBillingProfs, patientDetailsMap, faturaProfIdsMap]);
+
+  const selectedRows = useMemo(() => {
+    return patientDetailedRows.filter((r: any) => selectedRowIds.includes(r.id));
+  }, [patientDetailedRows, selectedRowIds]);
+
+  const selectedTotalValue = useMemo(() => {
+    return selectedRows.reduce((acc: number, r: any) => acc + (Number(r.valor) || 0), 0);
+  }, [selectedRows]);
 
   const handlePrintAllBilling = () => {
     if (filteredConsolidated.length === 0) {
@@ -7044,7 +7135,7 @@ function DiretoriaPageContent() {
                 Visualização de todas as cobranças vinculadas a este paciente.
               </div>
             </div>
-            <div className="flex items-center gap-2 mr-6">
+            <div className="flex flex-wrap items-center gap-2 mr-6">
               <Button
                 size="sm"
                 variant="outline"
@@ -7060,42 +7151,71 @@ function DiretoriaPageContent() {
                 <Printer className="h-4 w-4" /> Exportar PDF
               </Button>
               {selectedRowIds.length > 0 && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      className="gap-1.5 font-semibold cursor-pointer"
-                    >
-                      <Trash2 className="h-4 w-4" /> Excluir Selecionadas ({selectedRowIds.length})
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Excluir Itens/Cobranças Selecionados</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Tem certeza que deseja excluir as {selectedRowIds.length} cobranças/sessões selecionadas?
-                        Esta ação removerá as cobranças manuais ou sessões selecionadas, recalculando as cobranças pai quando aplicável.
-                        Esta ação não pode ser desfeita.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction
-                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                        onClick={() => {
-                          const selectedRows = patientDetailedRows.filter((r: any) =>
-                            selectedRowIds.includes(r.id)
-                          );
-                          deleteMultipleFaturasOrItemsMutation.mutate(selectedRows);
-                        }}
-                        disabled={deleteMultipleFaturasOrItemsMutation.isPending}
+                <>
+                  <Badge
+                    variant="outline"
+                    className="h-8 px-2.5 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-xs flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <span className="font-medium text-muted-foreground text-[11px]">Soma ({selectedRowIds.length}):</span>
+                    <span>{brl(selectedTotalValue)}</span>
+                  </Badge>
+
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 font-semibold cursor-pointer border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                    onClick={() => {
+                      const existingPayDate = selectedRows.find((r: any) => r.pago_em)?.pago_em;
+                      const initialDate = existingPayDate
+                        ? format(new Date(existingPayDate), "yyyy-MM-dd")
+                        : format(new Date(), "yyyy-MM-dd");
+                      const existingMethod = selectedRows.find((r: any) => r.metodo)?.metodo || "pix";
+                      setBatchEditPaymentDialog({
+                        open: true,
+                        pago_em: initialDate,
+                        metodo: existingMethod,
+                        observacoes: "",
+                      });
+                    }}
+                    title="Editar data de pagamento das faturas selecionadas em massa"
+                  >
+                    <Calendar className="h-4 w-4" /> Editar Data ({selectedRowIds.length})
+                  </Button>
+
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="gap-1.5 font-semibold cursor-pointer"
                       >
-                        {deleteMultipleFaturasOrItemsMutation.isPending ? "Excluindo..." : "Excluir"}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                        <Trash2 className="h-4 w-4" /> Excluir ({selectedRowIds.length})
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir Itens/Cobranças Selecionados</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Tem certeza que deseja excluir as {selectedRowIds.length} cobranças/sessões selecionadas?
+                          Esta ação removerá as cobranças manuais ou sessões selecionadas, recalculando as cobranças pai quando aplicável.
+                          Esta ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                          onClick={() => {
+                            deleteMultipleFaturasOrItemsMutation.mutate(selectedRows);
+                          }}
+                          disabled={deleteMultipleFaturasOrItemsMutation.isPending}
+                        >
+                          {deleteMultipleFaturasOrItemsMutation.isPending ? "Excluindo..." : "Excluir"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
               )}
               <Button
                 size="sm"
@@ -7121,7 +7241,44 @@ function DiretoriaPageContent() {
             </div>
           </DialogHeader>
 
-          <div className="py-2 flex-1 overflow-hidden">
+          <div className="py-2 flex-1 overflow-hidden space-y-2">
+            {selectedRowIds.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 px-3 bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 rounded-lg">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-semibold text-emerald-900 dark:text-emerald-100">
+                    {selectedRowIds.length} {selectedRowIds.length === 1 ? "fatura selecionada" : "faturas selecionadas"}
+                  </span>
+                  <span className="text-muted-foreground">•</span>
+                  <span className="text-muted-foreground">Soma das selecionadas:</span>
+                  <span className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+                    {brl(selectedTotalValue)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 cursor-pointer shadow-xs"
+                    onClick={() => {
+                      const existingPayDate = selectedRows.find((r: any) => r.pago_em)?.pago_em;
+                      const initialDate = existingPayDate
+                        ? format(new Date(existingPayDate), "yyyy-MM-dd")
+                        : format(new Date(), "yyyy-MM-dd");
+                      const existingMethod = selectedRows.find((r: any) => r.metodo)?.metodo || "pix";
+                      setBatchEditPaymentDialog({
+                        open: true,
+                        pago_em: initialDate,
+                        metodo: existingMethod,
+                        observacoes: "",
+                      });
+                    }}
+                  >
+                    <Calendar className="h-3.5 w-3.5" /> Editar Data de Pagamento em Massa
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {patientDetailedRows.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground border border-dashed rounded-lg">
                 Nenhuma fatura cadastrada para este paciente no período selecionado.
@@ -7358,7 +7515,175 @@ function DiretoriaPageContent() {
                   </TableBody>
                 </Table>
             )}
+
+            {patientDetailedRows.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-muted/30 border border-border/60 rounded-lg text-xs text-muted-foreground mt-2">
+                <span>
+                  Total de cobranças listadas: <strong className="text-foreground">{patientDetailedRows.length}</strong> (
+                  <strong className="text-foreground">{brl(patientDetailedRows.reduce((acc: number, r: any) => acc + (Number(r.valor) || 0), 0))}</strong>)
+                </span>
+                {selectedRowIds.length > 0 ? (
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+                    <span>Selecionadas ({selectedRowIds.length}):</span>
+                    <strong className="text-sm">{brl(selectedTotalValue)}</strong>
+                  </span>
+                ) : (
+                  <span>Nenhuma fatura selecionada</span>
+                )}
+              </div>
+            )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Edição de Data de Pagamento em Massa */}
+      <Dialog
+        open={batchEditPaymentDialog.open}
+        onOpenChange={(open) =>
+          setBatchEditPaymentDialog((prev) => ({ ...prev, open }))
+        }
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Calendar className="h-5 w-5 text-emerald-600" />
+              Editar Data de Pagamento em Massa
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Defina a data de pagamento para as{" "}
+              <strong className="text-foreground">{selectedRowIds.length} faturas</strong> selecionadas de{" "}
+              <strong className="text-foreground">{patientFaturasDialog.pacienteNome}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!batchEditPaymentDialog.pago_em) {
+                toast.error("Informe a data de pagamento.");
+                return;
+              }
+              batchUpdatePaymentDateMutation.mutate(
+                {
+                  rows: selectedRows,
+                  pago_em: batchEditPaymentDialog.pago_em,
+                  metodo: batchEditPaymentDialog.metodo,
+                  observacoes: batchEditPaymentDialog.observacoes,
+                },
+                {
+                  onSuccess: () => {
+                    setBatchEditPaymentDialog((prev) => ({ ...prev, open: false }));
+                  },
+                }
+              );
+            }}
+            className="space-y-4 pt-2"
+          >
+            {/* Resumo da Seleção */}
+            <div className="p-3 bg-muted/40 rounded-lg border border-border flex items-center justify-between">
+              <div>
+                <span className="text-xs text-muted-foreground block font-medium">
+                  Faturas Selecionadas ({selectedRowIds.length})
+                </span>
+                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                  {brl(selectedTotalValue)}
+                </span>
+              </div>
+              <Badge variant="outline" className="text-xs px-2.5 py-1 font-semibold border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/20">
+                Data Unificada
+              </Badge>
+            </div>
+
+            {/* Campo Data de Pagamento */}
+            <div className="space-y-1.5">
+              <Label htmlFor="batchPagoEmInput" className="text-sm font-semibold">
+                Nova Data de Pagamento *
+              </Label>
+              <Input
+                id="batchPagoEmInput"
+                type="date"
+                required
+                value={batchEditPaymentDialog.pago_em}
+                onChange={(e) =>
+                  setBatchEditPaymentDialog({
+                    ...batchEditPaymentDialog,
+                    pago_em: e.target.value,
+                  })
+                }
+                className="text-sm font-medium"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Todas as faturas selecionadas constarão como pagas exatamente nesta mesma data.
+              </p>
+            </div>
+
+            {/* Campo Método de Pagamento */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold">Forma de Pagamento</Label>
+              <Select
+                value={batchEditPaymentDialog.metodo}
+                onValueChange={(val) =>
+                  setBatchEditPaymentDialog({
+                    ...batchEditPaymentDialog,
+                    metodo: val,
+                  })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pix">PIX</SelectItem>
+                  <SelectItem value="dinheiro">Dinheiro / Espécie</SelectItem>
+                  <SelectItem value="cartao_debito">Cartão de Débito</SelectItem>
+                  <SelectItem value="cartao_credito">Cartão de Crédito</SelectItem>
+                  <SelectItem value="boleto">Boleto Bancário</SelectItem>
+                  <SelectItem value="transferencia">Transferência Bancária</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Campo Observações Opcionais */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-semibold">Observações (Opcional)</Label>
+              <Input
+                placeholder="Ex: Quitação mensal confirmada"
+                value={batchEditPaymentDialog.observacoes}
+                onChange={(e) =>
+                  setBatchEditPaymentDialog({
+                    ...batchEditPaymentDialog,
+                    observacoes: e.target.value,
+                  })
+                }
+                className="text-xs"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  setBatchEditPaymentDialog((prev) => ({ ...prev, open: false }))
+                }
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={batchUpdatePaymentDateMutation.isPending}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 cursor-pointer"
+              >
+                {batchUpdatePaymentDateMutation.isPending ? (
+                  <>Atualizando...</>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" /> Aplicar a {selectedRowIds.length} {selectedRowIds.length === 1 ? "Fatura" : "Faturas"}
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
