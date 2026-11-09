@@ -81,18 +81,36 @@ function sanitizeSavedTemplate(raw: string): string {
   s = s.replace(/\bMagna\s+dos\s+Santos\s+Pereira\b/gi, "@responsavel");
   s = s.replace(/\bMagna\b/gi, "@responsavel");
 
+  // Fix hardcoded Silmara or Deivid from previous tests if saved into template
+  s = s.replace(
+    /(?:Olá|Oi|Bom dia|Boa tarde|Boa noite)[\s,]+(?:Dona\s+|Sra\.?\s+|Sr\.?\s+)?(?:@tratamento\s+)?Silmara/gi,
+    (match) => {
+      const greetingMatch = match.match(/^(Olá|Oi|Bom dia|Boa tarde|Boa noite)/i);
+      const greet = greetingMatch ? greetingMatch[1] : "Olá";
+      return `${greet} @tratamento @responsavel`;
+    }
+  );
+  s = s.replace(/\bDona\s+Silmara\b/gi, "@tratamento @responsavel");
+  s = s.replace(/@tratamento\s+Silmara\b/gi, "@tratamento @responsavel");
+  s = s.replace(/\bSilmara\b/gi, "@responsavel");
+  s = s.replace(/\*?Deivid\s+Emanuel\s+Ferreira\s+de\s+Sousa\*?/gi, "*@paciente*");
+  s = s.replace(/\*?R\$\s*2\.?200,00\*?/gi, "*@valor*");
+
   // Replace Francisco dos Santos Pereira
   s = s.replace(/\*?Francisco\s+dos\s+Santos\s+Pereira\*?/gi, "*@paciente*");
 
   // 2. Remove hardcoded summary from Francisco's invoice or any previous session details
   s = s.replace(
     /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]+[•\-\*]\s*1\s*sessão.*Leandro\s+Moraes/gi,
-    "\n@resumo"
+    "\n\n@resumo\n"
   );
   s = s.replace(
     /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]+(?:[•\-\*].*[\r\n]*)+/gi,
-    "\n@resumo"
+    "\n\n@resumo\n"
   );
+
+  // Fix glued @resumo (e.g. @resumoObrigado)
+  s = s.replace(/@resumo(?=[a-zA-ZÀ-ÿ])/gi, "@resumo\n\n");
 
   // 3. Remove hardcoded R$ 120,00 from previous test
   s = s.replace(/\*?R\$\s*120,00\*?/gi, "*@valor*");
@@ -107,7 +125,7 @@ function sanitizeSavedTemplate(raw: string): string {
 
   // 5. Ensure @resumo is present if absent
   if (!s.includes("@resumo")) {
-    s = s.replace(/(\*?@valor\*?\.?)/, "$1\n@resumo");
+    s = s.replace(/(\*?@valor\*?\.?)/, "$1\n\n@resumo\n");
   }
 
   // 6. Ensure greeting has @saudacao if it has literal "Boa tarde" etc.
@@ -168,24 +186,22 @@ function resolveTemplateVariables(
   const cleanResumo = data.resumo ? data.resumo.trim() : "";
   if (cleanResumo) {
     result = result.replace(
-      /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*([@\/]|\{\{?)resumo(\}\}?)/gi,
-      `\n\n${cleanResumo}`
+      /(?:\r?\n\s*)?(?:Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*)?(?:[@\/]|\{\{?)resumo(?:\}\}?)?/gi,
+      `\n\n${cleanResumo}\n\n`
     );
-    result = result.replace(/([@\/]|\{\{?)resumo(\}\}?)/gi, `\n\n${cleanResumo}`);
   } else {
     result = result.replace(
-      /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*([@\/]|\{\{?)resumo(\}\}?)/gi,
-      ""
+      /(?:\r?\n\s*)?(?:Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]*)?(?:[@\/]|\{\{?)resumo(?:\}\}?)?\s*/gi,
+      "\n\n"
     );
-    result = result.replace(/(?:\.?\s*)?([@\/]|\{\{?)resumo(\}\}?)/gi, "");
   }
 
   // Handle @tratamento: if empty, remove it cleanly without leaving awkward double spaces
   const cleanTratamento = data.tratamento ? data.tratamento.trim() : "";
   if (!cleanTratamento) {
-    result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)\s*/gi, "");
+    result = result.replace(/(?:[@\/]|\{\{?)(?:tratamento|titulo)(?:\}\}?)?\s*/gi, "");
   } else {
-    result = result.replace(/([@\/]|\{\{?)(?:tratamento|titulo)(\}\}?)/gi, cleanTratamento);
+    result = result.replace(/(?:[@\/]|\{\{?)(?:tratamento|titulo)(?:\}\}?)?/gi, cleanTratamento);
   }
 
   const replacements: Record<string, string> = {
@@ -215,8 +231,10 @@ function resolveTemplateVariables(
     replacements[r.key] = r.name;
   });
 
-  for (const [key, val] of Object.entries(replacements)) {
-    const regex = new RegExp(`([@\\/]|\\{\\{?)${key}(\\}?\\}?)`, "gi");
+  const sortedEntries = Object.entries(replacements).sort((a, b) => b[0].length - a[0].length);
+
+  for (const [key, val] of sortedEntries) {
+    const regex = new RegExp(`(?:[@\\/]|\\{\\{?)${escapeRegex(key)}(?:\\}?\\}?)?(?![a-zA-Z0-9_])`, "gi");
     result = result.replace(regex, val);
   }
 
@@ -848,7 +866,6 @@ export function WhatsAppCobrancaDialog({
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     const cursorPos = e.target.selectionStart;
-    setMessageText(val);
 
     const textBeforeCursor = val.slice(0, cursorPos);
     // Matches @ or / followed by word characters right up to cursor
@@ -867,10 +884,40 @@ export function WhatsAppCobrancaDialog({
         endIndex: cursorPos,
         selectedIndex: 0,
       });
+      setMessageText(val);
     } else {
       if (mentionState.open) {
         setMentionState((prev) => ({ ...prev, open: false }));
       }
+      // If mention dropdown is not open (e.g. user finished typing word and hit space, punctuation, newline, or pasted)
+      // Automatically convert any completed @mentions immediately so they never stay raw in this box
+      const mentionPattern =
+        /[@/](tratamento|responsavel|paciente|valor|mes|pix|resumo|clinica|saudacao|responsaveis|nome_paciente|primeiro_nome_paciente|nome_responsavel|primeiro_nome_responsavel|responsavel_completo|nome_completo_responsavel|nomes_responsaveis|total|valor_pendente|mes_referencia|chave_pix|nome_clinica|titulo)(?:\b|(?=[^a-zA-Z0-9_]))/i;
+      if (mentionPattern.test(val)) {
+        const resolved = resolveTemplateVariables(val, activeTemplateData);
+        setMessageText(resolved);
+      } else {
+        setMessageText(val);
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    const mentionPattern =
+      /[@/](tratamento|responsavel|paciente|valor|mes|pix|resumo|clinica|saudacao|responsaveis|nome_paciente|primeiro_nome_paciente|nome_responsavel|primeiro_nome_responsavel|responsavel_completo|nome_completo_responsavel|nomes_responsaveis|total|valor_pendente|mes_referencia|chave_pix|nome_clinica|titulo)/i;
+    if (mentionPattern.test(messageText)) {
+      setMessageText(resolveTemplateVariables(messageText, activeTemplateData));
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = e.clipboardData.getData("text");
+    const mentionPattern =
+      /[@/](tratamento|responsavel|paciente|valor|mes|pix|resumo|clinica|saudacao|responsaveis|nome_paciente|primeiro_nome_paciente|nome_responsavel|primeiro_nome_responsavel|responsavel_completo|nome_completo_responsavel|nomes_responsaveis|total|valor_pendente|mes_referencia|chave_pix|nome_clinica|titulo)/i;
+    if (mentionPattern.test(pasted)) {
+      e.preventDefault();
+      const resolvedPasted = resolveTemplateVariables(pasted, activeTemplateData);
+      insertContentAtCursor(resolvedPasted);
     }
   };
 
@@ -951,14 +998,14 @@ export function WhatsAppCobrancaDialog({
 
     // 1. Abstract Summary (Resumo)
     if (templateData.resumoRaw && generalized.includes(templateData.resumoRaw.trim())) {
-      generalized = generalized.replace(templateData.resumoRaw.trim(), "@resumo");
+      generalized = generalized.replace(templateData.resumoRaw.trim(), "\n\n@resumo\n");
     } else if (templateData.resumo && generalized.includes(templateData.resumo.trim())) {
-      generalized = generalized.replace(templateData.resumo.trim(), "@resumo");
+      generalized = generalized.replace(templateData.resumo.trim(), "\n\n@resumo\n");
     } else {
       // Abstract any "Resumo:\n• ..." block
       const summaryRegex = /(?:\r?\n\s*)?Resumo(?:\s+dos\s+atendimentos)?:\s*[\r\n]+(?:[•\-\*].*[\r\n]*)+/gi;
       if (summaryRegex.test(generalized)) {
-        generalized = generalized.replace(summaryRegex, "\n@resumo");
+        generalized = generalized.replace(summaryRegex, "\n\n@resumo\n");
       }
     }
 
@@ -1042,7 +1089,7 @@ export function WhatsAppCobrancaDialog({
 
     // Ensure @resumo is present if it was in the original template or patient has summary
     if (!generalized.includes("@resumo") && templateData.resumo) {
-      generalized += "\n@resumo";
+      generalized += "\n\n@resumo\n";
     }
 
     setBaseTemplateText(generalized);
@@ -1415,7 +1462,7 @@ export function WhatsAppCobrancaDialog({
               </TabsList>
 
               <div className="flex items-center gap-1.5">
-                {/@(tratamento|responsavel|paciente|valor|mes|pix|resumo|saudacao|clinica)/i.test(messageText) && (
+                {/[@/](tratamento|responsavel|paciente|valor|mes|pix|resumo|clinica|saudacao|responsaveis|nome_paciente|primeiro_nome_paciente|nome_responsavel|primeiro_nome_responsavel|responsavel_completo|nome_completo_responsavel|nomes_responsaveis|total|valor_pendente|mes_referencia|chave_pix|nome_clinica|titulo)/i.test(messageText) && (
                   <Button
                     type="button"
                     variant="outline"
@@ -1544,6 +1591,8 @@ export function WhatsAppCobrancaDialog({
                   value={messageText}
                   onChange={handleTextareaChange}
                   onKeyDown={handleKeyDown}
+                  onBlur={handleBlur}
+                  onPaste={handlePaste}
                   rows={9}
                   className="font-sans text-xs sm:text-[13px] leading-relaxed resize-y min-h-[200px] bg-background border-border/80 focus-visible:ring-emerald-500/30"
                   placeholder="Mensagem de cobrança... Digite @ ou / para invocar dados do paciente e responsável"

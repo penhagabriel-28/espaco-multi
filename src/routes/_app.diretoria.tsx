@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase as supabaseClient } from "@/integrations/supabase/client";
 const supabase = supabaseClient as any;
 import { useState, useMemo, useEffect, Fragment, useRef } from "react";
-import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay, subMonths, addMonths } from "date-fns";
+import { format, startOfMonth, endOfMonth, differenceInDays, startOfDay, subMonths, addMonths, parseISO } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { createMuralMessage, updateMuralMessage, deleteMuralMessage } from "@/lib/api/mural.functions";
@@ -234,6 +235,17 @@ function PasswordGate({ onUnlock }: { onUnlock: () => void }) {
   );
 }
 
+const AVAILABLE_MONTHS = [
+  { value: "2026-06", label: "Junho / 2026" },
+  { value: "2026-07", label: "Julho / 2026" },
+  { value: "2026-08", label: "Agosto / 2026" },
+  { value: "2026-09", label: "Setembro / 2026" },
+  { value: "2026-10", label: "Outubro / 2026" },
+  { value: "2026-11", label: "Novembro / 2026" },
+  { value: "2026-12", label: "Dezembro / 2026" },
+  { value: "2027-01", label: "Janeiro / 2027" },
+];
+
 function DiretoriaPageContent() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -308,8 +320,62 @@ function DiretoriaPageContent() {
   }, [queryClient]);
   const today = new Date();
   const prevMonth = subMonths(today, 1);
-  const [inicio, setInicio] = useState(format(startOfMonth(prevMonth), "yyyy-MM-dd"));
-  const [fim, setFim] = useState(format(endOfMonth(prevMonth), "yyyy-MM-dd"));
+  const defaultMonthStr = format(prevMonth, "yyyy-MM");
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("multi_diretoria_mes_selecionado");
+      if (saved && /^\d{4}-\d{2}$/.test(saved)) return saved;
+    }
+    return defaultMonthStr;
+  });
+
+  const getMonthDateRange = (monthStr: string) => {
+    try {
+      const [y, m] = (monthStr || defaultMonthStr).split("-").map(Number);
+      const d = new Date(y, m - 1, 1);
+      return {
+        start: format(startOfMonth(d), "yyyy-MM-dd"),
+        end: format(endOfMonth(d), "yyyy-MM-dd"),
+      };
+    } catch {
+      return {
+        start: format(startOfMonth(prevMonth), "yyyy-MM-dd"),
+        end: format(endOfMonth(prevMonth), "yyyy-MM-dd"),
+      };
+    }
+  };
+
+  const initialRange = useMemo(() => getMonthDateRange(selectedMonth), [selectedMonth]);
+  const [inicio, setInicio] = useState(initialRange.start);
+  const [fim, setFim] = useState(initialRange.end);
+
+  const availableMonthsList = useMemo(() => {
+    const list = [];
+    for (let i = -1; i <= 12; i++) {
+      const d = subMonths(today, i);
+      const val = format(d, "yyyy-MM");
+      const rawLabel = format(d, "MMMM 'de' yyyy", { locale: ptBR });
+      const label = rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1);
+      list.push({ value: val, label });
+    }
+    return list;
+  }, []);
+
+  const handleMonthChange = (monthStr: string) => {
+    setSelectedMonth(monthStr);
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem("multi_diretoria_mes_selecionado", monthStr);
+      }
+    } catch {}
+    const range = getMonthDateRange(monthStr);
+    setInicio(range.start);
+    setFim(range.end);
+  };
+
+  const effectiveInicio = inicio && inicio.trim() ? inicio : initialRange.start;
+  const effectiveFim = fim && fim.trim() ? fim : initialRange.end;
   const [oldestDebitMonth, setOldestDebitMonth] = useState("");
 
   // Mural de Recados States
@@ -490,15 +556,15 @@ function DiretoriaPageContent() {
 
   // Fetch Invoices
   const { data: faturas = [], isLoading: loadingFaturas } = useQuery<any[]>({
-    queryKey: ["dir-faturas", inicio, fim],
+    queryKey: ["dir-faturas", effectiveInicio, effectiveFim],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("faturas")
         .select(
            "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id, profissional_id, especialidade",
         )
-        .gte("competencia", inicio)
-        .lte("competencia", fim)
+        .gte("competencia", effectiveInicio)
+        .lte("competencia", effectiveFim)
         .order("competencia", { ascending: true })
         .order("vencimento", { ascending: true });
       if (error) throw error;
@@ -973,13 +1039,13 @@ function DiretoriaPageContent() {
 
   // Fetch Expenses
   const { data: despesas = [], isLoading: loadingDespesas } = useQuery<any[]>({
-    queryKey: ["dir-despesas", inicio, fim],
+    queryKey: ["dir-despesas", effectiveInicio, effectiveFim],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("despesas")
         .select("*")
-        .gte("data", inicio)
-        .lte("data", fim)
+        .gte("data", effectiveInicio)
+        .lte("data", effectiveFim)
         .order("data", { ascending: false });
       if (error) throw error;
       return data;
@@ -1191,7 +1257,7 @@ function DiretoriaPageContent() {
 
   // Fetch all agendamentos for professional payment calculation
   const { data: agendamentosRepasses = [], isLoading: loadingAgendamentos } = useQuery<any[]>({
-    queryKey: ["dir-agendamentos-repasses", inicio, fim],
+    queryKey: ["dir-agendamentos-repasses", effectiveInicio, effectiveFim],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("agendamentos")
@@ -1222,8 +1288,8 @@ function DiretoriaPageContent() {
           )
         `,
         )
-        .gte("data_inicio", `${inicio}T00:00:00`)
-        .lte("data_inicio", `${fim}T23:59:59`);
+        .gte("data_inicio", `${effectiveInicio}T00:00:00`)
+        .lte("data_inicio", `${effectiveFim}T23:59:59`);
       if (error) throw error;
       return data || [];
     },
@@ -1231,7 +1297,7 @@ function DiretoriaPageContent() {
 
   // Fetch all fatura_itens in a single fast query using inner join on faturas.competencia
   const { data: faturaItens = [], isLoading: loadingFaturaItens } = useQuery<any[]>({
-    queryKey: ["dir-fatura-itens", inicio, fim],
+    queryKey: ["dir-fatura-itens", effectiveInicio, effectiveFim],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("fatura_itens")
@@ -1255,8 +1321,8 @@ function DiretoriaPageContent() {
             valor
           )
         `)
-        .gte("faturas.competencia", inicio)
-        .lte("faturas.competencia", fim);
+        .gte("faturas.competencia", effectiveInicio)
+        .lte("faturas.competencia", effectiveFim);
       if (error) throw error;
       return data || [];
     },
@@ -1267,12 +1333,12 @@ function DiretoriaPageContent() {
     const ids = new Set<string>();
     (faturaItens || []).forEach((item: any) => {
       const comp = item.faturas?.competencia;
-      if (comp && comp >= inicio && comp <= fim && item.agendamento_id) {
+      if (comp && comp >= effectiveInicio && comp <= effectiveFim && item.agendamento_id) {
         ids.add(item.agendamento_id);
       }
     });
     return Array.from(ids);
-  }, [faturaItens, inicio, fim]);
+  }, [faturaItens, effectiveInicio, effectiveFim]);
 
   const { data: linkedAgendamentos = [] } = useQuery<any[]>({
     queryKey: ["dir-linked-agendamentos", linkedAgendamentoIds],
@@ -1889,27 +1955,13 @@ function DiretoriaPageContent() {
 
   const [customPatientDefaults, setCustomPatientDefaults] = useState<
     Record<string, Record<string, { value?: number; rate?: number }>>
-  >(() => {
-    try {
-      const saved = typeof window !== "undefined" ? localStorage.getItem("multi_repasse_patient_defaults") : null;
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  >({});
 
-  const [customProfSalariesDefaults, setCustomProfSalariesDefaults] = useState<Record<string, number>>(() => {
-    try {
-      const saved = typeof window !== "undefined" ? localStorage.getItem("multi_repasse_prof_salarios") : null;
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [customProfSalariesDefaults, setCustomProfSalariesDefaults] = useState<Record<string, number>>({});
 
   const [customProfSalariesOverrides, setCustomProfSalariesOverrides] = useState<Record<string, number>>({});
   const saveTimeoutRef = useRef<Record<string, any>>({});
-  const periodKey = `${inicio}_${fim}`;
+  const periodKey = `${effectiveInicio}_${effectiveFim}`;
 
   // Synchronize database data from Supabase into customPatientDefaults, customProfSalariesDefaults, and customRepasses on load / period change
   useEffect(() => {
@@ -1920,7 +1972,7 @@ function DiretoriaPageContent() {
     const periodRepasses: Record<string, Record<string, { sessions: number; value: number; rate: number }>> = {};
 
     profissionais.forEach((p: any) => {
-      const cfg = p.valores_config as any;
+      const cfg = (p.valores_config || {}) as any;
       if (cfg) {
         if (cfg.salarios_por_mes && typeof cfg.salarios_por_mes[periodKey] === "number") {
           profSalaries[p.id] = cfg.salarios_por_mes[periodKey];
@@ -1938,22 +1990,10 @@ function DiretoriaPageContent() {
       }
     });
 
-    setCustomProfSalariesDefaults((prev) => ({ ...prev, ...profSalaries }));
-    setCustomPatientDefaults((prev) => {
-      const next = { ...prev };
-      Object.entries(patientDefs).forEach(([pId, defs]) => {
-        next[pId] = { ...(next[pId] || {}), ...defs };
-      });
-      return next;
-    });
-    setCustomRepasses((prev) => {
-      const next = { ...prev };
-      Object.entries(periodRepasses).forEach(([pId, overrides]) => {
-        next[pId] = { ...(next[pId] || {}), ...overrides };
-      });
-      return next;
-    });
-  }, [profissionais, inicio, fim]);
+    setCustomProfSalariesDefaults(profSalaries);
+    setCustomPatientDefaults(patientDefs);
+    setCustomRepasses(periodRepasses);
+  }, [profissionais, periodKey]);
 
 
   const getRepasseRates = (specialty: string) => {
@@ -2287,11 +2327,6 @@ function DiretoriaPageContent() {
       },
     };
     setCustomPatientDefaults(newPatientDefaults);
-    try {
-      localStorage.setItem("multi_repasse_patient_defaults", JSON.stringify(newPatientDefaults));
-    } catch (e) {
-      console.error("Failed to save patient defaults to localStorage", e);
-    }
 
     // 1. If it's an Apoio patient plan value, save directly to `pacientes.apoio_valor_personalizado`
     if (key.startsWith("apoio_paciente_") && field === "value") {
@@ -2369,11 +2404,6 @@ function DiretoriaPageContent() {
       delete nextProf[key];
       newPatientDefaults[profId] = nextProf;
       setCustomPatientDefaults(newPatientDefaults);
-      try {
-        localStorage.setItem("multi_repasse_patient_defaults", JSON.stringify(newPatientDefaults));
-      } catch (e) {
-        console.error("Failed to update localStorage", e);
-      }
     }
 
     setCustomRepasses((prev) => {
@@ -2453,11 +2483,6 @@ function DiretoriaPageContent() {
       });
       newPatientDefaults[profId] = nextProf;
       setCustomPatientDefaults(newPatientDefaults);
-      try {
-        localStorage.setItem("multi_repasse_patient_defaults", JSON.stringify(newPatientDefaults));
-      } catch (e) {
-        console.error("Failed to update localStorage", e);
-      }
     }
 
     setCustomRepasses((prev) => {
@@ -2521,11 +2546,6 @@ function DiretoriaPageContent() {
   const handleMakeProfSalaryDefault = async (profId: string, profName: string, amount: number) => {
     const next = { ...customProfSalariesDefaults, [profId]: amount };
     setCustomProfSalariesDefaults(next);
-    try {
-      localStorage.setItem("multi_repasse_prof_salarios", JSON.stringify(next));
-    } catch (e) {
-      console.error("Failed to save to localStorage", e);
-    }
 
     try {
       const prof = (profissionais || []).find((p: any) => p.id === profId);
@@ -2569,11 +2589,6 @@ function DiretoriaPageContent() {
     const next = { ...customProfSalariesDefaults };
     delete next[profId];
     setCustomProfSalariesDefaults(next);
-    try {
-      localStorage.setItem("multi_repasse_prof_salarios", JSON.stringify(next));
-    } catch (e) {
-      console.error("Failed to save to localStorage", e);
-    }
     setCustomProfSalariesOverrides((prev) => {
       const copy = { ...prev };
       delete copy[profId];
@@ -2772,13 +2787,26 @@ function DiretoriaPageContent() {
     return validStatusRepasses.filter((a: any) => a.profissional_id === selectedProfId);
   }, [validStatusRepasses, selectedProfId]);
 
-  const getDefaultVencimento = (competencia: string | Date | null | undefined): string | null => {
+  const getDefaultVencimento = (
+    competencia: string | Date | null | undefined,
+    pacienteId?: string | null,
+    especialidade?: string | null,
+  ): string | null => {
     if (!competencia) return null;
     try {
       const compStr = typeof competencia === "string" ? competencia : format(competencia, "yyyy-MM-dd");
       const dateStr = compStr.length === 7 ? `${compStr}-01` : compStr;
       const parsed = new Date(dateStr + "T12:00:00");
       if (isNaN(parsed.getTime())) return null;
+
+      if (pacienteId) {
+        const p = patientDetailsMap.get(pacienteId);
+        const isSessao = !isApoioSpec(especialidade) && !(p && p.valor_mensal && p.valor_mensal > 0);
+        if (isSessao) {
+          return dateStr;
+        }
+      }
+
       return format(addMonths(startOfMonth(parsed), 1), "yyyy-MM-dd");
     } catch {
       return null;
@@ -2786,8 +2814,56 @@ function DiretoriaPageContent() {
   };
 
   const getResolvedVencimento = (fatura: any) => {
-    if (fatura?.vencimento) return fatura.vencimento;
-    if (fatura?.competencia) {
+    if (!fatura) return null;
+
+    const p = fatura.paciente_id ? patientDetailsMap.get(fatura.paciente_id) : null;
+    const isSessao = !isApoioSpec(fatura.especialidade) && !(p && p.valor_mensal && p.valor_mensal > 0);
+
+    if (isSessao) {
+      // 1. Try to find date from linked items/agendamento
+      if (fatura.id) {
+        const items = (faturaItens || []).filter((item: any) => item.fatura_id === fatura.id);
+        for (const item of items) {
+          if (item.agendamento_id && agendamentoDateMap.has(item.agendamento_id)) {
+            const rawDate = agendamentoDateMap.get(item.agendamento_id);
+            if (rawDate) {
+              const dt = new Date(rawDate);
+              return dt.toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+            }
+          }
+          if (item.descricao) {
+            const m = item.descricao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            if (m) {
+              return `${m[3]}-${m[2]}-${m[1]}`;
+            }
+          }
+        }
+      }
+
+      // 2. If fatura.vencimento is set and NOT the old default (first day of following month)
+      if (fatura.vencimento) {
+        const legacyDefault = getDefaultVencimento(fatura.competencia);
+        if (fatura.vencimento !== legacyDefault) {
+          return fatura.vencimento;
+        }
+      }
+
+      // 3. Check created_at in same month
+      if (fatura.created_at) {
+        const cr = new Date(fatura.created_at);
+        const crStr = cr.toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+        if (fatura.competencia && crStr.substring(0, 7) === String(fatura.competencia).substring(0, 7)) {
+          return crStr;
+        }
+      }
+
+      if (fatura.vencimento) return fatura.vencimento;
+      if (fatura.competencia) return fatura.competencia;
+      return null;
+    }
+
+    if (fatura.vencimento) return fatura.vencimento;
+    if (fatura.competencia) {
       return getDefaultVencimento(fatura.competencia);
     }
     return null;
@@ -2896,7 +2972,7 @@ function DiretoriaPageContent() {
 
     // 1. Initialize all active professionals in the period
     (profissionais || []).forEach((p: any) => {
-      if (!isProfActiveInPeriod(p, inicio, fim, true)) return;
+      if (!isProfActiveInPeriod(p, effectiveInicio, effectiveFim, true)) return;
 
       const isAdm = isProfissionalAdmin(p);
       const cargo = (p as any).cargo || (p.valores_config as any)?.cargo || (isAdm ? p.especialidade : null);
@@ -3137,7 +3213,7 @@ function DiretoriaPageContent() {
     });
 
     return Array.from(groups.values()).sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [validStatusRepasses, agendamentosRepasses, profissionais, patientDetailsMap, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, inicio, fim]);
+  }, [validStatusRepasses, agendamentosRepasses, profissionais, patientDetailsMap, customRepasses, customPatientDefaults, customProfSalariesDefaults, customProfSalariesOverrides, effectiveInicio, effectiveFim]);
 
   const consolidatedRepasses = useMemo(() => {
     if (selectedProfId === "all") return allConsolidatedRepasses;
@@ -3271,7 +3347,7 @@ function DiretoriaPageContent() {
     return (profissionais || [])
       .filter((p: any) => {
         if (selectedBillingProfs.includes(p.id)) return true;
-        return isProfActiveInPeriod(p, inicio, fim);
+        return isProfActiveInPeriod(p, effectiveInicio, effectiveFim);
       })
       .filter((p: any) =>
         normalizeString(p.nome).includes(normalizeString(billingProfSearch))
@@ -3283,7 +3359,7 @@ function DiretoriaPageContent() {
         if (!aSel && bSel) return 1;
         return a.nome.localeCompare(b.nome);
       });
-  }, [profissionais, inicio, fim, selectedBillingProfs, billingProfSearch]);
+  }, [profissionais, effectiveInicio, effectiveFim, selectedBillingProfs, billingProfSearch]);
 
   // Patient Faturas Modal state
   const [patientFaturasDialog, setPatientFaturasDialog] = useState<{
@@ -3528,12 +3604,32 @@ function DiretoriaPageContent() {
             }
           }
           
+          let itemVencimento: string | null = null;
+          if (item.agendamento_id && agendamentoDateMap.has(item.agendamento_id)) {
+            const agDate = agendamentoDateMap.get(item.agendamento_id);
+            if (agDate) {
+              const dt = new Date(agDate);
+              itemVencimento = dt.toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+            }
+          }
+          if (!itemVencimento && item.descricao) {
+            const m = item.descricao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            if (m) {
+              itemVencimento = `${m[3]}-${m[2]}-${m[1]}`;
+            }
+          }
+
+          const isSessaoPatient = !isApoio && !(patientDetailsMap.get(f.paciente_id)?.valor_mensal > 0);
+          const finalItemVencimento = isApoio
+            ? getResolvedVencimento(f)
+            : (isSessaoPatient ? (itemVencimento || getResolvedVencimento(f)) : getResolvedVencimento(f));
+
           rows.push({
             id: `item-${item.id}`,
             faturaId: f.id,
             paciente_id: f.paciente_id,
             competencia: f.competencia,
-            vencimento: getResolvedVencimento(f),
+            vencimento: finalItemVencimento,
             pago_em: f.pago_em,
             status: f.status,
             metodo: f.metodo,
@@ -3728,12 +3824,32 @@ function DiretoriaPageContent() {
               }
             }
 
+            let itemVencimento: string | null = null;
+            if (item.agendamento_id && agendamentoDateMap.has(item.agendamento_id)) {
+              const agDate = agendamentoDateMap.get(item.agendamento_id);
+              if (agDate) {
+                const dt = new Date(agDate);
+                itemVencimento = dt.toLocaleDateString("sv-SE", { timeZone: "America/Sao_Paulo" });
+              }
+            }
+            if (!itemVencimento && item.descricao) {
+              const m = item.descricao.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+              if (m) {
+                itemVencimento = `${m[3]}-${m[2]}-${m[1]}`;
+              }
+            }
+
+            const isSessaoPatient = !isApoio && !(patientDetailsMap.get(f.paciente_id)?.valor_mensal > 0);
+            const finalItemVencimento = isApoio
+              ? getResolvedVencimento(f)
+              : (isSessaoPatient ? (itemVencimento || getResolvedVencimento(f)) : getResolvedVencimento(f));
+
             rows.push({
               id: `item-${item.id}`,
               faturaId: f.id,
               paciente_id: f.paciente_id,
               competencia: f.competencia,
-              vencimento: getResolvedVencimento(f),
+              vencimento: finalItemVencimento,
               pago_em: f.pago_em,
               status: f.status,
               metodo: f.metodo,
@@ -4595,8 +4711,9 @@ function DiretoriaPageContent() {
     setEditDialog({ open: true, fatura });
   };
 
-  const getDaysDelayed = (fatura: any) => {
-    const resolvedVenc = getResolvedVencimento(fatura);
+  const getDaysDelayed = (fatura: any, overrideVencimento?: string | null) => {
+    const resolvedVenc = overrideVencimento || getResolvedVencimento(fatura);
+    if (!fatura) return 0;
     if (fatura.status === "paga") {
       if (fatura.pago_em && resolvedVenc) {
         const payDate = startOfDay(new Date(fatura.pago_em));
@@ -4924,7 +5041,7 @@ function DiretoriaPageContent() {
                           setFaturaForm({
                             paciente_id: c.pacienteId,
                             competencia: comp,
-                            vencimento: getDefaultVencimento(comp) || "",
+                            vencimento: getDefaultVencimento(comp, c.pacienteId) || "",
                             valor: "",
                             status: "aberta",
                             pago_em: "",
@@ -5260,7 +5377,44 @@ function DiretoriaPageContent() {
       {/* Date Filter */}
       <Card className="border-border shadow-sm">
         <CardContent className="flex flex-wrap items-end gap-4 p-4">
-          <div className="space-y-1.5 flex-1 min-w-[200px]">
+          <div className="space-y-1.5 min-w-[220px]">
+            <Label className="flex items-center gap-1.5 text-muted-foreground text-xs font-semibold uppercase tracking-wider">
+              <Calendar className="h-3.5 w-3.5" /> Mês de Referência
+            </Label>
+            <div className="flex items-center gap-2">
+              <Select value={selectedMonth} onValueChange={handleMonthChange}>
+                <SelectTrigger className="h-10 min-w-[170px]">
+                  <SelectValue placeholder="Selecione o mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableMonthsList.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 whitespace-nowrap text-xs"
+                onClick={() => handleMonthChange(format(subMonths(today, 1), "yyyy-MM"))}
+              >
+                Mês Anterior
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 whitespace-nowrap text-xs"
+                onClick={() => handleMonthChange(format(today, "yyyy-MM"))}
+              >
+                Mês Atual
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-1.5 flex-1 min-w-[160px]">
             <Label className="flex items-center gap-1.5 text-muted-foreground text-xs font-semibold uppercase tracking-wider">
               <Calendar className="h-3.5 w-3.5" /> Data Início
             </Label>
@@ -5271,7 +5425,7 @@ function DiretoriaPageContent() {
               className="h-10"
             />
           </div>
-          <div className="space-y-1.5 flex-1 min-w-[200px]">
+          <div className="space-y-1.5 flex-1 min-w-[160px]">
             <Label className="flex items-center gap-1.5 text-muted-foreground text-xs font-semibold uppercase tracking-wider">
               <Calendar className="h-3.5 w-3.5" /> Data Fim
             </Label>
@@ -5691,12 +5845,50 @@ function DiretoriaPageContent() {
           ) : (
             /* CONSOLIDATED VIEW OF ALL PROFESSIONALS */
             <Card className="border-border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Resumo por Profissional</CardTitle>
-                <CardDescription>
-                  Valores totais a repassar e comissões consolidadas por profissional no período
-                  selecionado.
-                </CardDescription>
+              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    Resumo por Profissional
+                    <Badge variant="secondary" className="font-medium text-xs">
+                      {format(new Date(effectiveInicio + "T12:00:00"), "MMMM 'de' yyyy", { locale: ptBR })}
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Valores totais a repassar e comissões consolidadas por profissional no período selecionado.
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={selectedMonth} onValueChange={handleMonthChange}>
+                    <SelectTrigger className="w-[180px] h-9 text-xs">
+                      <SelectValue placeholder="Selecione o mês" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableMonthsList.map((m) => (
+                        <SelectItem key={m.value} value={m.value} className="text-xs">
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 text-xs"
+                    onClick={() => handleMonthChange(format(subMonths(today, 1), "yyyy-MM"))}
+                  >
+                    Mês Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 text-xs"
+                    onClick={() => handleMonthChange(format(today, "yyyy-MM"))}
+                  >
+                    Mês Atual
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-0 sm:p-6 sm:pt-0">
                 {consolidatedRepasses.length === 0 ? (
@@ -6772,7 +6964,7 @@ function DiretoriaPageContent() {
                   value={faturaForm.competencia ? faturaForm.competencia.substring(0, 7) : ""}
                   onChange={(e) => {
                     const newComp = e.target.value ? e.target.value + "-01" : "";
-                    const nextVenc = getDefaultVencimento(newComp) || "";
+                    const nextVenc = getDefaultVencimento(newComp, editDialog.fatura?.paciente_id, editDialog.fatura?.especialidade) || "";
                     setFaturaForm({ ...faturaForm, competencia: newComp, vencimento: nextVenc });
                   }}
                 />
@@ -6876,7 +7068,7 @@ function DiretoriaPageContent() {
                 {
                   paciente_id: faturaForm.paciente_id,
                   competencia: faturaForm.competencia,
-                  vencimento: faturaForm.vencimento || getDefaultVencimento(faturaForm.competencia) || null,
+                  vencimento: faturaForm.vencimento || getDefaultVencimento(faturaForm.competencia, faturaForm.paciente_id, faturaForm.especialidade) || null,
                   valor: parseFloat(faturaForm.valor.replace(",", ".")),
                   status: faturaForm.status,
                   observacoes: faturaForm.observacoes,
@@ -6926,11 +7118,13 @@ function DiretoriaPageContent() {
                       }
                     }
                     const price = getFaturaPrice(val, profId, spec);
+                    const nextVenc = getDefaultVencimento(prev.competencia, val, spec) || "";
                     return { 
                       ...prev, 
                       paciente_id: val, 
                       profissional_id: profId,
                       especialidade: spec,
+                      vencimento: nextVenc,
                       valor: price > 0 ? String(price) : "" 
                     };
                   });
@@ -6958,7 +7152,7 @@ function DiretoriaPageContent() {
                   value={faturaForm.competencia}
                   onChange={(e) => {
                     const newComp = e.target.value;
-                    const nextVenc = getDefaultVencimento(newComp) || "";
+                    const nextVenc = getDefaultVencimento(newComp, faturaForm.paciente_id, faturaForm.especialidade) || "";
                     setFaturaForm({ ...faturaForm, competencia: newComp, vencimento: nextVenc });
                   }}
                 />
@@ -7243,7 +7437,7 @@ function DiretoriaPageContent() {
                   setFaturaForm({
                     paciente_id: patientFaturasDialog.pacienteId,
                     competencia: comp,
-                    vencimento: getDefaultVencimento(comp) || "",
+                    vencimento: getDefaultVencimento(comp, patientFaturasDialog.pacienteId) || "",
                     valor: "",
                     status: "aberta",
                     pago_em: "",
@@ -7333,7 +7527,7 @@ function DiretoriaPageContent() {
                   </TableHeader>
                   <TableBody>
                     {patientDetailedRows.map((row: any) => {
-                      const daysDelayed = getDaysDelayed(row.fatura);
+                      const daysDelayed = getDaysDelayed(row.fatura, row.vencimento);
                       const isSelected = selectedRowIds.includes(row.id);
                       return (
                         <TableRow key={row.id} className={isSelected ? "bg-muted/50" : ""}>
