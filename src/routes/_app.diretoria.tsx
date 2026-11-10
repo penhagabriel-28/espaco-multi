@@ -1849,6 +1849,67 @@ function DiretoriaPageContent() {
     return "Geral";
   };
 
+  const isCoordenadora = (profId: string | null) => {
+    if (!profId) return false;
+    const prof = (profissionais || []).find((p: any) => p.id === profId);
+    if (!prof?.especialidade) return false;
+    return prof.especialidade
+      .split(",")
+      .map((s: string) => s.trim().toLowerCase())
+      .includes("coordenadora ap");
+  };
+
+  const isAcionizaProf = (profId: string | null) => {
+    if (!profId) return false;
+    if (isCoordenadora(profId)) return true;
+    const prof = (profissionais || []).find((p: any) => p.id === profId);
+    return Boolean(prof?.nome?.toLowerCase().includes("acioniza"));
+  };
+
+  const isLorenzoBragaPatient = (pacienteNome?: string | null) => {
+    if (!pacienteNome) return false;
+    const norm = pacienteNome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    return norm.includes("lorenzo") && norm.includes("braga");
+  };
+
+  const isCleideProf = (profId: string | null) => {
+    if (!profId) return false;
+    const prof = (profissionais || []).find((p: any) => p.id === profId);
+    return Boolean(prof?.nome?.toLowerCase().includes("cleide"));
+  };
+
+  const CLEIDE_EXCLUDED_APOIO_NAMES = [
+    "alexandre amorim ferreira",
+    "bernardo jose sarges lima camara",
+    "dominic sansao pereira lira",
+    "jose fernando cabral neto",
+    "raphael coelho barros",
+  ];
+
+  const isCleideExcludedApoioPatient = (pacienteNome?: string | null) => {
+    if (!pacienteNome) return false;
+    const norm = pacienteNome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    return CLEIDE_EXCLUDED_APOIO_NAMES.some((ex) => norm.includes(ex) || ex.includes(norm));
+  };
+
+  const isGabrielaProf = (profId: string | null) => {
+    if (!profId) return false;
+    const prof = (profissionais || []).find((p: any) => p.id === profId);
+    return Boolean(prof?.nome?.toLowerCase().includes("gabriela"));
+  };
+
+  const GABRIELA_EXCLUDED_APOIO_NAMES = [
+    "angelo pietro barros silva",
+    "antonio carlos ramalho olivio filho",
+    "ethan cael melo matos",
+  ];
+
+  const isGabrielaExcludedApoioPatient = (pacienteNome?: string | null) => {
+    if (!pacienteNome) return false;
+    const norm = pacienteNome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    return GABRIELA_EXCLUDED_APOIO_NAMES.some((ex) => norm.includes(ex) || ex.includes(norm));
+  };
+
   const getApoioSessionValue = (pacienteId: string, profissionalId: string, dataInicioStr: string) => {
     if (!pacienteId || !dataInicioStr) return 0;
     
@@ -1879,7 +1940,10 @@ function DiretoriaPageContent() {
     }).length;
 
     let fatValue = 0;
-    if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+    const isLorenzoForAcioniza = isLorenzoBragaPatient(p.nome) && isAcionizaProf(profissionalId);
+    if (isLorenzoForAcioniza) {
+      fatValue = 360.00;
+    } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
       const numVal = Number(customVal);
       if (freq !== 'avulso' || numVal > 60) {
         fatValue = numVal;
@@ -1974,10 +2038,12 @@ function DiretoriaPageContent() {
     profissionais.forEach((p: any) => {
       const cfg = (p.valores_config || {}) as any;
       if (cfg) {
-        if (cfg.salarios_por_mes && typeof cfg.salarios_por_mes[periodKey] === "number") {
+        if (cfg.salarios_por_mes && typeof cfg.salarios_por_mes[periodKey] === "number" && cfg.salarios_por_mes[periodKey] > 0) {
           profSalaries[p.id] = cfg.salarios_por_mes[periodKey];
-        } else if (typeof cfg.salario_fixo === "number") {
+        } else if (typeof cfg.salario_fixo === "number" && cfg.salario_fixo > 0) {
           profSalaries[p.id] = cfg.salario_fixo;
+        } else if (isAcionizaProf(p.id)) {
+          profSalaries[p.id] = 300;
         }
 
         if (cfg.patient_defaults && typeof cfg.patient_defaults === "object") {
@@ -1987,6 +2053,8 @@ function DiretoriaPageContent() {
         if (cfg.repasses_overrides && typeof cfg.repasses_overrides[periodKey] === "object") {
           periodRepasses[p.id] = { ...cfg.repasses_overrides[periodKey] };
         }
+      } else if (isAcionizaProf(p.id)) {
+        profSalaries[p.id] = 300;
       }
     });
 
@@ -2068,16 +2136,6 @@ function DiretoriaPageContent() {
     };
   };
 
-  const isCoordenadora = (profId: string | null) => {
-    if (!profId) return false;
-    const prof = (profissionais || []).find((p: any) => p.id === profId);
-    if (!prof?.especialidade) return false;
-    return prof.especialidade
-      .split(",")
-      .map((s: string) => s.trim().toLowerCase())
-      .includes("coordenadora ap");
-  };
-
   // State variables for payment calculation tab
   const [selectedProfId, setSelectedProfId] = useState<string>("all");
   const [sessionStatusFilter, setSessionStatusFilter] = useState<string>("realizado_pago_falta");
@@ -2099,6 +2157,9 @@ function DiretoriaPageContent() {
 
   const getPatientBreakdownForSpecialty = (profId: string, spec: string, sessoes: any[]) => {
     const isApoio = isApoioSpec(spec);
+    const isGabriela = isGabrielaProf(profId);
+    const isCleide = isCleideProf(profId);
+    const isAcioniza = isAcionizaProf(profId);
     
     // Group sessions by patient
     const groups: Record<
@@ -2116,15 +2177,22 @@ function DiretoriaPageContent() {
       const s = getAppointmentSpecialty(a);
       if (s !== spec) return; // Only process sessions for this specialty
 
-      const val = getAppointmentValue(a);
-      const { profPct } = getRepasseRates(spec);
       const pacId = a.paciente_id;
       if (!pacId) return;
       const pacName = a.pacientes?.nome || "Paciente Sem Nome";
 
+      if (isApoio && isCleide && isCleideExcludedApoioPatient(pacName)) return;
+      if (isApoio && isGabriela && isGabrielaExcludedApoioPatient(pacName)) return;
+
+      const val = getAppointmentValue(a);
+      const { profPct } = getRepasseRates(spec);
+
       if (!groups[pacId]) {
         let freqLabel = "";
-        if (isApoio) {
+        const isLorenzoForAcioniza = isApoio && isAcioniza && isLorenzoBragaPatient(pacName);
+        if (isLorenzoForAcioniza) {
+          freqLabel = "Mensal (R$ 360.00/mês)";
+        } else if (isApoio) {
           const p = patientDetailsMap.get(pacId);
           const freq = p?.apoio_frequencia || "2x";
           const customVal = p?.apoio_valor_personalizado;
@@ -2144,7 +2212,7 @@ function DiretoriaPageContent() {
         groups[pacId] = {
           sessions: 0,
           totalVal: 0,
-          defaultRate: profPct * 100,
+          defaultRate: isGabriela ? 100 : profPct * 100,
           pacienteNome: pacName,
           freqLabel,
         };
@@ -2159,6 +2227,9 @@ function DiretoriaPageContent() {
       patientDetailsMap.forEach((p, pId) => {
         if (!isPatientApoio(p)) return;
         if (groups[pId]) return; // Already present from sessions
+
+        if (isCleide && isCleideExcludedApoioPatient(p.nome)) return;
+        if (isGabriela && isGabrielaExcludedApoioPatient(p.nome)) return;
 
         const isLinked = (p.paciente_profissional || []).some((pp: any) => pp.profissional_id === profId);
         if (!isLinked) return;
@@ -2183,9 +2254,12 @@ function DiretoriaPageContent() {
 
         const freq = p?.apoio_frequencia || "2x";
         const customVal = p?.apoio_valor_personalizado;
+        const isLorenzoForAcioniza = isAcioniza && isLorenzoBragaPatient(p.nome);
 
         let freqLabel = "";
-        if (freq === "avulso" && (!customVal || Number(customVal) <= 60)) {
+        if (isLorenzoForAcioniza) {
+          freqLabel = "Mensal (R$ 360.00/mês)";
+        } else if (freq === "avulso" && (!customVal || Number(customVal) <= 60)) {
           freqLabel = `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "50.00"}/sessão)`;
         } else if (freq.startsWith("semana_toda")) {
           const defSemana = freq === "semana_toda_500" ? "500.00" : freq === "semana_toda_600" ? "600.00" : "450.00";
@@ -2197,7 +2271,9 @@ function DiretoriaPageContent() {
         }
 
         let planVal = 0;
-        if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+        if (isLorenzoForAcioniza) {
+          planVal = 360.00;
+        } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
           planVal = Number(customVal);
         } else if (freq === "avulso") {
           planVal = 50.00;
@@ -2220,7 +2296,7 @@ function DiretoriaPageContent() {
         groups[pId] = {
           sessions: defaultSessions,
           totalVal: planVal,
-          defaultRate: profPct * 100,
+          defaultRate: isGabriela ? 100 : profPct * 100,
           pacienteNome: p.nome || "Paciente Sem Nome",
           freqLabel,
         };
@@ -2232,9 +2308,13 @@ function DiretoriaPageContent() {
       const override = customRepasses[profId]?.[key];
       const patientDefault = customPatientDefaults[profId]?.[key];
 
+      const isLorenzoForAcioniza = isApoio && isAcioniza && isLorenzoBragaPatient(data.pacienteNome);
+
       let defaultBaseValue = 0;
       if (isApoio) {
-        if (data.totalVal > 0) {
+        if (isLorenzoForAcioniza) {
+          defaultBaseValue = 360.00;
+        } else if (data.totalVal > 0) {
           defaultBaseValue = data.totalVal;
         } else {
           const p = patientDetailsMap.get(pacId);
@@ -2251,13 +2331,15 @@ function DiretoriaPageContent() {
       } else {
         defaultBaseValue = data.sessions > 0 ? data.totalVal / data.sessions : 0;
       }
-      const defaultBaseRate = data.defaultRate;
 
-      const currentDefaultValue = patientDefault?.value !== undefined ? patientDefault.value : defaultBaseValue;
-      const currentDefaultRate = patientDefault?.rate !== undefined ? patientDefault.rate : defaultBaseRate;
+      const defaultBaseRate = isGabriela ? 100 : data.defaultRate;
+      const currentDefaultValue = isLorenzoForAcioniza && (!patientDefault?.value || patientDefault.value === 240)
+        ? 360.00
+        : (patientDefault?.value !== undefined ? patientDefault.value : defaultBaseValue);
+      const currentDefaultRate = isGabriela ? 100 : (patientDefault?.rate !== undefined ? patientDefault.rate : defaultBaseRate);
       
       const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
-      const rate = override?.rate !== undefined ? override.rate : currentDefaultRate;
+      const rate = isGabriela ? 100 : (override?.rate !== undefined ? override.rate : currentDefaultRate);
       
       let faturamento = 0;
       let repVal = 0;
@@ -2306,7 +2388,11 @@ function DiretoriaPageContent() {
       };
     });
 
-    return list;
+    return list.filter((item) => {
+      if (isApoio && isCleide && isCleideExcludedApoioPatient(item.pacienteNome)) return false;
+      if (isApoio && isGabriela && isGabrielaExcludedApoioPatient(item.pacienteNome)) return false;
+      return true;
+    });
   };
 
   const handleMakePatientDefault = async (
@@ -2586,8 +2672,13 @@ function DiretoriaPageContent() {
   };
 
   const handleResetProfSalary = async (profId: string, profName: string) => {
+    const isAcioniza = isAcionizaProf(profId);
     const next = { ...customProfSalariesDefaults };
-    delete next[profId];
+    if (isAcioniza) {
+      next[profId] = 300;
+    } else {
+      delete next[profId];
+    }
     setCustomProfSalariesDefaults(next);
     setCustomProfSalariesOverrides((prev) => {
       const copy = { ...prev };
@@ -2602,7 +2693,11 @@ function DiretoriaPageContent() {
       delete currentSalaries[periodKey];
 
       const newConfig = { ...currentConfig, salarios_por_mes: currentSalaries };
-      delete newConfig.salario_fixo;
+      if (isAcioniza) {
+        newConfig.salario_fixo = 300;
+      } else {
+        delete newConfig.salario_fixo;
+      }
 
       await supabase
         .from("profissionais")
@@ -2615,7 +2710,7 @@ function DiretoriaPageContent() {
     queryClient.invalidateQueries({ queryKey: ["dir-profissionais"] });
     queryClient.invalidateQueries({ queryKey: ["profissionais"] });
 
-    toast.info(`Salário fixo restaurado para R$ 0,00 para ${profName}.`);
+    toast.info(`Salário fixo restaurado para ${isAcioniza ? "R$ 300,00" : "R$ 0,00"} para ${profName}.`);
   };
 
   const handleProfSalaryChange = (profId: string, valStr: string) => {
@@ -2976,11 +3071,20 @@ function DiretoriaPageContent() {
 
       const isAdm = isProfissionalAdmin(p);
       const cargo = (p as any).cargo || (p.valores_config as any)?.cargo || (isAdm ? p.especialidade : null);
+      const isAcioniza = isAcionizaProf(p.id);
       
-      const defaultSalary = customProfSalariesDefaults[p.id] ?? 0;
+      const defaultSalary =
+        customProfSalariesDefaults[p.id] !== undefined && customProfSalariesDefaults[p.id] > 0
+          ? customProfSalariesDefaults[p.id]
+          : isAcioniza
+          ? 300
+          : (customProfSalariesDefaults[p.id] ?? 0);
       const currentSalary = customProfSalariesOverrides[p.id] !== undefined ? customProfSalariesOverrides[p.id] : defaultSalary;
       const isSalaryModified = Math.abs(currentSalary - defaultSalary) > 0.01;
-      const isSalaryCustomized = defaultSalary > 0 || (customProfSalariesOverrides[p.id] !== undefined && customProfSalariesOverrides[p.id] > 0);
+      const isSalaryCustomized = isAcioniza
+        ? (customProfSalariesDefaults[p.id] !== undefined && customProfSalariesDefaults[p.id] !== 300) ||
+          (customProfSalariesOverrides[p.id] !== undefined && customProfSalariesOverrides[p.id] !== 300)
+        : defaultSalary > 0 || (customProfSalariesOverrides[p.id] !== undefined && customProfSalariesOverrides[p.id] > 0);
 
       const specSet = new Set<string>();
       if (isAdm) {
@@ -3019,6 +3123,13 @@ function DiretoriaPageContent() {
       const profId = a.profissional_id;
       if (!profId) return;
 
+      const spec = getAppointmentSpecialty(a);
+      const isApoio = isApoioSpec(spec);
+      const pacName = a.pacientes?.nome;
+
+      if (isApoio && isCleideProf(profId) && isCleideExcludedApoioPatient(pacName)) return;
+      if (isApoio && isGabrielaProf(profId) && isGabrielaExcludedApoioPatient(pacName)) return;
+
       let group = groups.get(profId);
       if (!group) {
         const profName = a.profissionais?.nome || "Desconhecido";
@@ -3043,13 +3154,16 @@ function DiretoriaPageContent() {
         groups.set(profId, group);
       }
 
-      const spec = getAppointmentSpecialty(a);
       group.especialidades.add(spec);
       group.sessoes.push(a);
     });
 
     // 3. Apply custom overrides and calculate totals per professional
     groups.forEach((group, profId) => {
+      const isAcioniza = isAcionizaProf(profId);
+      const isGabriela = isGabrielaProf(profId);
+      const isCleide = isCleideProf(profId);
+
       // Group sessions by specialty and patient
       const patientSpecGroups: Record<
         string,
@@ -3068,10 +3182,14 @@ function DiretoriaPageContent() {
         const pacId = a.paciente_id;
         if (!pacId) return;
 
+        const isApoio = isApoioSpec(spec);
+        if (isApoio && isCleide && isCleideExcludedApoioPatient(a.pacientes?.nome)) return;
+        if (isApoio && isGabriela && isGabrielaExcludedApoioPatient(a.pacientes?.nome)) return;
+
         const val = getAppointmentValue(a);
         const { profPct } = getRepasseRates(spec);
-        const defaultRate = profPct * 100;
-        const key = isApoioSpec(spec) ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
+        const defaultRate = isGabriela ? 100 : profPct * 100;
+        const key = isApoio ? `apoio_paciente_${pacId}` : `${spec}_paciente_${pacId}`;
         const groupKey = `${spec}_${pacId}`;
 
         if (!patientSpecGroups[groupKey]) {
@@ -3093,10 +3211,12 @@ function DiretoriaPageContent() {
       const isProfApoioObj = isProfApoio(profObj) || group.especialidades.has("Apoio") || group.especialidades.has("AP");
 
       if (isProfApoioObj) {
-        group.especialidades.add("Apoio");
         const { profPct } = getRepasseRates("Apoio");
         patientDetailsMap.forEach((p, pId) => {
           if (!isPatientApoio(p)) return;
+          if (isCleide && isCleideExcludedApoioPatient(p.nome)) return;
+          if (isGabriela && isGabrielaExcludedApoioPatient(p.nome)) return;
+
           const groupKey = `Apoio_${pId}`;
           if (patientSpecGroups[groupKey]) return; // already present from sessions
 
@@ -3123,8 +3243,12 @@ function DiretoriaPageContent() {
 
           const freq = p?.apoio_frequencia || "2x";
           const customVal = p?.apoio_valor_personalizado;
+          const isLorenzoForAcioniza = isAcioniza && isLorenzoBragaPatient(p.nome);
+
           let planVal = 0;
-          if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+          if (isLorenzoForAcioniza) {
+            planVal = 360.00;
+          } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
             planVal = Number(customVal);
           } else if (freq === "avulso") {
             planVal = 50.00;
@@ -3149,10 +3273,18 @@ function DiretoriaPageContent() {
             pacId: pId,
             sessions: defaultSessions,
             totalVal: planVal,
-            defaultRate: profPct * 100,
+            defaultRate: isGabriela ? 100 : profPct * 100,
             key: `apoio_paciente_${pId}`,
           };
         });
+
+        const hasApoioEntries = Object.values(patientSpecGroups).some((g) => isApoioSpec(g.spec));
+        if (hasApoioEntries) {
+          group.especialidades.add("Apoio");
+        } else if (isGabriela) {
+          group.especialidades.delete("Apoio");
+          group.especialidades.delete("AP");
+        }
       }
 
       let totalSess = 0;
@@ -3162,17 +3294,20 @@ function DiretoriaPageContent() {
       Object.values(patientSpecGroups).forEach((data) => {
         const patientDefault = customPatientDefaults[profId]?.[data.key];
         const override = customRepasses[profId]?.[data.key];
-        const defaultRate = patientDefault?.rate !== undefined ? patientDefault.rate : data.defaultRate;
-        const rate = override?.rate !== undefined ? override.rate : defaultRate;
+        const defaultRate = isGabriela ? 100 : (patientDefault?.rate !== undefined ? patientDefault.rate : data.defaultRate);
+        const rate = isGabriela ? 100 : (override?.rate !== undefined ? override.rate : defaultRate);
         const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
 
         if (isApoioSpec(data.spec)) {
-          let baseVal = data.totalVal;
+          const isLorenzoForAcioniza = isAcioniza && isLorenzoBragaPatient(patientDetailsMap.get(data.pacId)?.nome);
+          let baseVal = isLorenzoForAcioniza ? 360.00 : data.totalVal;
           if (baseVal <= 0) {
             const p = patientDetailsMap.get(data.pacId);
             const freq = p?.apoio_frequencia || "2x";
             const customVal = p?.apoio_valor_personalizado;
-            if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
+            if (isLorenzoForAcioniza) {
+              baseVal = 360.00;
+            } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
               baseVal = Number(customVal);
             } else if (freq === "avulso") {
               baseVal = 50.00;
@@ -3180,7 +3315,9 @@ function DiretoriaPageContent() {
               baseVal = APOIO_RATES_MAP[freq] ?? 240.00;
             }
           }
-          const defaultVal = patientDefault?.value !== undefined ? patientDefault.value : baseVal;
+          const defaultVal = isLorenzoForAcioniza && (!patientDefault?.value || patientDefault.value === 240)
+            ? 360.00
+            : (patientDefault?.value !== undefined ? patientDefault.value : baseVal);
           const totalVal = override?.value !== undefined ? override.value : defaultVal;
           const repVal = totalVal * (rate / 100);
 
@@ -3202,10 +3339,6 @@ function DiretoriaPageContent() {
       group.totalSessões = totalSess;
       group.faturamentoBruto = totalFat;
       group.repasseProfissional = totalRep + group.salario;
-
-      if (isCoordenadora(profId)) {
-        group.repasseProfissional += 300;
-      }
 
       group.comissaoClinica = group.faturamentoBruto - totalRep;
       group.repasseApto = group.repasseProfissional;
@@ -5909,7 +6042,11 @@ function DiretoriaPageContent() {
                       </TableHeader>
                       <TableBody>
                         {consolidatedRepasses.map((group) => {
-                          const specsArr = Array.from(group.especialidades);
+                          const specsArr = Array.from(group.especialidades).filter((spec) => {
+                            if (group.isAdm) return true;
+                            const bd = getPatientBreakdownForSpecialty(group.profissionalId, spec, group.sessoes);
+                            return bd.length > 0;
+                          });
 
                           const hasDetailsButton = true;
 
@@ -5928,14 +6065,9 @@ function DiretoriaPageContent() {
                                         <span>💼</span> {group.cargo || "Administrativo"}
                                       </Badge>
                                     )}
-                                    {group.salario > 0 && (
+                                    {group.salario > 0 && !group.isAdm && (
                                       <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20 font-medium shrink-0">
                                         Salário: {brl(group.salario)}
-                                      </Badge>
-                                    )}
-                                    {isCoordenadora(group.profissionalId) && (
-                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0.5 bg-yellow-500/10 text-yellow-700 border-yellow-500/20 font-bold shrink-0">
-                                        Coord. (+R$300)
                                       </Badge>
                                     )}
                                     {hasDetailsButton && (
@@ -6044,94 +6176,85 @@ function DiretoriaPageContent() {
                                 <TableRow className="bg-muted/10 border-t-0">
                                   <TableCell colSpan={6} className="p-4">
                                     <div className="space-y-4 w-full">
-                                      {/* Fixed Salary / Base Mensal Card */}
-                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-background rounded-lg border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-xs">
-                                        <div className="flex items-center gap-2.5">
-                                          <div className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
-                                            💵
-                                          </div>
-                                          <div>
-                                            <div className="font-semibold text-xs text-foreground">
-                                              Salário Fixo / Base Mensal
+                                      {/* Fixed Salary / Base Mensal Card - Only for Admin or Acioniza */}
+                                      {(group.isAdm || isAcionizaProf(group.profissionalId)) && (
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-background rounded-lg border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-xs">
+                                          <div className="flex items-center gap-2.5">
+                                            <div className="h-8 w-8 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm shrink-0">
+                                              💵
                                             </div>
-                                            <div className="text-[11px] text-muted-foreground">
-                                              {group.isAdm
-                                                ? `Equipe Administrativa • ${group.cargo || "Administrativo"}`
-                                                : "Valor fixo mensal a ser repassado ao profissional além das sessões"}
-                                            </div>
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-2 self-end sm:self-auto">
-                                          <div className="relative max-w-[130px] w-full">
-                                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
-                                              R$
-                                            </span>
-                                            <Input
-                                              type="number"
-                                              step="any"
-                                              className={cn(
-                                                "h-8 text-center text-xs pl-7 pr-2 font-semibold border-muted-foreground/30 text-emerald-600 dark:text-emerald-400",
-                                                group.isSalaryModified && "border-primary/60 bg-primary/5"
-                                              )}
-                                              value={group.salario === 0 ? "" : group.salario}
-                                              placeholder="0.00"
-                                              onChange={(e) => handleProfSalaryChange(group.profissionalId, e.target.value)}
-                                            />
-                                          </div>
-                                          {group.isSalaryModified && (
-                                            <TooltipProvider>
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
-                                                    onClick={() => handleMakeProfSalaryDefault(group.profissionalId, group.nome, group.salario)}
-                                                  >
-                                                    <BookmarkCheck className="h-4 w-4" />
-                                                  </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="top">
-                                                  <p className="text-xs">Tornar R$ {Number(group.salario.toFixed(2))} padrão para {group.nome}</p>
-                                                </TooltipContent>
-                                              </Tooltip>
-                                            </TooltipProvider>
-                                          )}
-                                          {group.isSalaryCustomized && (
-                                            <TooltipProvider>
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
-                                                    onClick={() => handleResetProfSalary(group.profissionalId, group.nome)}
-                                                  >
-                                                    <RotateCcw className="h-4 w-4" />
-                                                  </Button>
-                                                </TooltipTrigger>
-                                                <TooltipContent side="top">
-                                                  <p className="text-xs">Restaurar para R$ 0,00</p>
-                                                </TooltipContent>
-                                              </Tooltip>
-                                            </TooltipProvider>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Coordination bonus card if applicable */}
-                                      {isCoordenadora(group.profissionalId) && (
-                                        <div className="flex items-center justify-between p-3 bg-background rounded-lg border border-yellow-500/30 bg-yellow-500/5 dark:bg-yellow-950/20 shadow-xs">
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-sm">⭐</span>
-                                            <div className="font-semibold text-xs text-foreground">
-                                              Adicional de Coordenação AP
+                                            <div>
+                                              <div className="font-semibold text-xs text-foreground">
+                                                Salário Fixo / Base Mensal
+                                              </div>
+                                              <div className="text-[11px] text-muted-foreground">
+                                                {group.isAdm
+                                                  ? `Equipe Administrativa • ${group.cargo || "Administrativo"}`
+                                                  : isAcionizaProf(group.profissionalId)
+                                                  ? "Coordenação AP • R$ 300,00 fixo mensal"
+                                                  : "Valor fixo mensal a ser repassado ao profissional além das sessões"}
+                                              </div>
                                             </div>
                                           </div>
-                                          <div className="text-xs font-bold text-yellow-700 dark:text-yellow-400">
-                                            {brl(300)}
+                                          <div className="flex items-center gap-2 self-end sm:self-auto">
+                                            <div className="relative max-w-[130px] w-full">
+                                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
+                                                R$
+                                              </span>
+                                              <Input
+                                                type="number"
+                                                step="any"
+                                                className={cn(
+                                                  "h-8 text-center text-xs pl-7 pr-2 font-semibold border-muted-foreground/30 text-emerald-600 dark:text-emerald-400",
+                                                  group.isSalaryModified && "border-primary/60 bg-primary/5"
+                                                )}
+                                                value={group.salario === 0 ? "" : group.salario}
+                                                placeholder="0.00"
+                                                onChange={(e) => handleProfSalaryChange(group.profissionalId, e.target.value)}
+                                              />
+                                            </div>
+                                            {group.isSalaryModified && (
+                                              <TooltipProvider>
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <Button
+                                                      type="button"
+                                                      variant="outline"
+                                                      size="icon"
+                                                      className="h-8 w-8 text-primary hover:bg-primary hover:text-primary-foreground border-primary/30 shrink-0 rounded transition-all animate-in fade-in cursor-pointer"
+                                                      onClick={() => handleMakeProfSalaryDefault(group.profissionalId, group.nome, group.salario)}
+                                                    >
+                                                      <BookmarkCheck className="h-4 w-4" />
+                                                    </Button>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent side="top">
+                                                    <p className="text-xs">Tornar R$ {Number(group.salario.toFixed(2))} padrão para {group.nome}</p>
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              </TooltipProvider>
+                                            )}
+                                            {group.isSalaryCustomized && (
+                                              <TooltipProvider>
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <Button
+                                                      type="button"
+                                                      variant="ghost"
+                                                      size="icon"
+                                                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors cursor-pointer"
+                                                      onClick={() => handleResetProfSalary(group.profissionalId, group.nome)}
+                                                    >
+                                                      <RotateCcw className="h-4 w-4" />
+                                                    </Button>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent side="top">
+                                                    <p className="text-xs">
+                                                      {isAcionizaProf(group.profissionalId) ? "Restaurar para R$ 300,00" : "Restaurar para R$ 0,00"}
+                                                    </p>
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              </TooltipProvider>
+                                            )}
                                           </div>
                                         </div>
                                       )}
@@ -6142,7 +6265,7 @@ function DiretoriaPageContent() {
                                         const hasAnySessions = group.sessoes.length > 0;
                                         const hasAnyBreakdown = specs.some((s) => getPatientBreakdownForSpecialty(group.profissionalId, s, group.sessoes).length > 0);
 
-                                        if (!hasAnySessions && !hasAnyBreakdown && group.salario === 0 && !isCoordenadora(group.profissionalId)) {
+                                        if (!hasAnySessions && !hasAnyBreakdown && group.salario === 0 && !isAcionizaProf(group.profissionalId)) {
                                           return (
                                             <div className="p-4 text-center text-xs text-muted-foreground border border-dashed rounded-lg bg-background">
                                               Nenhuma sessão correspondente e nenhum salário fixo configurado para este profissional no período.
@@ -6165,7 +6288,7 @@ function DiretoriaPageContent() {
                                                 <span>Resumo de Pacientes - {spec}</span>
                                                 <div className="flex items-center gap-2">
                                                   <span className="text-[9px] bg-muted px-1.5 py-0.5 rounded text-foreground font-normal">
-                                                    Taxa Padrão: {getRepasseRates(spec).label}
+                                                    Taxa Padrão: {isGabrielaProf(group.profissionalId) ? "100% / 0%" : getRepasseRates(spec).label}
                                                   </span>
                                                   {bd.some((i) => i.isCustomized) && (
                                                     <Button
