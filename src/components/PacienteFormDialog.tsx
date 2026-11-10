@@ -857,9 +857,14 @@ export function PacienteFormDialog({
               <SelectContent>
                 <SelectItem value="ativo">Ativo</SelectItem>
                 <SelectItem value="inativo">Inativo</SelectItem>
-                <SelectItem value="lista_espera">Lista de espera</SelectItem>
+                <SelectItem value="lista_espera">⏳ Lista de espera (Fila)</SelectItem>
               </SelectContent>
             </Select>
+            {form.status === "lista_espera" && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1 mt-1">
+                <span>⏳</span> Paciente entrará na fila de espera por ordem de chegada.
+              </p>
+            )}
           </div>
         </div>
 

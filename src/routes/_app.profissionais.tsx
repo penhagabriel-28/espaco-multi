@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,9 +14,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, DollarSign, GripVertical, Users, Calendar, Loader2 } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  DollarSign,
+  GripVertical,
+  Users,
+  Calendar,
+  Loader2,
+  MessageCircle,
+  Clock,
+  Search,
+  CheckCircle2,
+  Phone,
+  ExternalLink,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
-import { format, addMonths, startOfMonth, endOfMonth } from "date-fns";
+import { format, addMonths, startOfMonth, endOfMonth, differenceInDays, differenceInYears } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -29,6 +45,7 @@ import {
 } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn, isProfissionalAdmin, isProfissionalClinico, isProfActiveInPeriod } from "@/lib/utils";
+import { formatBirthDateForDisplay } from "@/components/PacienteFormDialog";
 
 export const Route = createFileRoute("/_app/profissionais")({
   component: ProfissionaisPage,
@@ -233,7 +250,155 @@ function ProfissionaisPage() {
     }
   });
 
-  const [tabFilter, setTabFilter] = useState<"todos" | "clinicos" | "administrativo">("todos");
+  const navigate = useNavigate();
+  const [tabFilter, setTabFilter] = useState<"todos" | "clinicos" | "administrativo" | "espera">("todos");
+  const [filaSearch, setFilaSearch] = useState("");
+  const [filaProfFilter, setFilaProfFilter] = useState("all");
+  const [filaSpecFilter, setFilaSpecFilter] = useState("all");
+
+  const {
+    data: pacientesFila = [],
+    isLoading: loadingFila,
+    refetch: refetchFila,
+  } = useQuery({
+    queryKey: ["pacientes-fila-espera"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pacientes")
+        .select("id, nome, data_nascimento, cid_principal, cids_secundarios, status, tipo_atendimento, convenio_nome, observacoes, created_at")
+        .or("status.eq.lista_espera,status.eq.espera")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const { data: responsaveisFila = [] } = useQuery({
+    queryKey: ["responsaveis-fila-espera"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("responsaveis")
+        .select("id, paciente_id, nome, parentesco, telefone, whatsapp, email");
+      if (error) throw error;
+      return data ?? [];
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const responsavelByPacienteMap = useMemo(() => {
+    const map = new Map<string, any>();
+    responsaveisFila.forEach((r: any) => {
+      if (!map.has(r.paciente_id)) {
+        map.set(r.paciente_id, r);
+      }
+    });
+    return map;
+  }, [responsaveisFila]);
+
+  const profsByPacienteMap = useMemo(() => {
+    const map = new Map<string, any[]>();
+    (pacienteProfissional || []).forEach((pp: any) => {
+      const prof = (data || []).find((pr: any) => pr.id === pp.profissional_id);
+      if (prof) {
+        const list = map.get(pp.paciente_id) || [];
+        list.push(prof);
+        map.set(pp.paciente_id, list);
+      }
+    });
+    return map;
+  }, [pacienteProfissional, data]);
+
+  const allFilaSpecs = useMemo(() => {
+    const set = new Set<string>();
+    pacientesFila.forEach((p: any) => {
+      if (p.cid_principal) set.add(p.cid_principal);
+      if (Array.isArray(p.cids_secundarios)) {
+        p.cids_secundarios.forEach((s: string) => {
+          if (s) set.add(s);
+        });
+      }
+    });
+    return Array.from(set).sort();
+  }, [pacientesFila]);
+
+  const filteredFila = useMemo(() => {
+    let list = pacientesFila;
+
+    if (filaProfFilter !== "all") {
+      list = list.filter((p: any) => {
+        const profs = profsByPacienteMap.get(p.id) || [];
+        return profs.some((pr: any) => pr.id === filaProfFilter);
+      });
+    }
+
+    if (filaSpecFilter !== "all") {
+      list = list.filter((p: any) => {
+        const specs = [p.cid_principal, ...(Array.isArray(p.cids_secundarios) ? p.cids_secundarios : [])].filter(Boolean);
+        return specs.some((s: string) => s.toLowerCase() === filaSpecFilter.toLowerCase());
+      });
+    }
+
+    if (filaSearch.trim()) {
+      const term = filaSearch.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      list = list.filter((p: any) => {
+        const pNorm = (p.nome || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const resp = responsavelByPacienteMap.get(p.id);
+        const rNorm = (resp?.nome || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const telNorm = (resp?.telefone || resp?.whatsapp || "").replace(/\D/g, "");
+        return pNorm.includes(term) || rNorm.includes(term) || telNorm.includes(term);
+      });
+    }
+
+    return list;
+  }, [pacientesFila, filaProfFilter, filaSpecFilter, filaSearch, profsByPacienteMap, responsavelByPacienteMap]);
+
+  const handleContactWhatsApp = (paciente: any, responsavel: any, profs: any[]) => {
+    const phone = responsavel?.whatsapp || responsavel?.telefone;
+    if (!phone) {
+      toast.error(`Nenhum telefone cadastrado para o responsável de ${paciente.nome}.`);
+      return;
+    }
+
+    const cleanNum = String(phone).replace(/\D/g, "");
+    if (!cleanNum) {
+      toast.error("Número de telefone inválido.");
+      return;
+    }
+
+    const phoneWithCountry = cleanNum.length === 10 || cleanNum.length === 11 ? `55${cleanNum}` : cleanNum;
+
+    const profNames = profs.map((p: any) => p.nome).join(", ");
+    const profPart = profNames ? ` com o(a) profissional *${profNames}*` : "";
+    const specs = [paciente.cid_principal, ...(Array.isArray(paciente.cids_secundarios) ? paciente.cids_secundarios : [])].filter(Boolean);
+    const specPart = specs.length > 0 ? ` na área de *${specs.join(", ")}*` : "";
+
+    const greeting = responsavel?.nome ? `Olá ${responsavel.nome}!` : "Olá!";
+    const textMsg = `${greeting} Aqui é da equipe da *Clínica Espaço Multi*. 🏥\n\nEstamos entrando em contato sobre a lista de espera do(a) paciente *${paciente.nome}*${profPart || specPart}.\n\n✨ *Uma vaga foi liberada!* Poderia confirmar se você ainda tem interesse para realizarmos o agendamento?`;
+
+    const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`;
+    window.open(url, "_blank");
+  };
+
+  const activatePatientMutation = useMutation({
+    mutationFn: async (pacienteId: string) => {
+      const { error } = await supabase
+        .from("pacientes")
+        .update({ status: "ativo" })
+        .eq("id", pacienteId);
+      if (error) throw error;
+    },
+    onSuccess: (_, pacienteId) => {
+      const p = pacientesFila.find((item: any) => item.id === pacienteId);
+      toast.success(`${p?.nome || "Paciente"} foi ativado(a) com sucesso e saiu da fila de espera!`);
+      qc.invalidateQueries({ queryKey: ["pacientes-fila-espera"] });
+      qc.invalidateQueries({ queryKey: ["pacientes"] });
+      qc.invalidateQueries({ queryKey: ["prof-pacientes"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao ativar paciente: " + err.message);
+    },
+  });
 
   const activeDataInMonth = useMemo(() => {
     if (!Array.isArray(data) || data.length === 0) return [];
@@ -361,6 +526,300 @@ function ProfissionaisPage() {
     localStorage.setItem("profissionais_ordem", JSON.stringify(orderIds));
   };
 
+  const renderFilaEsperaView = () => {
+    return (
+      <div className="space-y-4 animate-in fade-in duration-200">
+        {/* Banner informativo da Fila */}
+        <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent shadow-sm">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-base shrink-0">
+                  ⏳
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
+                    Fila de Espera — Ordem de Chegada
+                    <Badge variant="outline" className="text-xs font-bold border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                      {pacientesFila.length} {pacientesFila.length === 1 ? "paciente" : "pacientes"}
+                    </Badge>
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Pacientes ordenados do primeiro ao mais recente na fila. Utilize o botão do WhatsApp para avisar a família imediatamente assim que uma vaga abrir.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5 border-amber-500/40 text-amber-800 dark:text-amber-300 hover:bg-amber-500/10 shrink-0 self-start sm:self-auto"
+                onClick={() => navigate({ to: "/pacientes" })}
+              >
+                <Plus className="h-3.5 w-3.5" /> Cadastrar Paciente na Fila
+              </Button>
+            </div>
+
+            {/* Filtros da Fila */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 border-t border-border/40">
+              <div className="relative">
+                <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Input
+                  placeholder="Buscar por paciente, responsável ou telefone..."
+                  value={filaSearch}
+                  onChange={(e) => setFilaSearch(e.target.value)}
+                  className="h-8 text-xs pl-8"
+                />
+              </div>
+
+              <Select value={filaProfFilter} onValueChange={setFilaProfFilter}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Filtrar por profissional" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">
+                    Todos os Profissionais
+                  </SelectItem>
+                  {(data || []).map((prof: any) => (
+                    <SelectItem key={prof.id} value={prof.id} className="text-xs">
+                      {prof.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filaSpecFilter} onValueChange={setFilaSpecFilter}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Filtrar por especialidade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">
+                    Todas as Especialidades
+                  </SelectItem>
+                  {allFilaSpecs.map((spec: string) => (
+                    <SelectItem key={spec} value={spec} className="text-xs">
+                      {spec}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Lista de Pacientes na Fila */}
+        {loadingFila ? (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : filteredFila.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center space-y-2">
+              <p className="text-base">🎉</p>
+              <p className="text-sm font-medium text-foreground">
+                {pacientesFila.length === 0
+                  ? "Nenhum paciente aguardando na lista de espera no momento."
+                  : "Nenhum paciente encontrado com os filtros selecionados."}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Ao cadastrar um novo paciente na aba "Pacientes" com o status "Lista de espera", ele aparecerá aqui automaticamente ordenado por chegada.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredFila.map((paciente: any, index: number) => {
+              const resp = responsavelByPacienteMap.get(paciente.id);
+              const profs = profsByPacienteMap.get(paciente.id) || [];
+              const rawDate = paciente.created_at ? new Date(paciente.created_at) : null;
+              const daysWaiting = rawDate ? differenceInDays(new Date(), rawDate) : 0;
+              const formattedDate = rawDate ? format(rawDate, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR }) : "Data não informada";
+              const age = paciente.data_nascimento ? differenceInYears(new Date(), new Date(paciente.data_nascimento)) : null;
+
+              const isFirst = index === 0;
+              const isTopThree = index < 3;
+
+              return (
+                <Card
+                  key={paciente.id}
+                  className={cn(
+                    "relative flex flex-col justify-between border transition-all hover:shadow-md",
+                    isFirst
+                      ? "border-amber-500 bg-amber-500/[0.04] dark:bg-amber-950/20 shadow-xs ring-1 ring-amber-500/30"
+                      : "border-border/80 bg-card"
+                  )}
+                >
+                  <CardContent className="p-4 flex flex-col flex-1 justify-between gap-3">
+                    <div className="space-y-3">
+                      {/* Top Header: Rank + Name */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <Badge
+                            className={cn(
+                              "text-xs font-bold px-2 py-0.5 shrink-0 rounded-md shadow-xs",
+                              isFirst
+                                ? "bg-amber-500 text-white hover:bg-amber-600"
+                                : isTopThree
+                                ? "bg-amber-500/20 text-amber-900 dark:text-amber-200 border-amber-500/40"
+                                : "bg-muted text-muted-foreground"
+                            )}
+                          >
+                            #{index + 1} na Fila
+                          </Badge>
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-semibold text-sm text-foreground truncate leading-tight">
+                              {paciente.nome}
+                            </h4>
+                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5">
+                              {age !== null ? (
+                                <span>{age} anos ({formatBirthDateForDisplay(paciente.data_nascimento)})</span>
+                              ) : (
+                                <span>Idade não informada</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 py-0.5 bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 font-medium shrink-0"
+                        >
+                          ⏳ Espera
+                        </Badge>
+                      </div>
+
+                      {/* Chegada & Tempo na fila */}
+                      <div className="p-2 rounded-md bg-muted/40 border border-border/50 text-[11px] space-y-1">
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-amber-600" /> Entrada na fila:
+                          </span>
+                          <span className="font-medium text-foreground">{formattedDate}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>Tempo aguardando:</span>
+                          <span className={cn(
+                            "font-semibold",
+                            daysWaiting > 30 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"
+                          )}>
+                            {daysWaiting === 0 ? "Hoje" : `${daysWaiting} ${daysWaiting === 1 ? "dia" : "dias"}`}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Especialidades / CID */}
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">
+                          Especialidade / Demanda:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {paciente.cid_principal ? (
+                            <Badge variant="outline" className="text-[10px] bg-primary/5 text-primary border-primary/20">
+                              {paciente.cid_principal}
+                            </Badge>
+                          ) : null}
+                          {Array.isArray(paciente.cids_secundarios) &&
+                            paciente.cids_secundarios.map((cid: string, i: number) => (
+                              <Badge key={i} variant="outline" className="text-[10px] bg-muted/70 text-muted-foreground">
+                                {cid}
+                              </Badge>
+                            ))}
+                          {!paciente.cid_principal && (!paciente.cids_secundarios || paciente.cids_secundarios.length === 0) && (
+                            <span className="text-[11px] text-muted-foreground italic">Não especificada</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Profissional Vinculado / Solicitado */}
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider">
+                          Profissional Solicitado:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {profs.length > 0 ? (
+                            profs.map((pr: any) => (
+                              <Badge
+                                key={pr.id}
+                                variant="outline"
+                                className="text-[10px] bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/25 gap-1"
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: pr.cor || "#0ea5e9" }} />
+                                {pr.nome}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground italic">Qualquer profissional disponível</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Responsável & Contato */}
+                      <div className="p-2.5 rounded-md border border-border/50 bg-background/50 space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-semibold text-muted-foreground">
+                            Responsável:
+                          </span>
+                          <span className="font-medium text-foreground truncate max-w-[150px]">
+                            {resp?.nome || "Não informado"} {resp?.parentesco ? `(${resp.parentesco})` : ""}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3" /> Telefone:
+                          </span>
+                          <span className="font-mono font-medium text-foreground">
+                            {resp?.whatsapp || resp?.telefone || "Sem contato"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Botões de Ação */}
+                    <div className="pt-2 border-t border-border/40 space-y-2">
+                      <Button
+                        type="button"
+                        className="w-full h-8 text-xs font-semibold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                        onClick={() => handleContactWhatsApp(paciente, resp, profs)}
+                      >
+                        <MessageCircle className="h-4 w-4" /> Chamar WhatsApp (Vaga Aberta)
+                      </Button>
+
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                          onClick={() => {
+                            if (confirm(`Deseja efetivar a vaga e ativar ${paciente.nome}? Ele(a) sairá da fila de espera.`)) {
+                              activatePatientMutation.mutate(paciente.id);
+                            }
+                          }}
+                          disabled={activatePatientMutation.isPending}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Efetivar Vaga
+                        </Button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 text-muted-foreground hover:text-foreground"
+                          onClick={() => navigate({ to: "/pacientes" })}
+                        >
+                          <ExternalLink className="h-3 w-3" /> Ver Cadastro
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-3 rounded-lg border border-border/80 shadow-sm">
@@ -433,9 +892,26 @@ function ProfissionaisPage() {
         >
           <span>💼</span> Administrativo ({totalAdmin})
         </Button>
+        <Button
+          variant={tabFilter === "espera" ? "default" : "ghost"}
+          size="sm"
+          className={cn(
+            "h-7 text-xs font-medium px-3 gap-1.5",
+            tabFilter === "espera"
+              ? "bg-amber-500 hover:bg-amber-600 text-white shadow-xs font-semibold"
+              : "text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 border border-amber-500/30"
+          )}
+          onClick={() => setTabFilter("espera")}
+        >
+          <span>⏳</span> Fila de Espera ({pacientesFila.length})
+        </Button>
       </div>
 
-      {aniversariantesDoMes.length > 0 && (
+      {tabFilter === "espera" ? (
+        renderFilaEsperaView()
+      ) : (
+        <>
+          {aniversariantesDoMes.length > 0 && (
         <Card className="border-amber-500/30 bg-gradient-to-r from-amber-500/5 via-amber-500/10 to-orange-500/5 dark:from-amber-950/20 dark:to-orange-950/20 shadow-sm">
           <CardContent className="p-3.5">
             <div className="flex items-center gap-2 mb-2">
@@ -773,6 +1249,8 @@ function ProfissionaisPage() {
           })}
         </div>
       )}
+      </>
+    )}
 
       {feriasOpen && (
         <Dialog open={feriasOpen} onOpenChange={setFeriasOpen}>
@@ -839,19 +1317,103 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     },
   });
 
-  const { data: acompanhados = [] } = useQuery({
-    queryKey: ["prof-pacientes", prof?.id],
+  const { data: acompanhadosRaw = [] } = useQuery({
+    queryKey: ["prof-pacientes-details", prof?.id],
     queryFn: async () => {
       if (!prof?.id) return [];
       const { data, error } = await supabase
         .from("paciente_profissional")
-        .select("paciente_id, pacientes(id, nome)")
+        .select(`
+          paciente_id,
+          pacientes (
+            id,
+            nome,
+            status,
+            created_at,
+            data_nascimento,
+            cid_principal,
+            cids_secundarios,
+            responsaveis (
+              id,
+              nome,
+              parentesco,
+              telefone,
+              whatsapp
+            )
+          )
+        `)
         .eq("profissional_id", prof.id);
       if (error) throw error;
       return data ?? [];
     },
     enabled: !!prof?.id,
   });
+
+  const acompanhados = useMemo(() => {
+    return (acompanhadosRaw || []).filter(
+      (item: any) =>
+        item.pacientes?.status !== "lista_espera" &&
+        item.pacientes?.status !== "espera"
+    );
+  }, [acompanhadosRaw]);
+
+  const filaProfissional = useMemo(() => {
+    return (acompanhadosRaw || [])
+      .filter(
+        (item: any) =>
+          item.pacientes?.status === "lista_espera" ||
+          item.pacientes?.status === "espera"
+      )
+      .sort(
+        (a: any, b: any) =>
+          new Date(a.pacientes?.created_at || 0).getTime() -
+          new Date(b.pacientes?.created_at || 0).getTime()
+      );
+  }, [acompanhadosRaw]);
+
+  const activateFromFormMutation = useMutation({
+    mutationFn: async (pacienteId: string) => {
+      const { error } = await supabase
+        .from("pacientes")
+        .update({ status: "ativo" })
+        .eq("id", pacienteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Paciente ativado com sucesso e liberado da fila de espera!");
+      qc.invalidateQueries({ queryKey: ["prof-pacientes-details", prof?.id] });
+      qc.invalidateQueries({ queryKey: ["pacientes-fila-espera"] });
+      qc.invalidateQueries({ queryKey: ["pacientes"] });
+      qc.invalidateQueries({ queryKey: ["paciente-profissional"] });
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao ativar paciente: " + err.message);
+    },
+  });
+
+  const handleWhatsAppContactProf = (pac: any) => {
+    const resps = pac?.responsaveis || [];
+    const resp = resps[0];
+    const phone = resp?.whatsapp || resp?.telefone;
+    if (!phone) {
+      toast.error(`Nenhum telefone cadastrado para o responsável de ${pac?.nome || "paciente"}.`);
+      return;
+    }
+
+    const cleanNum = String(phone).replace(/\D/g, "");
+    if (!cleanNum) {
+      toast.error("Número de telefone inválido.");
+      return;
+    }
+
+    const phoneWithCountry = cleanNum.length === 10 || cleanNum.length === 11 ? `55${cleanNum}` : cleanNum;
+    const profPart = prof?.nome ? ` com o(a) profissional *${prof.nome}*` : "";
+    const greeting = resp?.nome ? `Olá ${resp.nome}!` : "Olá!";
+    const textMsg = `${greeting} Aqui é da equipe da *Clínica Espaço Multi*. 🏥\n\nEstamos entrando em contato sobre a lista de espera do(a) paciente *${pac.nome}*${profPart}.\n\n✨ *Uma vaga foi liberada!* Poderia confirmar se você ainda tem interesse para realizarmos o agendamento?`;
+
+    const url = `https://wa.me/${phoneWithCountry}?text=${encodeURIComponent(textMsg)}`;
+    window.open(url, "_blank");
+  };
 
   const config: any = {
     especialidades: (prof?.valores_config as any)?.especialidades || [],
@@ -1513,6 +2075,89 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
     );
   };
 
+  const renderFilaEsperaForm = () => {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            Pacientes aguardando vaga vinculados a este profissional, por ordem de chegada na fila.
+          </p>
+          <Badge variant="outline" className="text-xs border-amber-500/40 text-amber-700 dark:text-amber-300 font-semibold shrink-0">
+            {filaProfissional.length} na fila
+          </Badge>
+        </div>
+
+        <div className="border rounded-lg overflow-hidden bg-card">
+          <div className="divide-y divide-border/60 max-h-[40vh] overflow-y-auto pr-1">
+            {filaProfissional.length === 0 ? (
+              <div className="text-center text-xs text-muted-foreground py-10">
+                Nenhum paciente na fila de espera para este profissional.
+              </div>
+            ) : (
+              filaProfissional.map((item: any, idx: number) => {
+                const pac = item.pacientes;
+                const resp = pac?.responsaveis?.[0];
+                const rawDate = pac?.created_at ? new Date(pac.created_at) : null;
+                const daysWaiting = rawDate ? differenceInDays(new Date(), rawDate) : 0;
+                const formattedDate = rawDate ? format(rawDate, "dd/MM/yyyy", { locale: ptBR }) : "";
+
+                return (
+                  <div
+                    key={item.paciente_id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 gap-2 hover:bg-muted/10 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Badge className="h-6 px-1.5 text-xs font-bold bg-amber-500 text-white shrink-0">
+                        #{idx + 1}
+                      </Badge>
+                      <div className="min-w-0">
+                        <div className="font-medium text-xs text-foreground truncate">
+                          {pac?.nome || "Carregando..."}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                          {formattedDate && <span>Desde {formattedDate}</span>}
+                          {formattedDate && <span>•</span>}
+                          <span className="text-amber-700 dark:text-amber-400 font-medium">
+                            {daysWaiting === 0 ? "Hoje" : `${daysWaiting} dias aguardando`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-xs"
+                        onClick={() => handleWhatsAppContactProf(pac)}
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" /> Chamar WhatsApp
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-50"
+                        onClick={() => {
+                          if (confirm(`Deseja efetivar a vaga e ativar ${pac?.nome}? Ele(a) sairá da fila de espera.`)) {
+                            activateFromFormMutation.mutate(pac.id);
+                          }
+                        }}
+                        disabled={activateFromFormMutation.isPending}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Efetivar
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col p-6">
       <DialogHeader>
@@ -1527,10 +2172,13 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
       >
         {prof && form.tipo !== "administrativo" ? (
           <Tabs defaultValue="geral" className="flex-1 flex flex-col overflow-hidden">
-            <TabsList className="grid grid-cols-3 shrink-0">
-              <TabsTrigger value="geral">Dados Gerais & Valores</TabsTrigger>
-              <TabsTrigger value="descontos">Descontos por Paciente</TabsTrigger>
-              <TabsTrigger value="pacientes">Pacientes ({acompanhados.length})</TabsTrigger>
+            <TabsList className="grid grid-cols-4 shrink-0">
+              <TabsTrigger value="geral" className="text-xs">Dados Gerais & Valores</TabsTrigger>
+              <TabsTrigger value="descontos" className="text-xs">Descontos</TabsTrigger>
+              <TabsTrigger value="pacientes" className="text-xs">Pacientes ({acompanhados.length})</TabsTrigger>
+              <TabsTrigger value="espera" className="text-xs gap-1 text-amber-700 dark:text-amber-400">
+                ⏳ Fila ({filaProfissional.length})
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="geral" className="flex-1 overflow-y-auto py-2 pr-1 space-y-3">
@@ -1543,6 +2191,10 @@ function ProfForm({ prof, onSaved }: { prof: any; onSaved: () => void }) {
 
             <TabsContent value="pacientes" className="flex-1 overflow-y-auto py-2 pr-1 space-y-3">
               {renderPacientesForm()}
+            </TabsContent>
+
+            <TabsContent value="espera" className="flex-1 overflow-y-auto py-2 pr-1 space-y-3">
+              {renderFilaEsperaForm()}
             </TabsContent>
           </Tabs>
         ) : (

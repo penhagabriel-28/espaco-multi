@@ -24,10 +24,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, User, Pencil, Trash2 } from "lucide-react";
+import { Plus, Search, User, Pencil, Trash2, Clock } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/pacientes/")({
   component: PacientesPage,
@@ -40,6 +41,7 @@ function PacientesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"todos" | "ativo" | "lista_espera" | "inativo">("todos");
 
   const {
     data: pacientes = [],
@@ -123,12 +125,34 @@ function PacientesPage() {
   const normalizeString = (str: string) =>
     str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
 
+  const totalAtivos = useMemo(
+    () => (pacientes || []).filter((p: any) => p.status === "ativo").length,
+    [pacientes]
+  );
+  const totalEspera = useMemo(
+    () => (pacientes || []).filter((p: any) => p.status === "lista_espera" || p.status === "espera").length,
+    [pacientes]
+  );
+  const totalInativos = useMemo(
+    () => (pacientes || []).filter((p: any) => p.status === "inativo").length,
+    [pacientes]
+  );
+
   const filtered = useMemo(() => {
     if (!pacientes || !Array.isArray(pacientes)) return [];
+    let list = pacientes;
+    if (statusFilter === "ativo") {
+      list = list.filter((p: any) => p.status === "ativo");
+    } else if (statusFilter === "lista_espera") {
+      list = list.filter((p: any) => p.status === "lista_espera" || p.status === "espera");
+    } else if (statusFilter === "inativo") {
+      list = list.filter((p: any) => p.status === "inativo");
+    }
+
     const term = normalizeString(q.trim());
-    if (!term) return pacientes;
-    return pacientes.filter((p) => normalizeString(p.nome).includes(term));
-  }, [pacientes, q]);
+    if (!term) return list;
+    return list.filter((p: any) => normalizeString(p.nome).includes(term));
+  }, [pacientes, q, statusFilter]);
 
   const profissionaisByPacienteMap = useMemo(() => {
     const map = new Map<string, any[]>();
@@ -142,8 +166,9 @@ function PacientesPage() {
 
   return (
     <div className="space-y-4">
+      {/* Top action row */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative max-w-sm flex-1">
+        <div className="relative max-w-sm flex-1 min-w-[200px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
@@ -206,10 +231,52 @@ function PacientesPage() {
                 setOpen(false);
                 setEditing(null);
                 qc.invalidateQueries({ queryKey: ["pacientes"] });
+                qc.invalidateQueries({ queryKey: ["pacientes-fila-espera"] });
               }}
             />
           )}
         </Dialog>
+      </div>
+
+      {/* Filter Tabs by Status (Todos, Ativos, Lista de Espera, Inativos) */}
+      <div className="flex flex-wrap items-center gap-1.5 p-1 bg-muted/60 rounded-lg w-fit border border-border/50 text-xs">
+        <Button
+          variant={statusFilter === "todos" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3"
+          onClick={() => setStatusFilter("todos")}
+        >
+          Todos ({pacientes.length})
+        </Button>
+        <Button
+          variant={statusFilter === "ativo" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3"
+          onClick={() => setStatusFilter("ativo")}
+        >
+          Ativos ({totalAtivos})
+        </Button>
+        <Button
+          variant={statusFilter === "lista_espera" ? "default" : "ghost"}
+          size="sm"
+          className={cn(
+            "h-7 text-xs font-medium px-3 gap-1.5",
+            statusFilter === "lista_espera"
+              ? "bg-amber-500 hover:bg-amber-600 text-white shadow-xs"
+              : "text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 border border-amber-500/30 font-semibold"
+          )}
+          onClick={() => setStatusFilter("lista_espera")}
+        >
+          <span>⏳</span> Lista de Espera ({totalEspera})
+        </Button>
+        <Button
+          variant={statusFilter === "inativo" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3"
+          onClick={() => setStatusFilter("inativo")}
+        >
+          Inativos ({totalInativos})
+        </Button>
       </div>
 
       {isLoading ? (
@@ -265,6 +332,7 @@ function PacientesPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((p) => {
             const isSelected = selectedIds.includes(p.id);
+            const isEspera = p.status === "lista_espera" || p.status === "espera";
             return (
               <div
                 key={p.id}
@@ -274,7 +342,12 @@ function PacientesPage() {
                     params: { id: p.id },
                   });
                 }}
-                className="cursor-pointer group relative rounded-xl border bg-card p-4 transition hover:border-primary/40 hover:shadow-sm"
+                className={cn(
+                  "cursor-pointer group relative rounded-xl border p-4 transition",
+                  isEspera
+                    ? "border-amber-400/90 bg-amber-50/50 hover:border-amber-500 hover:shadow-md dark:border-amber-500/60 dark:bg-amber-950/20 ring-1 ring-amber-400/25"
+                    : "border-border bg-card hover:border-primary/40 hover:shadow-sm"
+                )}
               >
                 <div className="flex items-start gap-3">
                   <div className="mt-1" onClick={(e) => e.stopPropagation()}>
@@ -292,7 +365,7 @@ function PacientesPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate font-medium">{p.nome}</div>
+                        <div className="truncate font-semibold text-foreground">{p.nome}</div>
                         <div className="text-xs text-muted-foreground">
                           {p.data_nascimento
                             ? `Nasc.: ${formatBirthDateForDisplay(p.data_nascimento)}`
@@ -300,10 +373,32 @@ function PacientesPage() {
                           {p.cid_principal ? ` • CID: ${p.cid_principal}` : ""}
                         </div>
                       </div>
-                      <Badge variant={p.status === "ativo" ? "default" : "secondary"}>
-                        {p.status.replace("_", " ")}
-                      </Badge>
+                      {isEspera ? (
+                        <Badge className="bg-amber-500 hover:bg-amber-600 text-white font-bold text-[10px] uppercase tracking-wide gap-1 shrink-0 shadow-xs">
+                          <Clock className="w-3 h-3" />
+                          Lista de espera
+                        </Badge>
+                      ) : (
+                        <Badge variant={p.status === "ativo" ? "default" : "secondary"}>
+                          {p.status.replace("_", " ")}
+                        </Badge>
+                      )}
                     </div>
+
+                    {/* Aviso destacado de lista de espera */}
+                    {isEspera && (
+                      <div className="mt-2.5 flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs font-semibold">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                          <span className="truncate">Na fila de espera</span>
+                        </div>
+                        {p.created_at && (
+                          <span className="text-[10px] font-normal text-amber-800/80 dark:text-amber-300/80 shrink-0">
+                            Desde {format(new Date(p.created_at), "dd/MM/yyyy")}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {p.cids_secundarios && (p.cids_secundarios as string[]).length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {(p.cids_secundarios as string[]).map((cid) => (
