@@ -493,12 +493,12 @@ function DespesasPage() {
   }
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 w-full max-w-full overflow-x-hidden">
       {/* Top Header & Month Navigator */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full max-w-full">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <TrendingDown className="h-6 w-6 text-rose-500" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+            <TrendingDown className="h-5 w-5 sm:h-6 sm:w-6 text-rose-500 shrink-0" />
             Controle de Despesas & Previsão Mensal
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -506,7 +506,7 @@ function DespesasPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
           <Button
             variant="outline"
             size="sm"
@@ -520,28 +520,28 @@ function DespesasPage() {
       </div>
 
       {/* Date Navigator Card */}
-      <Card className="border-border shadow-sm bg-card/60 backdrop-blur-sm">
-        <CardContent className="p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+      <Card className="w-full max-w-full border-border shadow-sm bg-card/60 backdrop-blur-sm overflow-hidden">
+        <CardContent className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Button
               variant="outline"
               size="icon"
-              className="h-9 w-9"
+              className="h-8 w-8 sm:h-9 sm:w-9 shrink-0"
               onClick={() => handleMudarMes(-1)}
               title="Mês Anterior"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
 
-            <div className="px-3 py-1.5 rounded-lg bg-muted/50 border border-border/80 flex items-center gap-2 text-sm font-semibold capitalize min-w-[180px] justify-center">
-              <Calendar className="h-4 w-4 text-primary" />
+            <div className="px-2.5 py-1.5 rounded-lg bg-muted/50 border border-border/80 flex items-center gap-2 text-xs sm:text-sm font-semibold capitalize min-w-[150px] sm:min-w-[180px] justify-center">
+              <Calendar className="h-4 w-4 text-primary shrink-0" />
               <span>{nomeMesAno}</span>
             </div>
 
             <Button
               variant="outline"
               size="icon"
-              className="h-9 w-9"
+              className="h-8 w-8 sm:h-9 sm:w-9 shrink-0"
               onClick={() => handleMudarMes(1)}
               title="Próximo Mês"
             >
@@ -552,37 +552,35 @@ function DespesasPage() {
               variant="ghost"
               size="sm"
               onClick={handleIrMesAtual}
-              className="text-xs h-9 text-muted-foreground hover:text-foreground"
+              className="text-xs h-8 sm:h-9 px-2 text-muted-foreground hover:text-foreground"
             >
               Mês Atual
             </Button>
           </div>
 
-          <div className="flex items-center gap-3 ml-auto flex-wrap">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="font-medium">Período:</span>
-              <Input
-                type="date"
-                value={inicio}
-                onChange={(e) => setInicio(e.target.value)}
-                className="h-8 text-xs w-[130px]"
-              />
-              <span>até</span>
-              <Input
-                type="date"
-                value={fim}
-                onChange={(e) => setFim(e.target.value)}
-                className="h-8 text-xs w-[130px]"
-              />
-            </div>
+          <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+            <span className="font-medium">Período:</span>
+            <Input
+              type="date"
+              value={inicio}
+              onChange={(e) => setInicio(e.target.value)}
+              className="h-8 text-xs w-[125px]"
+            />
+            <span>até</span>
+            <Input
+              type="date"
+              value={fim}
+              onChange={(e) => setFim(e.target.value)}
+              className="h-8 text-xs w-[125px]"
+            />
           </div>
         </CardContent>
       </Card>
 
       {/* KPIs Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 w-full max-w-full">
         {/* Card 1: Despesas Fixas Previstas */}
-        <Card className="border-border shadow-sm bg-gradient-to-br from-card via-card to-primary/5">
+        <Card className="w-full border-border shadow-sm bg-gradient-to-br from-card via-card to-primary/5">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Despesas Fixas Previstas
@@ -605,7 +603,7 @@ function DespesasPage() {
         </Card>
 
         {/* Card 2: Fixas Pagas vs Pendentes */}
-        <Card className="border-border shadow-sm">
+        <Card className="w-full border-border shadow-sm">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Fixas Quitadas no Mês
@@ -641,7 +639,7 @@ function DespesasPage() {
         </Card>
 
         {/* Card 3: Variáveis do Mês */}
-        <Card className="border-border shadow-sm">
+        <Card className="w-full border-border shadow-sm">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Variáveis do Mês (Lançadas)
@@ -651,17 +649,20 @@ function DespesasPage() {
             </div>
           </CardHeader>
           <CardContent className="p-4 pt-1 space-y-2">
-            <div className="text-2xl font-bold tracking-tight text-foreground">
+            <div className="text-2xl font-bold tracking-tight text-sky-600 dark:text-sky-400">
               {brl(totais.totalVariaveisLancadas)}
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Energia, Imposto, Pessoal, Supermercado
-            </p>
+            <div className="text-[11px] text-muted-foreground truncate">
+              {matchesRecorrentes
+                .filter((m) => m.conta.tipo === "variavel")
+                .map((m) => m.conta.nome)
+                .join(", ") || "Nenhuma variável"}
+            </div>
           </CardContent>
         </Card>
 
         {/* Card 4: Previsão Total do Mês */}
-        <Card className="border-border shadow-sm bg-gradient-to-br from-card via-card to-rose-500/5">
+        <Card className="w-full border-border shadow-sm bg-gradient-to-br from-card via-card to-rose-500/5">
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Previsão Total do Mês
@@ -683,12 +684,12 @@ function DespesasPage() {
       </div>
 
       {/* Tabela de Previsão de Despesas Mensais (Contas Recorrentes) */}
-      <Card className="border-border shadow-sm overflow-hidden">
-        <CardHeader className="p-5 pb-3 border-b bg-muted/20">
+      <Card className="w-full max-w-full border-border shadow-sm overflow-hidden">
+        <CardHeader className="p-4 sm:p-5 pb-3 border-b bg-muted/20">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary shrink-0" />
                 Previsão de Despesas Recorrentes — {nomeMesAno}
               </CardTitle>
               <CardDescription className="text-xs mt-0.5">
@@ -697,7 +698,7 @@ function DespesasPage() {
               </CardDescription>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-start sm:self-auto">
               <Button
                 variant="outline"
                 size="sm"
@@ -711,7 +712,8 @@ function DespesasPage() {
         </CardHeader>
 
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Visualização em Tabela para Desktop (>= md) */}
+          <div className="overflow-x-auto hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
@@ -953,14 +955,194 @@ function DespesasPage() {
               </TableBody>
             </Table>
           </div>
+
+          {/* Visualização Otimizada para Mobile (< md) — Cards uniformes sem precisar de zoom */}
+          <div className="divide-y divide-border/60 block md:hidden">
+            {matchesRecorrentes.map((m) => {
+              const { conta, valorEfetivo, status, infoEmprestimo, despesasEncontradas } = m;
+              const isFixo = conta.tipo === "fixo";
+              const mesNum = inicio.substring(5, 7);
+
+              return (
+                <div key={conta.id} className="p-3.5 space-y-3 bg-card hover:bg-muted/10 transition-colors">
+                  {/* Linha Superior: Ícone + Nome + Badge Tipo + Badge Status */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className="h-8 w-8 rounded-lg bg-muted/70 flex items-center justify-center shrink-0">
+                        {conta.isEmprestimo ? (
+                          <Receipt className="h-4 w-4 text-amber-500" />
+                        ) : conta.nome.toLowerCase().includes("aluguel") ? (
+                          <Building2 className="h-4 w-4 text-indigo-500" />
+                        ) : conta.nome.toLowerCase().includes("energia") ? (
+                          <Zap className="h-4 w-4 text-yellow-500" />
+                        ) : conta.nome.toLowerCase().includes("contador") ? (
+                          <Users className="h-4 w-4 text-blue-500" />
+                        ) : conta.nome.toLowerCase().includes("mercado") || conta.nome.toLowerCase().includes("supermercado") ? (
+                          <ShoppingBag className="h-4 w-4 text-emerald-500" />
+                        ) : (
+                          <DollarSign className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-sm text-foreground truncate">{conta.nome}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Badge
+                            variant={isFixo ? "default" : "secondary"}
+                            className={`text-[9px] px-1.5 py-0 h-4 ${
+                              isFixo
+                                ? "bg-primary/90 text-primary-foreground"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {isFixo ? "Fixo" : "Variável"}
+                          </Badge>
+                          <span className="text-[10px] text-muted-foreground">• {conta.categoria}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Status Badge */}
+                    <div className="shrink-0">
+                      {status === "pago" ? (
+                        <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 gap-1 text-[10px] py-0.5">
+                          <CheckCircle2 className="h-3 w-3" /> Pago
+                        </Badge>
+                      ) : status === "parcial" ? (
+                        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 gap-1 text-[10px] py-0.5">
+                          <Clock className="h-3 w-3" /> Parcial
+                        </Badge>
+                      ) : isFixo ? (
+                        <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-500/40 gap-1 text-[10px] py-0.5">
+                          <Clock className="h-3 w-3" /> Pendente
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground border-border gap-1 text-[10px] py-0.5">
+                          <AlertCircle className="h-3 w-3" /> A Lançar
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Detalhes Especiais (Empréstimo ou Repasse Pessoal) */}
+                  {conta.isEmprestimo && infoEmprestimo && (
+                    <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-amber-700 dark:text-amber-400">
+                          {infoEmprestimo.textoParcela}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {infoEmprestimo.textoFalta}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-amber-500 rounded-full"
+                          style={{ width: `${infoEmprestimo.percentualPago}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {m.infoPessoal && (
+                    <div className="p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-xs space-y-0.5">
+                      <div className="flex items-center gap-1.5 font-semibold text-indigo-700 dark:text-indigo-300">
+                        <Users className="h-3.5 w-3.5 shrink-0" />
+                        <span>Repasses de {m.infoPessoal.mesAnteriorNome}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Sessões já realizadas pela equipe no mês anterior.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Quadro de Valores (Previsto x Realizado) */}
+                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-lg bg-muted/40 border border-border/50 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider block">
+                        Valor Previsto
+                      </span>
+                      <span className="font-bold text-foreground text-sm">
+                        {isFixo ? brl(m.valorPrevistoFinal || conta.valorPadrao) : "Variável"}
+                      </span>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wider block">
+                        Valor Realizado
+                      </span>
+                      {despesasEncontradas.length > 0 ? (
+                        <div>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                            {brl(valorEfetivo)}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground block">
+                            {despesasEncontradas.length === 1
+                              ? `Pago em ${format(parseISO(despesasEncontradas[0].data), "dd/MM")}`
+                              : `${despesasEncontradas.length} lançamentos`}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground font-medium">—</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Linha Inferior: Vencimento Editável + Botão de Ação */}
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">Vencimento:</span>
+                      <Select
+                        value={String(conta.diaVencimento || 10)}
+                        onValueChange={(val) => handleUpdateDiaVencimento(conta.id, parseInt(val, 10))}
+                      >
+                        <SelectTrigger className="h-7 w-[105px] text-xs font-semibold px-2 bg-background border-border/80">
+                          <div className="flex items-center gap-1 truncate">
+                            <Calendar className="h-3 w-3 text-primary shrink-0" />
+                            <span>Dia {conta.diaVencimento || 10}</span>
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent className="max-h-56">
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                            <SelectItem key={d} value={String(d)} className="text-xs">
+                              Dia {d} ({String(d).padStart(2, "0")}/{mesNum})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {despesasEncontradas.length === 0 ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1 border-primary/30 hover:bg-primary hover:text-primary-foreground font-medium shrink-0"
+                        onClick={() => handleLancarRecorrente(conta, infoEmprestimo, m.infoPessoal)}
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Lançar Despesa
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                        onClick={() => handleOpenEditExpense(despesasEncontradas[0])}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" /> Editar
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
       {/* Grid: Formulário Manual e Tabela Geral de Despesas Registradas */}
-      <div className="grid gap-6 lg:grid-cols-3" ref={formRef}>
+      <div className="grid gap-6 lg:grid-cols-3 w-full max-w-full" ref={formRef}>
         {/* Formulário de Cadastro Manual */}
-        <div className="space-y-6 lg:col-span-1">
-          <Card className="border-border shadow-sm">
+        <div className="space-y-6 lg:col-span-1 w-full max-w-full">
+          <Card className="w-full max-w-full border-border shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-bold flex items-center gap-2">
                 <Plus className="h-4 w-4 text-primary" />
@@ -1049,7 +1231,7 @@ function DespesasPage() {
         </div>
 
         {/* Lista Geral de Todas as Despesas Registradas */}
-        <Card className="border-border shadow-sm lg:col-span-2">
+        <Card className="w-full max-w-full border-border shadow-sm lg:col-span-2 overflow-hidden">
           <CardHeader className="pb-3 border-b">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
@@ -1062,19 +1244,19 @@ function DespesasPage() {
               </div>
 
               {/* Filtros da tabela */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative min-w-[150px]">
+              <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+                <div className="relative flex-1 sm:min-w-[150px]">
                   <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     placeholder="Buscar despesa..."
                     value={buscaDespesa}
                     onChange={(e) => setBuscaDespesa(e.target.value)}
-                    className="h-8 pl-8 text-xs"
+                    className="h-8 pl-8 text-xs w-full"
                   />
                 </div>
 
                 <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
-                  <SelectTrigger className="h-8 text-xs w-[130px]">
+                  <SelectTrigger className="h-8 text-xs w-[130px] shrink-0">
                     <SelectValue placeholder="Categoria" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1103,84 +1285,156 @@ function DespesasPage() {
                 Nenhuma despesa encontrada para os filtros selecionados.
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[500px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/20">
-                      <TableHead>Data</TableHead>
-                      <TableHead>Descrição</TableHead>
-                      <TableHead>Categoria</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
-                      <TableHead className="w-[100px] text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {despesasFiltradas.map((d: any) => (
-                      <TableRow key={d.id} className="hover:bg-muted/30">
-                        <TableCell className="font-medium text-xs">
+              <>
+                {/* Desktop: Tabela clássica completa */}
+                <div className="overflow-x-auto max-h-[500px] hidden md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/20">
+                        <TableHead>Data</TableHead>
+                        <TableHead>Descrição</TableHead>
+                        <TableHead>Categoria</TableHead>
+                        <TableHead className="text-right">Valor</TableHead>
+                        <TableHead className="w-[100px] text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {despesasFiltradas.map((d: any) => (
+                        <TableRow key={d.id} className="hover:bg-muted/30">
+                          <TableCell className="font-medium text-xs">
+                            {format(new Date(d.data + "T12:00:00"), "dd/MM/yyyy")}
+                          </TableCell>
+                          <TableCell className="max-w-[220px] truncate text-sm" title={d.descricao}>
+                            {d.descricao}
+                          </TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">
+                              {d.categoria || "Outros"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-rose-600 dark:text-rose-400">
+                            {brl(Number(d.valor))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                onClick={() => handleOpenEditExpense(d)}
+                                title="Editar Despesa"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                    title="Excluir Despesa"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>
+                                      Tem certeza que deseja excluir esta despesa?
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Esta ação é irreversível. A despesa "{d.descricao}" no valor de{" "}
+                                      {brl(Number(d.valor))} será excluída permanentemente.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => deleteExpenseMutation.mutate(d.id)}
+                                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                    >
+                                      Excluir
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mobile: Lista vertical limpa e adaptável */}
+                <div className="divide-y divide-border/60 block md:hidden max-h-[500px] overflow-y-auto">
+                  {despesasFiltradas.map((d: any) => (
+                    <div key={d.id} className="p-3.5 space-y-2 hover:bg-muted/20 transition-colors">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5">
+                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                           {format(new Date(d.data + "T12:00:00"), "dd/MM/yyyy")}
-                        </TableCell>
-                        <TableCell className="max-w-[220px] truncate text-sm" title={d.descricao}>
-                          {d.descricao}
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">
-                            {d.categoria || "Outros"}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">
+                          {d.categoria || "Outros"}
+                        </span>
+                      </div>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground leading-snug break-words">
+                            {d.descricao}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-sm font-bold text-rose-600 dark:text-rose-400">
+                            {brl(Number(d.valor))}
                           </span>
-                        </TableCell>
-                        <TableCell className="text-right font-semibold text-rose-600 dark:text-rose-400">
-                          {brl(Number(d.valor))}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-1 pt-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => handleOpenEditExpense(d)}
+                        >
+                          <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
                             <Button
                               variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => handleOpenEditExpense(d)}
-                              title="Editar Despesa"
+                              size="sm"
+                              className="h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3.5 w-3.5 mr-1" /> Excluir
                             </Button>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                  title="Excluir Despesa"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    Tem certeza que deseja excluir esta despesa?
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Esta ação é irreversível. A despesa "{d.descricao}" no valor de{" "}
-                                    {brl(Number(d.valor))} será excluída permanentemente.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => deleteExpenseMutation.mutate(d.id)}
-                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                  >
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="w-[90vw] max-w-md">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Excluir despesa?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                A despesa "{d.descricao}" de {brl(Number(d.valor))} será excluída permanentemente.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteExpenseMutation.mutate(d.id)}
+                                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
 
             {/* Totalizador no rodapé da tabela */}
