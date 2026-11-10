@@ -300,7 +300,7 @@ export function GerenciarContasRecorrentesDialog({
 
                 <div className="space-y-1.5">
                   <Label htmlFor="rec-dia" className="text-xs font-medium">
-                    Dia Vencimento Sugerido
+                    Dia de Vencimento
                   </Label>
                   <Input
                     id="rec-dia"

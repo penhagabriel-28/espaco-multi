@@ -238,6 +238,19 @@ function DespesasPage() {
     saveContasRecorrentes(novasContas);
   };
 
+  // Atualizar Dia de Vencimento de uma Conta Recorrente diretamente no painel
+  const handleUpdateDiaVencimento = (contaId: string, novoDia: number) => {
+    const novasContas = contasRecorrentes.map((c) => {
+      if (c.id === contaId) {
+        return { ...c, diaVencimento: novoDia };
+      }
+      return c;
+    });
+    handleSaveContasRecorrentes(novasContas);
+    const contaNome = contasRecorrentes.find((c) => c.id === contaId)?.nome || "Conta";
+    toast.success(`Vencimento de "${contaNome}" alterado para o dia ${novoDia}!`);
+  };
+
   // Cruzamento de Contas Recorrentes com Despesas do Mês
   const matchesRecorrentes = useMemo(() => {
     return cruzarContasComDespesas(contasRecorrentes, despesas, inicio);
@@ -704,7 +717,7 @@ function DespesasPage() {
                 <TableRow className="bg-muted/30">
                   <TableHead className="w-[200px]">Conta</TableHead>
                   <TableHead>Tipo</TableHead>
-                  <TableHead>Detalhamento / Parcelas</TableHead>
+                  <TableHead>Vencimento / Detalhamento</TableHead>
                   <TableHead>Categoria</TableHead>
                   <TableHead className="text-right">Valor Previsto</TableHead>
                   <TableHead className="text-right">Valor Realizado</TableHead>
@@ -716,6 +729,7 @@ function DespesasPage() {
                 {matchesRecorrentes.map((m) => {
                   const { conta, valorEfetivo, status, infoEmprestimo, despesasEncontradas } = m;
                   const isFixo = conta.tipo === "fixo";
+                  const mesNum = inicio.substring(5, 7);
 
                   return (
                     <TableRow key={conta.id} className="hover:bg-muted/30 transition-colors">
@@ -753,10 +767,10 @@ function DespesasPage() {
                         </Badge>
                       </TableCell>
 
-                      {/* Detalhamento / Empréstimo / Repasse Pessoal */}
+                      {/* Vencimento / Detalhamento / Empréstimo / Repasse Pessoal */}
                       <TableCell>
                         {conta.isEmprestimo && infoEmprestimo ? (
-                          <div className="space-y-1 py-1 max-w-[280px]">
+                          <div className="space-y-1.5 py-1 max-w-[280px]">
                             <div className="flex items-center gap-2">
                               <span className="font-bold text-xs text-amber-600 dark:text-amber-400">
                                 {infoEmprestimo.textoParcela}
@@ -772,21 +786,79 @@ function DespesasPage() {
                                 title={`${infoEmprestimo.percentualPago}% pago`}
                               />
                             </div>
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              <span className="text-[11px] text-muted-foreground whitespace-nowrap">Vencimento:</span>
+                              <Select
+                                value={String(conta.diaVencimento || 20)}
+                                onValueChange={(val) => handleUpdateDiaVencimento(conta.id, parseInt(val, 10))}
+                              >
+                                <SelectTrigger className="h-6 w-[105px] text-[11px] font-semibold px-2 bg-background/90 border-border/80 hover:border-primary/50 transition-colors shadow-2xs">
+                                  <div className="flex items-center gap-1 truncate">
+                                    <Calendar className="h-3 w-3 text-primary shrink-0" />
+                                    <span>Dia {conta.diaVencimento || 20}</span>
+                                  </div>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-56">
+                                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                                    <SelectItem key={d} value={String(d)} className="text-xs">
+                                      Dia {d} ({String(d).padStart(2, "0")}/{mesNum})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
                         ) : m.infoPessoal ? (
-                          <div className="space-y-0.5 max-w-[280px]">
+                          <div className="space-y-1 max-w-[280px]">
                             <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
                               <Users className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                               <span>Repasses de {m.infoPessoal.mesAnteriorNome}</span>
                             </div>
-                            <span className="text-[11px] text-muted-foreground">
-                              Sessões já realizadas • Vencimento dia {conta.diaVencimento || 10}
-                            </span>
+                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground flex-wrap">
+                              <span>Sessões já realizadas •</span>
+                              <span className="text-muted-foreground">Vencimento:</span>
+                              <Select
+                                value={String(conta.diaVencimento || 10)}
+                                onValueChange={(val) => handleUpdateDiaVencimento(conta.id, parseInt(val, 10))}
+                              >
+                                <SelectTrigger className="h-6 w-[105px] text-[11px] font-semibold px-2 bg-background/90 border-border/80 hover:border-primary/50 transition-colors shadow-2xs">
+                                  <div className="flex items-center gap-1 truncate">
+                                    <Calendar className="h-3 w-3 text-primary shrink-0" />
+                                    <span>Dia {conta.diaVencimento || 10}</span>
+                                  </div>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-56">
+                                  {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                                    <SelectItem key={d} value={String(d)} className="text-xs">
+                                      Dia {d} ({String(d).padStart(2, "0")}/{mesNum})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">
-                            {conta.diaVencimento ? `Vencimento sugerido dia ${conta.diaVencimento}` : "Mensal"}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">Vencimento:</span>
+                            <Select
+                              value={String(conta.diaVencimento || 10)}
+                              onValueChange={(val) => handleUpdateDiaVencimento(conta.id, parseInt(val, 10))}
+                            >
+                              <SelectTrigger className="h-7 w-[110px] text-xs font-semibold px-2.5 bg-background border-border/80 hover:border-primary/60 transition-colors shadow-2xs">
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+                                  <span>Dia {conta.diaVencimento || 10}</span>
+                                </div>
+                              </SelectTrigger>
+                              <SelectContent className="max-h-56">
+                                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                                  <SelectItem key={d} value={String(d)} className="text-xs cursor-pointer">
+                                    Dia {d} ({String(d).padStart(2, "0")}/{mesNum})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         )}
                       </TableCell>
 
