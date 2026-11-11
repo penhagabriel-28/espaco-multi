@@ -45,6 +45,7 @@ import {
   PacienteFormDialog,
   formatBirthDateForDisplay,
   formatCPF,
+  parseCpfFromObs,
   parseEnderecoFromObs,
   parseEnderecoSecFromObs,
   parseEmailFromObs,
@@ -432,7 +433,15 @@ function PacienteDetail() {
 
           <Info
             label="CPF do Responsável"
-            value={paciente.cpf ? formatCPF(paciente.cpf) : "Não informado"}
+            value={
+              paciente.cpf
+                ? formatCPF(paciente.cpf)
+                : parseCpfFromObs(paciente.observacoes)
+                ? formatCPF(parseCpfFromObs(paciente.observacoes))
+                : (responsaveis[0] as any)?.cpf
+                ? formatCPF((responsaveis[0] as any).cpf)
+                : "Não informado"
+            }
           />
 
           <Info
@@ -446,7 +455,12 @@ function PacienteDetail() {
 
           <Info
             label="Endereço"
-            value={paciente.endereco || parseEnderecoFromObs(paciente.observacoes) || "Não informado"}
+            value={
+              (paciente as any).endereco ||
+              parseEnderecoFromObs(paciente.observacoes) ||
+              (responsaveis[0] as any)?.endereco ||
+              "Não informado"
+            }
           />
 
           <Info

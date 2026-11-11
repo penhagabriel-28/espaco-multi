@@ -64,7 +64,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { formatCPF } from "@/components/PacienteFormDialog";
+import { formatCPF, encodeEnderecoToObs } from "@/components/PacienteFormDialog";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
 import { cn, isProfissionalAdmin } from "@/lib/utils";
 
@@ -1021,10 +1021,18 @@ function RelatoriosPage() {
           if (data.responsavel_endereco?.trim()) pacUpdate.endereco = data.responsavel_endereco.trim();
           if (Object.keys(pacUpdate).length > 0) {
             let pRes = await supabase.from("pacientes").update(pacUpdate).eq("id", data.paciente_id);
-            if (pRes.error && pRes.error.message?.includes("endereco")) {
+            if (pRes.error && (pRes.error.message?.includes("endereco") || (pRes.error as any).code === "PGRST204")) {
               delete pacUpdate.endereco;
               if (Object.keys(pacUpdate).length > 0) {
                 await supabase.from("pacientes").update(pacUpdate).eq("id", data.paciente_id);
+              }
+              // Garantir persistência do endereço nas observações caso a coluna não exista no banco
+              if (data.responsavel_endereco?.trim()) {
+                const { data: curPac } = await supabase.from("pacientes").select("observacoes").eq("id", data.paciente_id).single();
+                if (curPac) {
+                  const updatedObs = encodeEnderecoToObs(curPac.observacoes, data.responsavel_endereco.trim());
+                  await supabase.from("pacientes").update({ observacoes: updatedObs }).eq("id", data.paciente_id);
+                }
               }
             }
           }

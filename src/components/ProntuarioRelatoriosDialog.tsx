@@ -52,7 +52,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { formatCPF, formatBirthDateForDisplay, parseEmailFromObs } from "@/components/PacienteFormDialog";
+import { formatCPF, formatBirthDateForDisplay, parseEmailFromObs, parseEnderecoFromObs, parseCpfFromObs } from "@/components/PacienteFormDialog";
 
 export interface PlanoEspecialidade {
   especialidade: string;
@@ -471,7 +471,9 @@ export function ProntuarioRelatoriosDialog({
                 <div>
                   <span className="text-muted-foreground block text-[11px]">CPF do Responsável</span>
                   <span className="font-medium text-foreground">
-                    {paciente?.cpf || primaryResp?.cpf ? formatCPF(paciente?.cpf || primaryResp?.cpf) : "Não informado"}
+                    {paciente?.cpf || parseCpfFromObs(paciente?.observacoes) || primaryResp?.cpf
+                      ? formatCPF(paciente?.cpf || parseCpfFromObs(paciente?.observacoes) || primaryResp?.cpf)
+                      : "Não informado"}
                   </span>
                 </div>
 
@@ -481,7 +483,11 @@ export function ProntuarioRelatoriosDialog({
                     Endereço
                   </span>
                   <span className="font-medium text-foreground">
-                    {enderecoPaciente || primaryResp?.endereco || paciente?.endereco || "Não informado"}
+                    {enderecoPaciente ||
+                      (paciente as any)?.endereco ||
+                      parseEnderecoFromObs(paciente?.observacoes) ||
+                      primaryResp?.endereco ||
+                      "Não informado"}
                   </span>
                 </div>
               </div>

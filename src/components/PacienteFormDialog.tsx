@@ -102,6 +102,32 @@ export const parseEmailSecFromObs = (rawObs: string | null | undefined): string 
   return "";
 };
 
+export const parseCpfFromObs = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  const match = rawObs.match(/<!--CPF:(.*?)-->/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return "";
+};
+
+export const parseCpfSecFromObs = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  const match = rawObs.match(/<!--CPF_SECUNDARIO:(.*?)-->/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return "";
+};
+
 export const encodeEnderecoToObs = (
   rawObs: string | null | undefined,
   endereco: string,
@@ -132,6 +158,8 @@ export const getCleanObservacoes = (rawObs: string | null | undefined): string =
     .replace(/<!--ENDERECO_SECUNDARIO:.*?-->/g, "")
     .replace(/<!--EMAIL:.*?-->/g, "")
     .replace(/<!--EMAIL_SECUNDARIO:.*?-->/g, "")
+    .replace(/<!--CPF:.*?-->/g, "")
+    .replace(/<!--CPF_SECUNDARIO:.*?-->/g, "")
     .trim();
 };
 
@@ -166,7 +194,7 @@ export function PacienteFormDialog({
     observacoes: getCleanObservacoes(paciente?.observacoes),
     responsavel: "",
     telefone: "",
-    cpf: paciente?.cpf ?? "",
+    cpf: paciente?.cpf ? formatCPF(paciente.cpf) : (parseCpfFromObs(paciente?.observacoes) ? formatCPF(parseCpfFromObs(paciente?.observacoes)) : ""),
     email: parseEmailFromObs(paciente?.observacoes) || "",
     endereco:
       (paciente as any)?.endereco ||
@@ -174,7 +202,7 @@ export function PacienteFormDialog({
       "",
     responsavel_secundario: "",
     telefone_secundario: "",
-    cpf_secundario: "",
+    cpf_secundario: parseCpfSecFromObs(paciente?.observacoes) ? formatCPF(parseCpfSecFromObs(paciente?.observacoes)) : "",
     email_secundario: parseEmailSecFromObs(paciente?.observacoes) || "",
     endereco_secundario:
       parseEnderecoSecFromObs(paciente?.observacoes) || "",
@@ -276,35 +304,46 @@ export function PacienteFormDialog({
       const r2 = responsaveis[1];
       setForm((prev) => {
         const parsedEnd1 =
-          r1?.endereco ||
           (prev.endereco && prev.endereco.trim()) ||
+          r1?.endereco ||
           parseEnderecoFromObs(paciente?.observacoes) ||
           "";
         const parsedEnd2 =
-          r2?.endereco ||
           (prev.endereco_secundario && prev.endereco_secundario.trim()) ||
+          r2?.endereco ||
           parseEnderecoSecFromObs(paciente?.observacoes) ||
           "";
         const parsedEmail1 =
-          r1?.email ||
           (prev.email && prev.email.trim()) ||
+          r1?.email ||
           parseEmailFromObs(paciente?.observacoes) ||
           "";
         const parsedEmail2 =
-          r2?.email ||
           (prev.email_secundario && prev.email_secundario.trim()) ||
+          r2?.email ||
           parseEmailSecFromObs(paciente?.observacoes) ||
+          "";
+        const parsedCpf1 =
+          (prev.cpf && prev.cpf.trim()) ||
+          (r1?.cpf ? formatCPF(r1.cpf) : "") ||
+          (paciente?.cpf ? formatCPF(paciente.cpf) : "") ||
+          (parseCpfFromObs(paciente?.observacoes) ? formatCPF(parseCpfFromObs(paciente?.observacoes)) : "") ||
+          "";
+        const parsedCpf2 =
+          (prev.cpf_secundario && prev.cpf_secundario.trim()) ||
+          (r2?.cpf ? formatCPF(r2.cpf) : "") ||
+          (parseCpfSecFromObs(paciente?.observacoes) ? formatCPF(parseCpfSecFromObs(paciente?.observacoes)) : "") ||
           "";
         return {
           ...prev,
           responsavel: r1?.nome || prev.responsavel || "",
           telefone: r1?.telefone ? formatPhone(r1.telefone) : prev.telefone || "",
-          cpf: r1?.cpf ? formatCPF(r1.cpf) : (prev.cpf || ""),
+          cpf: parsedCpf1,
           email: parsedEmail1,
           endereco: parsedEnd1,
           responsavel_secundario: r2?.nome || prev.responsavel_secundario || "",
           telefone_secundario: r2?.telefone ? formatPhone(r2.telefone) : prev.telefone_secundario || "",
-          cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : prev.cpf_secundario || "",
+          cpf_secundario: parsedCpf2,
           email_secundario: parsedEmail2,
           endereco_secundario: parsedEnd2,
         };
@@ -314,7 +353,7 @@ export function PacienteFormDialog({
       }
       setHasLoadedResponsavel(true);
     }
-  }, [responsaveis, isResponsaveisSuccess, hasLoadedResponsavel, paciente?.observacoes]);
+  }, [responsaveis, isResponsaveisSuccess, hasLoadedResponsavel, paciente?.observacoes, paciente?.cpf]);
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhone(e.target.value);
@@ -344,10 +383,11 @@ export function PacienteFormDialog({
         }
         dbBirthDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
       }
-      let finalObservacoes = form.observacoes || "";
-      const matchDias = paciente?.observacoes?.match(/<!--DIAS_FIXOS:.*?-->/);
-      const matchGrupoNf = paciente?.observacoes?.match(/<!--GRUPO_NF:.*?-->/);
-      const matchProntuario = paciente?.observacoes?.match(/<!--PRONTUARIO:.*?-->/);
+      const cleanUserObs = getCleanObservacoes(form.observacoes);
+      const rawObs = paciente?.observacoes || "";
+      const matchDias = rawObs.match(/<!--DIAS_FIXOS:.*?-->/);
+      const matchGrupoNf = rawObs.match(/<!--GRUPO_NF:.*?-->/);
+      const matchProntuario = rawObs.match(/<!--PRONTUARIO:.*?-->/);
 
       const tagEndereco = form.endereco.trim()
         ? `<!--ENDERECO:${encodeURIComponent(form.endereco.trim())}-->`
@@ -362,6 +402,12 @@ export function PacienteFormDialog({
         ? `<!--EMAIL_SECUNDARIO:${encodeURIComponent(form.email_secundario.trim())}-->`
         : "";
 
+      const cleanCpf1 = form.cpf ? form.cpf.replace(/\D/g, "") : null;
+      const cleanCpf2 = form.cpf_secundario ? form.cpf_secundario.replace(/\D/g, "") : null;
+
+      const tagCpf = cleanCpf1 ? `<!--CPF:${cleanCpf1}-->` : "";
+      const tagCpfSec = cleanCpf2 ? `<!--CPF_SECUNDARIO:${cleanCpf2}-->` : "";
+
       const extras = [
         matchDias?.[0],
         matchGrupoNf?.[0],
@@ -370,14 +416,15 @@ export function PacienteFormDialog({
         tagEnderecoSec,
         tagEmail,
         tagEmailSec,
+        tagCpf,
+        tagCpfSec,
       ]
         .filter(Boolean)
         .join("\n\n");
 
-      finalObservacoes = `${finalObservacoes}\n\n${extras}`.trim() || null;
-
-      const cleanCpf1 = form.cpf ? form.cpf.replace(/\D/g, "") : null;
-      const cleanCpf2 = form.cpf_secundario ? form.cpf_secundario.replace(/\D/g, "") : null;
+      const finalObservacoes = cleanUserObs
+        ? `${cleanUserObs}\n\n${extras}`.trim()
+        : extras || null;
 
       const payload: any = {
         nome: form.nome,
@@ -405,7 +452,7 @@ export function PacienteFormDialog({
         };
         if (respId) {
           let res = await supabase.from("responsaveis").update(fullPayload).eq("id", respId);
-          if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco"))) {
+          if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco") || (res.error as any).code === "PGRST204" || (res.error as any).code === "42703")) {
             delete fullPayload.cpf;
             delete fullPayload.endereco;
             res = await supabase.from("responsaveis").update(fullPayload).eq("id", respId);
@@ -414,7 +461,7 @@ export function PacienteFormDialog({
         } else {
           fullPayload.paciente_id = data.paciente_id;
           let res = await supabase.from("responsaveis").insert(fullPayload);
-          if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco"))) {
+          if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco") || (res.error as any).code === "PGRST204" || (res.error as any).code === "42703")) {
             delete fullPayload.cpf;
             delete fullPayload.endereco;
             res = await supabase.from("responsaveis").insert(fullPayload);
@@ -426,7 +473,7 @@ export function PacienteFormDialog({
       if (paciente) {
         // Edit mode
         let updateRes = await supabase.from("pacientes").update(payload).eq("id", paciente.id);
-        if (updateRes.error && updateRes.error.message?.includes("endereco")) {
+        if (updateRes.error && (updateRes.error.message?.includes("endereco") || (updateRes.error as any).code === "PGRST204")) {
           delete payload.endereco;
           updateRes = await supabase.from("pacientes").update(payload).eq("id", paciente.id);
         }
@@ -586,7 +633,7 @@ export function PacienteFormDialog({
       } else {
         let newPaciente: any = null;
         let insertRes = await supabase.from("pacientes").insert(payload).select().single();
-        if (insertRes.error && insertRes.error.message?.includes("endereco")) {
+        if (insertRes.error && (insertRes.error.message?.includes("endereco") || (insertRes.error as any).code === "PGRST204")) {
           delete payload.endereco;
           insertRes = await supabase.from("pacientes").insert(payload).select().single();
         }
