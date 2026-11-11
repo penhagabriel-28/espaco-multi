@@ -725,13 +725,15 @@ function PacienteDetail() {
                       const profNome = ag.profissionais?.nome || "Profissional";
                       const profCor = ag.profissionais?.cor || "#9333ea";
                       const servNome = ag.servicos?.nome;
-                      const ajusteTexto = ag.observacoes?.trim() || "";
+                      const rawObs = ag.observacoes || "";
+                      const cleanObs = rawObs
+                        .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
+                        .replace(/\[Meio:\s*[^\]]+\]/gi, "")
+                        .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
+                        .replace(/\[Email:\s*[^\]]+\]/gi, "")
+                        .trim();
                       const hasAba = Boolean(ag.plano_aba?.programas?.length);
-                      const isReportFilled = Boolean(
-                        ajusteTexto &&
-                        ajusteTexto !== "[Tipo: Sessão Padrão]" &&
-                        ajusteTexto !== "[Tipo: Anamnese]"
-                      );
+                      const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
 
                       return (
                         <TableRow key={ag.id} className="hover:bg-muted/30">
@@ -781,9 +783,9 @@ function PacienteDetail() {
                                   </Badge>
                                 )}
                               </div>
-                              {ajusteTexto ? (
-                                <p className="line-clamp-2 text-foreground text-xs leading-relaxed">
-                                  {ajusteTexto}
+                              {cleanObs ? (
+                                <p className="line-clamp-2 text-foreground text-xs leading-relaxed whitespace-pre-line">
+                                  {cleanObs}
                                 </p>
                               ) : (
                                 <span className="text-muted-foreground italic text-[11px]">
@@ -1002,12 +1004,14 @@ function PacienteDetail() {
           ) : (
             <div className="divide-y">
               {(ags || []).map((a: any) => {
-                const obsTrimmed = a.observacoes?.trim() || "";
-                const isReportFilled = Boolean(
-                  obsTrimmed &&
-                  obsTrimmed !== "[Tipo: Sessão Padrão]" &&
-                  obsTrimmed !== "[Tipo: Anamnese]"
-                );
+                const rawObs = a.observacoes || "";
+                const cleanObs = rawObs
+                  .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
+                  .replace(/\[Meio:\s*[^\]]+\]/gi, "")
+                  .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
+                  .replace(/\[Email:\s*[^\]]+\]/gi, "")
+                  .trim();
+                const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
                 return (
                   <div key={a.id} className="flex items-center justify-between gap-3 py-3 text-sm flex-wrap sm:flex-nowrap">
                     <div className="flex items-center gap-3 min-w-0">
@@ -1084,7 +1088,7 @@ function PacienteDetail() {
           pacienteNome={paciente?.nome}
           paciente={paciente}
           responsaveis={responsaveis}
-          enderecoPaciente={enderecoReal}
+          enderecoPaciente={paciente?.endereco || parseEnderecoFromObs(paciente?.observacoes) || ""}
           onSessionUpdated={() => {
             qc.invalidateQueries({ queryKey: ["paciente-ags", id] });
           }}

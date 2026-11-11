@@ -745,15 +745,15 @@ export function ProntuarioRelatoriosDialog({
 
                         const planoAba = ag.plano_aba as any;
                         const hasAba = !!planoAba?.programas?.length;
-                        const isClinicalReport =
-                          ag.observacoes?.includes("# RELATÓRIO") ||
-                          ag.observacoes?.includes("## 1.") ||
-                          ag.observacoes?.includes("RELATÓRIO DE EVOLUÇÃO") ||
-                          ag.observacoes?.includes("REGISTRO DE EVOLUÇÃO");
-                        const ajusteTexto =
-                          ag.observacoes?.replace(/\[Tipo:.*?\]/g, "").trim() ||
-                          planoAba?.observacoes_medica ||
-                          "";
+                        const rawObs = ag.observacoes || "";
+                        const cleanObs = rawObs
+                          .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
+                          .replace(/\[Meio:\s*[^\]]+\]/gi, "")
+                          .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
+                          .replace(/\[Email:\s*[^\]]+\]/gi, "")
+                          .trim();
+                        const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
+                        const ajusteTexto = cleanObs || planoAba?.observacoes_medica || "";
 
                         return (
                           <TableRow key={ag.id} className="hover:bg-muted/40 transition-colors">
@@ -799,18 +799,25 @@ export function ProntuarioRelatoriosDialog({
                                       Plano ABA ({planoAba.programas.length} progs)
                                     </Badge>
                                   )}
-                                  {isClinicalReport && (
+                                  {isReportFilled ? (
                                     <Badge
                                       variant="outline"
-                                      className="text-[10px] py-0 px-1.5 font-medium border-purple-500/40 text-purple-700 dark:text-purple-300 bg-purple-500/10 gap-1"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
                                     >
-                                      <FileCheck2 className="h-2.5 w-2.5 text-purple-600" />
-                                      Relatório Clínico Preenchido
+                                      <FileCheck2 className="h-2.5 w-2.5 text-emerald-600" />
+                                      Relatório Preenchido
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                    >
+                                      Pendente
                                     </Badge>
                                   )}
                                 </div>
                                 {ajusteTexto ? (
-                                  <p className="line-clamp-2 text-foreground text-xs leading-relaxed">
+                                  <p className="line-clamp-2 text-foreground text-xs leading-relaxed whitespace-pre-line">
                                     {ajusteTexto}
                                   </p>
                                 ) : (
@@ -1383,6 +1390,31 @@ function renderMarkdownToHtml(markdown: string): string {
     .join("\n");
 }
 
+function cleanSessionMeta(raw?: string | null): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
+    .replace(/\[Meio:\s*[^\]]+\]/gi, "")
+    .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
+    .replace(/\[Email:\s*[^\]]+\]/gi, "")
+    .trim();
+}
+
+function mergeSessionMeta(oldRaw: string | null | undefined, newText: string): string {
+  const meta: string[] = [];
+  if (oldRaw) {
+    const tipo = oldRaw.match(/\[Tipo:[^\]]+\]/i);
+    if (tipo) meta.push(tipo[0]);
+    const meio = oldRaw.match(/\[Meio:[^\]]+\]/i);
+    if (meio) meta.push(meio[0]);
+  }
+  const clean = newText.trim();
+  if (meta.length > 0) {
+    return `${meta.join(" ")}\n${clean}`.trim();
+  }
+  return clean;
+}
+
 export interface DetalhesSessaoDialogProps {
   session: any;
   pacienteNome?: string;
@@ -1396,93 +1428,57 @@ export interface DetalhesSessaoDialogProps {
 
 export function DetalhesSessaoDialog({
   session,
-  pacienteNome,
-  paciente: initialPaciente,
-  responsaveis: initialResponsaveis = [],
-  enderecoPaciente = "",
+  pacienteNome: initialPacienteNome,
+  paciente,
   open,
   onOpenChange,
   onSessionUpdated,
 }: DetalhesSessaoDialogProps) {
-  const [sessionNoteEdit, setSessionNoteEdit] = useState(session?.observacoes || "");
+  const pacienteNome =
+    session?.paciente?.nome ||
+    session?.pacientes?.nome ||
+    paciente?.nome ||
+    initialPacienteNome ||
+    "Paciente";
+
+  const dataFormatada = useMemo(() => {
+    try {
+      return session?.data_inicio
+        ? format(new Date(session.data_inicio), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+        : "—";
+    } catch {
+      return "—";
+    }
+  }, [session?.data_inicio]);
+
+  const dataCurta = useMemo(() => {
+    try {
+      return session?.data_inicio
+        ? format(new Date(session.data_inicio), "dd/MM", { locale: ptBR })
+        : "";
+    } catch {
+      return "";
+    }
+  }, [session?.data_inicio]);
+
+  const [sessionNoteEdit, setSessionNoteEdit] = useState("");
   const [isSavingSessionNote, setIsSavingSessionNote] = useState(false);
-  const [reportTab, setReportTab] = useState<"editor" | "preview">("editor");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    setSessionNoteEdit(session?.observacoes || "");
-  }, [session?.id, session?.observacoes]);
-
-  // Carrega dados completos do paciente se aberto de contextos onde só há dados parciais
-  const targetPacId = initialPaciente?.id || session?.paciente_id || session?.paciente?.id || session?.pacientes?.id;
-
-  const { data: fullPaciente } = useQuery({
-    queryKey: ["paciente-dialog-extra", targetPacId],
-    queryFn: async () => {
-      if (!targetPacId) return null;
-      const { data } = await supabase
-        .from("pacientes")
-        .select("*")
-        .eq("id", targetPacId)
-        .maybeSingle();
-      return data;
-    },
-    enabled: open && !!targetPacId && (!initialPaciente || !initialPaciente.data_nascimento),
-    staleTime: 60 * 1000,
-  });
-
-  const paciente = fullPaciente || initialPaciente || session?.paciente || session?.pacientes;
-
-  const { data: fetchedResponsaveis = [] } = useQuery({
-    queryKey: ["responsaveis-dialog-extra", targetPacId],
-    queryFn: async () => {
-      if (!targetPacId) return [];
-      const { data } = await supabase
-        .from("responsaveis")
-        .select("*")
-        .eq("paciente_id", targetPacId)
-        .order("created_at");
-      return data ?? [];
-    },
-    enabled: open && !!targetPacId && (!initialResponsaveis || initialResponsaveis.length === 0),
-    staleTime: 60 * 1000,
-  });
-
-  const responsaveis = initialResponsaveis.length > 0 ? initialResponsaveis : fetchedResponsaveis;
-
-  const detectedSpecialty = useMemo(() => {
-    return detectSpecialty(
-      session?.servicos?.nome,
-      session?.profissionais?.especialidade,
-      session?.observacoes
-    );
-  }, [session]);
-
-  const handleApplyTemplate = (spec: ClinicalSpecialty) => {
-    const isBlank =
-      !sessionNoteEdit ||
-      sessionNoteEdit.trim() === "" ||
-      sessionNoteEdit.trim() === "[Tipo: Sessão Padrão]" ||
-      sessionNoteEdit.trim() === "[Tipo: Anamnese]";
-
-    if (!isBlank) {
-      const confirmReplace = window.confirm(
-        `Deseja substituir o conteúdo atual pelo modelo técnico oficial de ${CLINICAL_SPECIALTIES_INFO[spec].name}?`
+    if (!session) return;
+    const cleaned = cleanSessionMeta(session.observacoes);
+    if (cleaned) {
+      setSessionNoteEdit(cleaned);
+    } else {
+      setSessionNoteEdit(
+`Data e hora da sessão
+Atendimento dia ${dataCurta || format(new Date(), "dd/MM")}
+Identificação do Paciente: ${pacienteNome}
+`
       );
-      if (!confirmReplace) return;
     }
-
-    const template = generateClinicalReportTemplate({
-      specialty: spec,
-      session,
-      paciente,
-      responsaveis,
-      enderecoPaciente,
-    });
-
-    setSessionNoteEdit(template);
-    toast.success(`Modelo de ${CLINICAL_SPECIALTIES_INFO[spec].name} aplicado com sucesso!`);
-  };
+  }, [session?.id, session?.observacoes, dataCurta, pacienteNome]);
 
   const handleCopyReport = async () => {
     if (!sessionNoteEdit) {
@@ -1492,16 +1488,11 @@ export function DetalhesSessaoDialog({
     try {
       await navigator.clipboard.writeText(sessionNoteEdit);
       setCopied(true);
-      toast.success("Relatório clínico copiado para a área de transferência!");
+      toast.success("Observações copiadas para a área de transferência!");
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast.error("Erro ao copiar texto");
     }
-  };
-
-  const handleInsertMissing = () => {
-    setSessionNoteEdit((prev) => `${prev} [Não informado na sessão]`);
-    toast.info("Marcador inserido no texto");
   };
 
   const handlePrint = () => {
@@ -1510,7 +1501,7 @@ export function DetalhesSessaoDialog({
       toast.error("Não foi possível abrir janela de impressão. Permita pop-ups.");
       return;
     }
-    const title = `Relatório da Sessão - ${session?.paciente?.nome || pacienteNome || "Paciente"}`;
+    const title = `Relatório da Sessão - ${pacienteNome}`;
     printWindow.document.write(`
       <!DOCTYPE html>
       <html lang="pt-BR">
@@ -1518,20 +1509,22 @@ export function DetalhesSessaoDialog({
           <meta charset="utf-8" />
           <title>${title}</title>
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 32px; color: #111; line-height: 1.6; font-size: 13px; }
-            h1 { font-size: 16px; border-bottom: 2px solid #7c3aed; padding-bottom: 6px; color: #5b21b6; text-transform: uppercase; margin-bottom: 16px; }
-            h2 { font-size: 13px; color: #6d28d9; margin-top: 18px; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; }
-            h3 { font-size: 12px; font-weight: bold; margin-top: 12px; margin-bottom: 4px; }
-            p { margin: 6px 0; }
-            li { margin: 4px 0; }
-            hr { margin: 24px 0; border: none; border-top: 1px solid #cbd5e1; }
-            @media print {
-              body { padding: 10px; }
-            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 36px; color: #111; line-height: 1.6; font-size: 14px; }
+            h1 { font-size: 18px; border-bottom: 2px solid #7c3aed; padding-bottom: 8px; color: #5b21b6; text-transform: uppercase; margin-bottom: 16px; }
+            .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; font-size: 13px; }
+            .info-box div { margin: 3px 0; }
+            .content { white-space: pre-wrap; font-size: 14px; line-height: 1.8; color: #1e293b; }
+            @media print { body { padding: 15px; } }
           </style>
         </head>
         <body>
-          ${renderMarkdownToHtml(sessionNoteEdit)}
+          <h1>Relatório da Sessão</h1>
+          <div class="info-box">
+            <div><strong>Paciente:</strong> ${pacienteNome}</div>
+            <div><strong>Profissional:</strong> ${session?.profissionais?.nome || "Profissional"} (${session?.servicos?.nome || "Atendimento"})</div>
+            <div><strong>Data e Horário:</strong> ${dataFormatada}</div>
+          </div>
+          <div class="content">${(sessionNoteEdit || "").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
         </body>
       </html>
     `);
@@ -1546,14 +1539,15 @@ export function DetalhesSessaoDialog({
     if (!session?.id) return;
     setIsSavingSessionNote(true);
     try {
+      const fullNote = mergeSessionMeta(session.observacoes, sessionNoteEdit);
       const { error } = await supabase
         .from("agendamentos")
-        .update({ observacoes: sessionNoteEdit })
+        .update({ observacoes: fullNote })
         .eq("id", session.id);
 
       if (error) throw error;
-      toast.success("Relatório da sessão salvo com sucesso no prontuário!");
-      onSessionUpdated?.(sessionNoteEdit);
+      toast.success("Relatório da sessão salvo com sucesso!");
+      onSessionUpdated?.(fullNote);
       onOpenChange(false);
     } catch (err: any) {
       toast.error("Erro ao salvar relatório da sessão: " + err.message);
@@ -1566,311 +1560,116 @@ export function DetalhesSessaoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl w-full max-h-[92vh] flex flex-col p-5 overflow-hidden">
+      <DialogContent className="max-w-2xl w-full max-h-[90vh] flex flex-col p-5 overflow-hidden">
         {/* Header */}
-        <DialogHeader className="pb-2.5 border-b border-border/60 shrink-0">
+        <DialogHeader className="pb-3 border-b border-border/60 shrink-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div>
               <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
                 <FileText className="h-4 w-4 text-purple-600" />
-                Relatório de Sessão / Evolução Clínica
+                Relatório da Sessão: {pacienteNome}
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                Paciente: <strong className="text-foreground">{session.paciente?.nome || pacienteNome || "Paciente"}</strong> — Atendimento realizado em{" "}
-                {session.data_inicio
-                  ? format(new Date(session.data_inicio), "dd/MM/yyyy 'às' HH:mm", {
-                      locale: ptBR,
-                    })
-                  : "—"}
+                Atendimento realizado em <strong>{dataFormatada}</strong>
               </DialogDescription>
             </div>
-            <Badge variant="outline" className="text-[11px] font-medium border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
-              Evolução em Prontuário
+            <Badge variant="outline" className="text-xs capitalize border-purple-200 text-purple-700 bg-purple-50">
+              {session.status || "Realizado"}
             </Badge>
           </div>
         </DialogHeader>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto space-y-3.5 py-2 text-xs">
-          {/* Metadata Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-lg bg-muted/30 border border-border/60">
+        <div className="flex-1 overflow-y-auto space-y-3.5 py-3 text-xs">
+          {/* Card Resumo do Atendimento */}
+          <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/40 border border-border/60 text-xs">
             <div>
-              <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                Profissional
-              </span>
+              <span className="text-[11px] text-muted-foreground block font-medium">Profissional</span>
               <span className="font-semibold text-foreground text-xs block truncate">
-                {session.profissionais?.nome || "—"}
+                {session.profissionais?.nome || "Profissional"}
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                Serviço / Especialidade
-              </span>
+              <span className="text-[11px] text-muted-foreground block font-medium">Serviço / Especialidade</span>
               <span className="font-medium text-foreground text-xs block truncate">
-                {session.servicos?.nome || "Sessão"}
+                {session.servicos?.nome || "Atendimento Clínico"}
               </span>
-            </div>
-            <div>
-              <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                Status
-              </span>
-              <Badge variant="secondary" className="capitalize text-[10px]">
-                {session.status || "Realizado"}
-              </Badge>
-            </div>
-            <div>
-              <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                Especialidade Sugerida
-              </span>
-              <Badge variant="outline" className="text-[10px] capitalize text-purple-700 dark:text-purple-300 border-purple-300">
-                {CLINICAL_SPECIALTIES_INFO[detectedSpecialty].name}
-              </Badge>
             </div>
           </div>
 
-          {/* Plano ABA Programas se houver */}
-          {session.plano_aba?.programas?.length > 0 && (
-            <div className="space-y-1.5 p-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
-              <span className="font-bold text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-                <Activity className="h-3.5 w-3.5" />
-                Programas ABA Registrados no Agendamento ({session.plano_aba.programas.length})
+          {/* Campo Simples de Observação */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold text-foreground">
+                Observações / Relato da Sessão
+              </Label>
+              <span className="text-[11px] text-muted-foreground">
+                Campo livre de relato da sessão
               </span>
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
-                {session.plano_aba.programas.map((prog: any, idx: number) => {
-                  const respCount = Object.keys(prog.respostas || {}).length;
-                  return (
-                    <Badge
-                      key={idx}
-                      variant="outline"
-                      className="text-[10px] bg-background border-border/80 text-foreground py-0.5 px-2"
-                    >
-                      {prog.nome || `Prog ${idx + 1}`} ({respCount} tentativas)
-                    </Badge>
-                  );
-                })}
-              </div>
             </div>
-          )}
-
-          {/* Modelos por Especialidade Toolbar */}
-          <div className="p-3 rounded-lg border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/50 to-indigo-50/30 dark:from-purple-950/20 dark:to-indigo-950/20 space-y-2">
-            <div className="flex items-center justify-between flex-wrap gap-1.5">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-purple-600" />
-                <span className="text-xs font-bold text-foreground">
-                  Modelos de Relatórios Clínicos Oficiais
-                </span>
-                <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                  (Clique para estruturar conforme normas vigentes)
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {/* Fono */}
-              <Button
-                type="button"
-                variant={detectedSpecialty === "fono" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleApplyTemplate("fono")}
-                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
-                  detectedSpecialty === "fono"
-                    ? "bg-purple-600 hover:bg-purple-700 text-white"
-                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
-                }`}
-              >
-                <div className="flex items-center gap-1 font-bold text-xs">
-                  <Stethoscope className="h-3 w-3 shrink-0" />
-                  <span>Fonoaudiologia</span>
-                </div>
-                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "fono" ? "text-purple-100" : "text-muted-foreground"}`}>
-                  CFFa nº 645/2021
-                </span>
-                {detectedSpecialty === "fono" && (
-                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
-                    Detectado
-                  </span>
-                )}
-              </Button>
-
-              {/* Psicoterapia */}
-              <Button
-                type="button"
-                variant={detectedSpecialty === "psicoterapia" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleApplyTemplate("psicoterapia")}
-                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
-                  detectedSpecialty === "psicoterapia"
-                    ? "bg-purple-600 hover:bg-purple-700 text-white"
-                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
-                }`}
-              >
-                <div className="flex items-center gap-1 font-bold text-xs">
-                  <Brain className="h-3 w-3 shrink-0" />
-                  <span>Psicoterapia</span>
-                </div>
-                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "psicoterapia" ? "text-purple-100" : "text-muted-foreground"}`}>
-                  CFP nº 01/2009
-                </span>
-                {detectedSpecialty === "psicoterapia" && (
-                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
-                    Detectado
-                  </span>
-                )}
-              </Button>
-
-              {/* Psicopedagogia */}
-              <Button
-                type="button"
-                variant={detectedSpecialty === "psicopedagogia" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleApplyTemplate("psicopedagogia")}
-                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
-                  detectedSpecialty === "psicopedagogia"
-                    ? "bg-purple-600 hover:bg-purple-700 text-white"
-                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
-                }`}
-              >
-                <div className="flex items-center gap-1 font-bold text-xs">
-                  <GraduationCap className="h-3 w-3 shrink-0" />
-                  <span>Psicopedagogia</span>
-                </div>
-                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "psicopedagogia" ? "text-purple-100" : "text-muted-foreground"}`}>
-                  ABPp (Sem CID)
-                </span>
-                {detectedSpecialty === "psicopedagogia" && (
-                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
-                    Detectado
-                  </span>
-                )}
-              </Button>
-
-              {/* Terapia ABA */}
-              <Button
-                type="button"
-                variant={detectedSpecialty === "aba" ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleApplyTemplate("aba")}
-                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
-                  detectedSpecialty === "aba"
-                    ? "bg-purple-600 hover:bg-purple-700 text-white"
-                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
-                }`}
-              >
-                <div className="flex items-center gap-1 font-bold text-xs">
-                  <Target className="h-3 w-3 shrink-0" />
-                  <span>Terapia ABA</span>
-                </div>
-                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "aba" ? "text-purple-100" : "text-muted-foreground"}`}>
-                  Medidas / DTT
-                </span>
-                {detectedSpecialty === "aba" && (
-                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
-                    Detectado
-                  </span>
-                )}
-              </Button>
-            </div>
+            <Textarea
+              value={sessionNoteEdit}
+              onChange={(e) => setSessionNoteEdit(e.target.value)}
+              rows={11}
+              className="text-sm leading-relaxed p-3.5 rounded-lg border bg-background text-foreground resize-y min-h-[220px] focus-visible:ring-purple-500"
+              placeholder="Digite o relato da sessão..."
+            />
+            <p className="text-[11px] text-muted-foreground italic">
+              Descreva os acontecimentos da sessão, comportamento do paciente, tarefas trabalhadas e intercorrências.
+            </p>
           </div>
-
-          {/* Tabs: Editor vs Pré-visualização */}
-          <Tabs value={reportTab} onValueChange={(val: any) => setReportTab(val)} className="w-full">
-            <div className="flex items-center justify-between pb-1.5 border-b border-border/60 flex-wrap gap-2">
-              <TabsList className="h-8">
-                <TabsTrigger value="editor" className="text-xs gap-1.5 px-3">
-                  <Pencil className="h-3 w-3" />
-                  Editar Relatório (Markdown)
-                </TabsTrigger>
-                <TabsTrigger value="preview" className="text-xs gap-1.5 px-3">
-                  <Eye className="h-3 w-3" />
-                  Visualização Clínica Formatada
-                </TabsTrigger>
-              </TabsList>
-
-              <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleInsertMissing}
-                  className="h-7 text-[11px] px-2 gap-1 text-muted-foreground hover:text-foreground"
-                  title="Insere a marcação técnica [Não informado na sessão]"
-                >
-                  <Plus className="h-3 w-3" />
-                  [Não informado]
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCopyReport}
-                  className="h-7 text-[11px] px-2 gap-1"
-                >
-                  {copied ? (
-                    <>
-                      <CheckCheck className="h-3 w-3 text-emerald-600" />
-                      Copiado!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="h-3 w-3 text-muted-foreground" />
-                      Copiar
-                    </>
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePrint}
-                  className="h-7 text-[11px] px-2 gap-1"
-                >
-                  <Printer className="h-3 w-3 text-muted-foreground" />
-                  Imprimir / PDF
-                </Button>
-              </div>
-            </div>
-
-            <TabsContent value="editor" className="mt-2 space-y-1.5">
-              <Textarea
-                value={sessionNoteEdit}
-                onChange={(e) => setSessionNoteEdit(e.target.value)}
-                rows={15}
-                className="font-mono text-xs leading-relaxed resize-y min-h-[300px] bg-background text-foreground"
-                placeholder="Clique em um dos modelos acima para preencher automaticamente os campos obrigatórios da especialidade ou redija a evolução clínica..."
-              />
-              <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
-                <span>{sessionNoteEdit.length} caracteres ({sessionNoteEdit.split(/\s+/).filter(Boolean).length} palavras)</span>
-                <span>Aceita formatação Markdown (## títulos, - tópicos, **negrito**)</span>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="preview" className="mt-2">
-              <div className="max-h-[460px] overflow-y-auto pr-1">
-                <ClinicalMarkdownView content={sessionNoteEdit} />
-              </div>
-            </TabsContent>
-          </Tabs>
         </div>
 
         {/* Footer */}
-        <div className="pt-2.5 border-t border-border/60 flex items-center justify-between shrink-0">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onOpenChange(false)}
-            className="h-8 text-xs"
-          >
-            Fechar
-          </Button>
+        <div className="pt-3 border-t border-border/60 flex items-center justify-between flex-wrap gap-2 shrink-0">
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCopyReport}
+              className="h-8 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
+            >
+              {copied ? (
+                <>
+                  <CheckCheck className="h-3.5 w-3.5 text-emerald-600" />
+                  Copiado!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5" />
+                  Copiar
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePrint}
+              className="h-8 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Imprimir
+            </Button>
+          </div>
+
           <div className="flex items-center gap-2">
             <Button
               type="button"
+              variant="outline"
               size="sm"
-              onClick={handleSaveSessionAdjustment}
+              onClick={() => onOpenChange(false)}
+              className="h-8 text-xs px-3"
+            >
+              Fechar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
               disabled={isSavingSessionNote}
-              className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white font-medium gap-1.5"
+              onClick={handleSaveSessionAdjustment}
+              className="h-8 text-xs px-4 gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-xs"
             >
               <Check className="h-3.5 w-3.5" />
               {isSavingSessionNote ? "Salvando..." : "Salvar Relatório da Sessão"}
