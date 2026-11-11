@@ -7,11 +7,20 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import appCss from "../styles.css?url";
 import { AuthProvider } from "@/hooks/useAuth";
 import { Toaster } from "@/components/ui/sonner";
+
+// Auto-recover from Vite deployment chunk skew
+if (typeof window !== "undefined") {
+  window.addEventListener("vite:preloadError", (event) => {
+    event.preventDefault();
+    console.warn("Vite chunk preload error detected. Recarregando para nova versão...");
+    window.location.reload();
+  });
+}
 
 function NotFoundComponent() {
   return (
@@ -39,12 +48,36 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error("Router error:", error);
   const router = useRouter();
 
+  const isDynamicImportError =
+    error?.message?.includes("Failed to fetch dynamically imported module") ||
+    error?.message?.includes("error loading dynamically imported module") ||
+    error?.message?.includes("Importing a module script failed") ||
+    error?.message?.includes("Loading chunk") ||
+    error?.message?.includes("dynamically imported module");
+
+  useEffect(() => {
+    if (isDynamicImportError && typeof window !== "undefined") {
+      const key = "last_chunk_reload_" + window.location.pathname;
+      const lastReload = sessionStorage.getItem(key);
+      const now = Date.now();
+      // Auto-reload once within 10 seconds to fetch latest deployed assets
+      if (!lastReload || now - parseInt(lastReload, 10) > 10000) {
+        sessionStorage.setItem(key, now.toString());
+        window.location.reload();
+      }
+    }
+  }, [isDynamicImportError]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-lg text-center space-y-4">
-        <h1 className="text-xl font-semibold">Esta página não carregou</h1>
+        <h1 className="text-xl font-semibold">
+          {isDynamicImportError ? "Atualizando para a versão mais recente..." : "Esta página não carregou"}
+        </h1>
         <p className="text-sm text-muted-foreground">
-          Algo deu errado ao processar a página.
+          {isDynamicImportError
+            ? "O sistema recebeu uma atualização recente. Clique no botão abaixo para recarregar com a versão mais atualizada."
+            : "Algo deu errado ao processar a página."}
         </p>
         {error?.message && (
           <div className="text-left bg-muted/70 p-3 rounded-lg border border-border text-xs font-mono text-destructive break-words max-h-40 overflow-auto">
@@ -54,12 +87,16 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <div className="flex justify-center gap-2 pt-2">
           <button
             onClick={() => {
-              router.invalidate();
-              reset();
+              if (isDynamicImportError) {
+                window.location.reload();
+              } else {
+                router.invalidate();
+                reset();
+              }
             }}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 cursor-pointer"
           >
-            Tentar novamente
+            {isDynamicImportError ? "Atualizar Sistema Agora" : "Tentar novamente"}
           </button>
           <a href="/pacientes" className="rounded-md border px-4 py-2 text-sm hover:bg-muted">
             Voltar a Pacientes
