@@ -47,6 +47,7 @@ import {
   formatCPF,
   parseEnderecoFromObs,
   parseEnderecoSecFromObs,
+  parseEmailFromObs,
   encodeEnderecoToObs,
   getCleanObservacoes,
 } from "@/components/PacienteFormDialog";
@@ -346,6 +347,15 @@ function PacienteDetail() {
           <Info
             label="CPF do Responsável"
             value={paciente.cpf ? formatCPF(paciente.cpf) : "Não informado"}
+          />
+
+          <Info
+            label="E-mail"
+            value={
+              responsaveis[0]?.email ||
+              parseEmailFromObs(paciente.observacoes) ||
+              "Não informado"
+            }
           />
 
           <Info
@@ -981,6 +991,8 @@ function ResponsavelDialog({ pacienteId, onSaved }: { pacienteId: string; onSave
     onSuccess: () => {
       toast.success("Responsável adicionado com sucesso");
       qc.invalidateQueries({ queryKey: ["paciente", pacienteId] });
+      qc.invalidateQueries({ queryKey: ["responsaveis", pacienteId] });
+      qc.invalidateQueries({ queryKey: ["responsaveis"] });
       onSaved();
     },
     onError: (e: any) => toast.error(e.message),

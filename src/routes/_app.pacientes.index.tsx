@@ -232,6 +232,7 @@ function PacientesPage() {
                 setEditing(null);
                 qc.invalidateQueries({ queryKey: ["pacientes"] });
                 qc.invalidateQueries({ queryKey: ["pacientes-fila-espera"] });
+                qc.invalidateQueries({ queryKey: ["responsaveis"] });
               }}
             />
           )}

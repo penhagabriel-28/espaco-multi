@@ -76,6 +76,32 @@ export const parseEnderecoSecFromObs = (rawObs: string | null | undefined): stri
   return "";
 };
 
+export const parseEmailFromObs = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  const match = rawObs.match(/<!--EMAIL:(.*?)-->/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return "";
+};
+
+export const parseEmailSecFromObs = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  const match = rawObs.match(/<!--EMAIL_SECUNDARIO:(.*?)-->/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return "";
+};
+
 export const encodeEnderecoToObs = (
   rawObs: string | null | undefined,
   endereco: string,
@@ -104,6 +130,8 @@ export const getCleanObservacoes = (rawObs: string | null | undefined): string =
     .replace(/<!--PRONTUARIO:.*?-->/g, "")
     .replace(/<!--ENDERECO:.*?-->/g, "")
     .replace(/<!--ENDERECO_SECUNDARIO:.*?-->/g, "")
+    .replace(/<!--EMAIL:.*?-->/g, "")
+    .replace(/<!--EMAIL_SECUNDARIO:.*?-->/g, "")
     .trim();
 };
 
@@ -139,7 +167,7 @@ export function PacienteFormDialog({
     responsavel: "",
     telefone: "",
     cpf: paciente?.cpf ?? "",
-    email: "",
+    email: parseEmailFromObs(paciente?.observacoes) || "",
     endereco:
       (paciente as any)?.endereco ||
       parseEnderecoFromObs(paciente?.observacoes) ||
@@ -147,7 +175,7 @@ export function PacienteFormDialog({
     responsavel_secundario: "",
     telefone_secundario: "",
     cpf_secundario: "",
-    email_secundario: "",
+    email_secundario: parseEmailSecFromObs(paciente?.observacoes) || "",
     endereco_secundario:
       parseEnderecoSecFromObs(paciente?.observacoes) || "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
@@ -257,17 +285,27 @@ export function PacienteFormDialog({
           (prev.endereco_secundario && prev.endereco_secundario.trim()) ||
           parseEnderecoSecFromObs(paciente?.observacoes) ||
           "";
+        const parsedEmail1 =
+          r1?.email ||
+          (prev.email && prev.email.trim()) ||
+          parseEmailFromObs(paciente?.observacoes) ||
+          "";
+        const parsedEmail2 =
+          r2?.email ||
+          (prev.email_secundario && prev.email_secundario.trim()) ||
+          parseEmailSecFromObs(paciente?.observacoes) ||
+          "";
         return {
           ...prev,
-          responsavel: r1?.nome || "",
-          telefone: formatPhone(r1?.telefone ?? ""),
+          responsavel: r1?.nome || prev.responsavel || "",
+          telefone: r1?.telefone ? formatPhone(r1.telefone) : prev.telefone || "",
           cpf: r1?.cpf ? formatCPF(r1.cpf) : (prev.cpf || ""),
-          email: r1?.email ?? "",
+          email: parsedEmail1,
           endereco: parsedEnd1,
-          responsavel_secundario: r2?.nome || "",
-          telefone_secundario: formatPhone(r2?.telefone ?? ""),
-          cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : "",
-          email_secundario: r2?.email ?? "",
+          responsavel_secundario: r2?.nome || prev.responsavel_secundario || "",
+          telefone_secundario: r2?.telefone ? formatPhone(r2.telefone) : prev.telefone_secundario || "",
+          cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : prev.cpf_secundario || "",
+          email_secundario: parsedEmail2,
           endereco_secundario: parsedEnd2,
         };
       });
@@ -317,6 +355,12 @@ export function PacienteFormDialog({
       const tagEnderecoSec = form.endereco_secundario.trim()
         ? `<!--ENDERECO_SECUNDARIO:${encodeURIComponent(form.endereco_secundario.trim())}-->`
         : "";
+      const tagEmail = form.email.trim()
+        ? `<!--EMAIL:${encodeURIComponent(form.email.trim())}-->`
+        : "";
+      const tagEmailSec = form.email_secundario.trim()
+        ? `<!--EMAIL_SECUNDARIO:${encodeURIComponent(form.email_secundario.trim())}-->`
+        : "";
 
       const extras = [
         matchDias?.[0],
@@ -324,6 +368,8 @@ export function PacienteFormDialog({
         matchProntuario?.[0],
         tagEndereco,
         tagEnderecoSec,
+        tagEmail,
+        tagEmailSec,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -399,28 +445,45 @@ export function PacienteFormDialog({
           if (ppError) throw ppError;
         }
 
-        if (responsaveis.length > 0) {
-          if (!form.responsavel.trim() && !form.telefone.trim()) {
-            // Delete existing responsible person if both fields are cleared
+        // Consultar banco diretamente para obter os responsáveis reais vinculados ao paciente
+        const { data: dbResponsaveis } = await supabase
+          .from("responsaveis")
+          .select("id, nome")
+          .eq("paciente_id", paciente.id)
+          .order("created_at");
+
+        const targetResps = dbResponsaveis && dbResponsaveis.length > 0 ? dbResponsaveis : responsaveis;
+
+        const hasPrimaryData = Boolean(
+          form.responsavel.trim() ||
+          form.telefone.trim() ||
+          form.email.trim() ||
+          form.endereco.trim() ||
+          cleanCpf1
+        );
+
+        if (targetResps.length > 0) {
+          if (!hasPrimaryData) {
+            // Delete existing responsible person if all fields are empty
             const { error: rError } = await supabase
               .from("responsaveis")
               .delete()
-              .eq("id", responsaveis[0].id);
+              .eq("id", targetResps[0].id);
             if (rError) throw rError;
           } else {
-            await saveResp(responsaveis[0].id, {
+            await saveResp(targetResps[0].id, {
               paciente_id: paciente.id,
-              nome: form.responsavel.trim(),
+              nome: form.responsavel.trim() || targetResps[0].nome || "Responsável Principal",
               telefone: form.telefone.trim() || null,
               email: form.email.trim() || null,
               cpf: cleanCpf1,
               endereco: form.endereco.trim() || null,
             });
           }
-        } else if (form.responsavel.trim()) {
+        } else if (hasPrimaryData) {
           await saveResp(undefined, {
             paciente_id: paciente.id,
-            nome: form.responsavel.trim(),
+            nome: form.responsavel.trim() || "Responsável Principal",
             telefone: form.telefone.trim() || null,
             email: form.email.trim() || null,
             cpf: cleanCpf1,
@@ -428,28 +491,36 @@ export function PacienteFormDialog({
           });
         }
 
-        if (responsaveis.length > 1) {
-          if (!form.responsavel_secundario.trim() && !form.telefone_secundario.trim()) {
+        const hasSecondaryData = Boolean(
+          form.responsavel_secundario.trim() ||
+          form.telefone_secundario.trim() ||
+          form.email_secundario.trim() ||
+          form.endereco_secundario.trim() ||
+          cleanCpf2
+        );
+
+        if (targetResps.length > 1) {
+          if (!hasSecondaryData) {
             // Delete secondary responsible
             const { error: rError } = await supabase
               .from("responsaveis")
               .delete()
-              .eq("id", responsaveis[1].id);
+              .eq("id", targetResps[1].id);
             if (rError) throw rError;
           } else {
-            await saveResp(responsaveis[1].id, {
+            await saveResp(targetResps[1].id, {
               paciente_id: paciente.id,
-              nome: form.responsavel_secundario.trim(),
+              nome: form.responsavel_secundario.trim() || targetResps[1].nome || "Responsável Secundário",
               telefone: form.telefone_secundario.trim() || null,
               email: form.email_secundario.trim() || null,
               cpf: cleanCpf2,
               endereco: form.endereco_secundario.trim() || null,
             });
           }
-        } else if (form.responsavel_secundario.trim()) {
+        } else if (hasSecondaryData) {
           await saveResp(undefined, {
             paciente_id: paciente.id,
-            nome: form.responsavel_secundario.trim(),
+            nome: form.responsavel_secundario.trim() || "Responsável Secundário",
             telefone: form.telefone_secundario.trim() || null,
             email: form.email_secundario.trim() || null,
             cpf: cleanCpf2,
@@ -532,10 +603,18 @@ export function PacienteFormDialog({
           if (ppError) throw ppError;
         }
 
-        if (form.responsavel.trim() && newPaciente) {
+        const hasPrimaryNew = Boolean(
+          form.responsavel.trim() ||
+          form.telefone.trim() ||
+          form.email.trim() ||
+          form.endereco.trim() ||
+          cleanCpf1
+        );
+
+        if (hasPrimaryNew && newPaciente) {
           await saveResp(undefined, {
             paciente_id: newPaciente.id,
-            nome: form.responsavel.trim(),
+            nome: form.responsavel.trim() || "Responsável Principal",
             telefone: form.telefone.trim() || null,
             email: form.email.trim() || null,
             cpf: cleanCpf1,
@@ -543,10 +622,18 @@ export function PacienteFormDialog({
           });
         }
 
-        if (form.responsavel_secundario.trim() && newPaciente) {
+        const hasSecondaryNew = Boolean(
+          form.responsavel_secundario.trim() ||
+          form.telefone_secundario.trim() ||
+          form.email_secundario.trim() ||
+          form.endereco_secundario.trim() ||
+          cleanCpf2
+        );
+
+        if (hasSecondaryNew && newPaciente) {
           await saveResp(undefined, {
             paciente_id: newPaciente.id,
-            nome: form.responsavel_secundario.trim(),
+            nome: form.responsavel_secundario.trim() || "Responsável Secundário",
             telefone: form.telefone_secundario.trim() || null,
             email: form.email_secundario.trim() || null,
             cpf: cleanCpf2,
@@ -574,6 +661,14 @@ export function PacienteFormDialog({
     onSuccess: (data) => {
       toast.success(paciente ? "Paciente atualizado" : "Paciente cadastrado");
       qc.invalidateQueries({ queryKey: ["pacientes"] });
+      qc.invalidateQueries({ queryKey: ["paciente"] });
+      qc.invalidateQueries({ queryKey: ["paciente", paciente?.id] });
+      qc.invalidateQueries({ queryKey: ["responsaveis"] });
+      qc.invalidateQueries({ queryKey: ["responsaveis", paciente?.id] });
+      if (data?.id) {
+        qc.invalidateQueries({ queryKey: ["responsaveis", data.id] });
+        qc.invalidateQueries({ queryKey: ["paciente", data.id] });
+      }
       qc.invalidateQueries({ queryKey: ["dir-pacientes-min"] });
       qc.invalidateQueries({ queryKey: ["dir-faturas"] });
       qc.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
