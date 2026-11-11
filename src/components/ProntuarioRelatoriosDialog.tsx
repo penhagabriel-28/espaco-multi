@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -830,10 +831,10 @@ export function ProntuarioRelatoriosDialog({
                                   setSelectedSession(ag);
                                   setSessionNoteEdit(ag.observacoes || "");
                                 }}
-                                className="h-7 text-xs px-2.5 gap-1 hover:bg-purple-50 hover:text-purple-700 dark:hover:bg-purple-950/30"
+                                className="h-8 text-xs px-3 gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
                               >
-                                <Eye className="h-3.5 w-3.5 text-purple-600" />
-                                Ver Relatório
+                                <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                                Relatório da Sessão
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -1390,14 +1391,14 @@ export interface DetalhesSessaoDialogProps {
   enderecoPaciente?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSessionUpdated?: () => void;
+  onSessionUpdated?: (newNote?: string) => void;
 }
 
 export function DetalhesSessaoDialog({
   session,
   pacienteNome,
-  paciente,
-  responsaveis = [],
+  paciente: initialPaciente,
+  responsaveis: initialResponsaveis = [],
   enderecoPaciente = "",
   open,
   onOpenChange,
@@ -1411,6 +1412,43 @@ export function DetalhesSessaoDialog({
   useEffect(() => {
     setSessionNoteEdit(session?.observacoes || "");
   }, [session?.id, session?.observacoes]);
+
+  // Carrega dados completos do paciente se aberto de contextos onde só há dados parciais
+  const targetPacId = initialPaciente?.id || session?.paciente_id || session?.paciente?.id || session?.pacientes?.id;
+
+  const { data: fullPaciente } = useQuery({
+    queryKey: ["paciente-dialog-extra", targetPacId],
+    queryFn: async () => {
+      if (!targetPacId) return null;
+      const { data } = await supabase
+        .from("pacientes")
+        .select("*")
+        .eq("id", targetPacId)
+        .maybeSingle();
+      return data;
+    },
+    enabled: open && !!targetPacId && (!initialPaciente || !initialPaciente.data_nascimento),
+    staleTime: 60 * 1000,
+  });
+
+  const paciente = fullPaciente || initialPaciente || session?.paciente || session?.pacientes;
+
+  const { data: fetchedResponsaveis = [] } = useQuery({
+    queryKey: ["responsaveis-dialog-extra", targetPacId],
+    queryFn: async () => {
+      if (!targetPacId) return [];
+      const { data } = await supabase
+        .from("responsaveis")
+        .select("*")
+        .eq("paciente_id", targetPacId)
+        .order("created_at");
+      return data ?? [];
+    },
+    enabled: open && !!targetPacId && (!initialResponsaveis || initialResponsaveis.length === 0),
+    staleTime: 60 * 1000,
+  });
+
+  const responsaveis = initialResponsaveis.length > 0 ? initialResponsaveis : fetchedResponsaveis;
 
   const detectedSpecialty = useMemo(() => {
     return detectSpecialty(
@@ -1515,7 +1553,7 @@ export function DetalhesSessaoDialog({
 
       if (error) throw error;
       toast.success("Relatório da sessão salvo com sucesso no prontuário!");
-      onSessionUpdated?.();
+      onSessionUpdated?.(sessionNoteEdit);
       onOpenChange(false);
     } catch (err: any) {
       toast.error("Erro ao salvar relatório da sessão: " + err.message);

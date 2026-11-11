@@ -61,6 +61,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { PacienteFormDialog } from "@/components/PacienteFormDialog";
 import { AnamneseFormDialog } from "@/components/AnamneseFormDialog";
+import { DetalhesSessaoDialog } from "@/components/ProntuarioRelatoriosDialog";
 
 const normalizeString = (str: string) =>
   str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
@@ -982,6 +983,7 @@ function AgendamentoDialog({
   const [pacienteOpen, setPacienteOpen] = useState(false);
   const [recorrenciaConfirmOpen, setRecorrenciaConfirmOpen] = useState(false);
   const [planoAbaOpen, setPlanoAbaOpen] = useState(false);
+  const [sessionReportOpen, setSessionReportOpen] = useState(false);
   const [apoioFrequencia, setApoioFrequencia] = useState<string>('2x');
   const [apoioValorPersonalizado, setApoioValorPersonalizado] = useState<string>('');
 
@@ -2582,7 +2584,21 @@ Fico à disposição para qualquer dúvida!`;
                 )}
 
                 <div className="space-y-1.5 animate-in fade-in duration-200">
-                  <Label>Observações</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Observações</Label>
+                    {editing && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSessionReportOpen(true)}
+                        className="h-7 text-xs px-2.5 gap-1.5 text-purple-700 bg-purple-50 hover:bg-purple-100 border-purple-200 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
+                      >
+                        <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                        Relatório da Sessão
+                      </Button>
+                    )}
+                  </div>
                   <Textarea
                     rows={2}
                     value={form.observacoes}
@@ -2642,6 +2658,16 @@ Fico à disposição para qualquer dúvida!`;
                         <Calendar className="h-4 w-4" /> Férias
                       </Button>
                     )}
+                    {editing && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-1.5 text-purple-700 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/30 border-purple-300 font-medium"
+                        onClick={() => setSessionReportOpen(true)}
+                      >
+                        <FileText className="h-4 w-4 text-purple-600" /> Relatório da Sessão
+                      </Button>
+                    )}
                   </div>
                   <Button type="submit" disabled={save.isPending}>
                     {save.isPending ? "Salvando…" : "Salvar"}
@@ -2671,6 +2697,30 @@ Fico à disposição para qualquer dúvida!`;
             ]);
           } : undefined}
         />
+        {editing && sessionReportOpen && (
+          <DetalhesSessaoDialog
+            open={sessionReportOpen}
+            onOpenChange={setSessionReportOpen}
+            session={{
+              ...editing,
+              observacoes: form.observacoes,
+              servicos: (Array.isArray(servicos) ? servicos.find((s: any) => s.id === form.servico_id) : null) || editing?.servicos,
+              profissionais: (Array.isArray(profissionais) ? profissionais.find((p: any) => p.id === form.profissional_id) : null) || editing?.profissionais,
+              pacientes: selectedPaciente || editing?.pacientes,
+              paciente: selectedPaciente || editing?.pacientes,
+            }}
+            pacienteNome={selectedPaciente ? selectedPaciente.nome : editing?.pacientes?.nome || ""}
+            paciente={selectedPaciente || editing?.pacientes}
+            onSessionUpdated={(newNote?: string) => {
+              if (typeof newNote === "string") {
+                setForm((prev) => ({ ...prev, observacoes: newNote }));
+              }
+              qc.invalidateQueries({ queryKey: ["agendamentos"] });
+              qc.invalidateQueries({ queryKey: ["paciente-ags"] });
+              onSaved();
+            }}
+          />
+        )}
       </form>
     </DialogContent>
   );

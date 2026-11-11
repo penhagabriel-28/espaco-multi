@@ -58,7 +58,7 @@ import {
   serializeProntuarioInObs,
   DEFAULT_PLANOS,
 } from "@/components/ProntuarioRelatoriosDialog";
-import { isProfissionalAdmin } from "@/lib/utils";
+import { isProfissionalAdmin, cn } from "@/lib/utils";
 import {
   getDefaultRoomIdForProfessional,
   isDefaultRoomForProfessional,
@@ -727,6 +727,11 @@ function PacienteDetail() {
                       const servNome = ag.servicos?.nome;
                       const ajusteTexto = ag.observacoes?.trim() || "";
                       const hasAba = Boolean(ag.plano_aba?.programas?.length);
+                      const isReportFilled = Boolean(
+                        ajusteTexto &&
+                        ajusteTexto !== "[Tipo: Sessão Padrão]" &&
+                        ajusteTexto !== "[Tipo: Anamnese]"
+                      );
 
                       return (
                         <TableRow key={ag.id} className="hover:bg-muted/30">
@@ -749,15 +754,33 @@ function PacienteDetail() {
                           </TableCell>
                           <TableCell className="text-xs">
                             <div className="space-y-1">
-                              {hasAba && (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1 mr-1"
-                                >
-                                  <Activity className="h-2.5 w-2.5" />
-                                  Plano ABA ({ag.plano_aba.programas.length} progs)
-                                </Badge>
-                              )}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {hasAba && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                  >
+                                    <Activity className="h-2.5 w-2.5" />
+                                    Plano ABA ({ag.plano_aba.programas.length} progs)
+                                  </Badge>
+                                )}
+                                {isReportFilled ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                  >
+                                    <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+                                    Relatório Preenchido
+                                  </Badge>
+                                ) : (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                  >
+                                    Pendente
+                                  </Badge>
+                                )}
+                              </div>
                               {ajusteTexto ? (
                                 <p className="line-clamp-2 text-foreground text-xs leading-relaxed">
                                   {ajusteTexto}
@@ -775,10 +798,10 @@ function PacienteDetail() {
                               variant="outline"
                               size="sm"
                               onClick={() => setSelectedSessionForModal(ag)}
-                              className="h-7 text-xs px-2.5 gap-1 hover:bg-purple-50 hover:text-purple-700 dark:hover:bg-purple-950/30"
+                              className="h-8 text-xs px-3 gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
                             >
-                              <Eye className="h-3.5 w-3.5 text-purple-600" />
-                              Ver Relatório
+                              <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                              Relatório da Sessão
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -966,34 +989,72 @@ function PacienteDetail() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Histórico de agendamentos</CardTitle>
+          <CardTitle className="text-base flex items-center justify-between">
+            <span>Histórico de agendamentos</span>
+            <Badge variant="outline" className="text-xs font-normal">
+              {(ags || []).length} {(ags || []).length === 1 ? "sessão" : "sessões"}
+            </Badge>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {(ags || []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Sem agendamentos.</p>
           ) : (
             <div className="divide-y">
-              {(ags || []).map((a: any) => (
-                <div key={a.id} className="flex items-center gap-3 py-2.5 text-sm">
-                  <div
-                    className="h-8 w-1 rounded-full"
-                    style={{ background: a.profissionais?.cor }}
-                  />
-                  <div className="min-w-[140px] font-medium">
-                    {(() => {
-                      try {
-                        return a.data_inicio ? format(new Date(a.data_inicio), "dd/MM/yyyy HH:mm") : "—";
-                      } catch {
-                        return "—";
-                      }
-                    })()}
+              {(ags || []).map((a: any) => {
+                const obsTrimmed = a.observacoes?.trim() || "";
+                const isReportFilled = Boolean(
+                  obsTrimmed &&
+                  obsTrimmed !== "[Tipo: Sessão Padrão]" &&
+                  obsTrimmed !== "[Tipo: Anamnese]"
+                );
+                return (
+                  <div key={a.id} className="flex items-center justify-between gap-3 py-3 text-sm flex-wrap sm:flex-nowrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="h-8 w-1 rounded-full shrink-0"
+                        style={{ background: a.profissionais?.cor }}
+                      />
+                      <div className="min-w-[130px] font-medium text-xs sm:text-sm">
+                        {(() => {
+                          try {
+                            return a.data_inicio ? format(new Date(a.data_inicio), "dd/MM/yyyy HH:mm") : "—";
+                          } catch {
+                            return "—";
+                          }
+                        })()}
+                      </div>
+                      <div className="truncate text-muted-foreground text-xs sm:text-sm">
+                        {a.servicos?.nome} • {a.profissionais?.nome}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="secondary" className="capitalize text-xs">
+                        {a.status}
+                      </Badge>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedSessionForModal(a)}
+                        className={cn(
+                          "h-8 px-2.5 sm:px-3 text-xs gap-1.5 font-medium transition-all shadow-sm",
+                          isReportFilled
+                            ? "border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300"
+                            : "border-slate-200 text-slate-700 bg-slate-50 hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        )}
+                        title="Ver ou preencher relatório da sessão"
+                      >
+                        <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                        <span>Relatório da Sessão</span>
+                        {isReportFilled && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Relatório preenchido" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex-1 text-muted-foreground">
-                    {a.servicos?.nome} • {a.profissionais?.nome}
-                  </div>
-                  <Badge variant="secondary">{a.status}</Badge>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
