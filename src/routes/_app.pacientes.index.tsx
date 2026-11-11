@@ -41,7 +41,7 @@ function PacientesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<"todos" | "ativo" | "lista_espera" | "inativo">("todos");
+  const [statusFilter, setStatusFilter] = useState<"todos" | "ativo" | "lista_espera" | "inativo">("ativo");
 
   // Sincronização em tempo real entre todos os dispositivos
   useEffect(() => {
@@ -273,16 +273,8 @@ function PacientesPage() {
         </Dialog>
       </div>
 
-      {/* Filter Tabs by Status (Todos, Ativos, Lista de Espera, Inativos) */}
+      {/* Filter Tabs by Status (Ativos, Todos, Lista de Espera, Inativos) */}
       <div className="flex flex-wrap items-center gap-1.5 p-1 bg-muted/60 rounded-lg w-fit border border-border/50 text-xs">
-        <Button
-          variant={statusFilter === "todos" ? "default" : "ghost"}
-          size="sm"
-          className="h-7 text-xs font-medium px-3"
-          onClick={() => setStatusFilter("todos")}
-        >
-          Todos ({pacientes.length})
-        </Button>
         <Button
           variant={statusFilter === "ativo" ? "default" : "ghost"}
           size="sm"
@@ -290,6 +282,14 @@ function PacientesPage() {
           onClick={() => setStatusFilter("ativo")}
         >
           Ativos ({totalAtivos})
+        </Button>
+        <Button
+          variant={statusFilter === "todos" ? "default" : "ghost"}
+          size="sm"
+          className="h-7 text-xs font-medium px-3"
+          onClick={() => setStatusFilter("todos")}
+        >
+          Todos ({pacientes.length})
         </Button>
         <Button
           variant={statusFilter === "lista_espera" ? "default" : "ghost"}
