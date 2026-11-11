@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,6 +84,69 @@ function PacienteDetail() {
   const [isEditingSharedGoal, setIsEditingSharedGoal] = useState(false);
   const [sharedGoalText, setSharedGoalText] = useState("");
 
+  // Sincronização em tempo real em todos os dispositivos (celular, tablet, notebook)
+  useEffect(() => {
+    if (!id) return;
+    const channelId = `paciente-detail-realtime-${id}-${Math.random().toString(36).substring(2, 9)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pacientes",
+          filter: `id=eq.${id}`,
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["paciente", id] });
+          qc.invalidateQueries({ queryKey: ["pacientes"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "agendamentos",
+          filter: `paciente_id=eq.${id}`,
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["paciente-ags", id] });
+          qc.invalidateQueries({ queryKey: ["ags"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "responsaveis",
+          filter: `paciente_id=eq.${id}`,
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["responsaveis", id] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "paciente_profissional",
+          filter: `paciente_id=eq.${id}`,
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["paciente-profissionais-detail", id] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [id, qc]);
+
   const { data: paciente, isLoading: loadingPac, isError: errorPac, error: errPac } = useQuery({
     queryKey: ["paciente", id],
     queryFn: async () => {
@@ -91,6 +154,7 @@ function PacienteDetail() {
       if (error) throw error;
       return data;
     },
+    staleTime: 10 * 1000,
   });
 
   const { data: responsaveis = [] } = useQuery({
@@ -104,6 +168,7 @@ function PacienteDetail() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 10 * 1000,
   });
 
   const { data: ags = [] } = useQuery({
@@ -118,6 +183,7 @@ function PacienteDetail() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 10 * 1000,
   });
 
   const { data: accompanyingProfs = [] } = useQuery({
@@ -130,6 +196,7 @@ function PacienteDetail() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 10 * 1000,
   });
 
   const delResp = useMutation({
@@ -259,45 +326,63 @@ function PacienteDetail() {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-xl">{paciente.nome}</CardTitle>
-            <div className="mt-1 text-sm text-muted-foreground">
+      <Card className="border-border shadow-xs">
+        <CardHeader className="pb-3 border-b border-border/50">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Bloco: Nome + Status + Botões Destacados AO LADO DO NOME */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <CardTitle className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+                  {paciente.nome}
+                </CardTitle>
+                <Badge
+                  variant={paciente.status === "ativo" ? "default" : "secondary"}
+                  className="capitalize font-semibold text-xs px-2.5 py-0.5"
+                >
+                  {paciente.status.replace("_", " ")}
+                </Badge>
+              </div>
+
+              {/* Botões Destacados Imediatamente ao Lado do Nome */}
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => setProntuarioOpen(true)}
+                  className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold shadow-md px-3.5 h-9 transition-all hover:scale-[1.02] cursor-pointer"
+                >
+                  <FileText className="h-4 w-4" /> Relatórios
+                </Button>
+                <Dialog open={editOpen} onOpenChange={setEditOpen}>
+                  <DialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 font-medium border-border/80 shadow-xs h-9 px-3 hover:bg-accent cursor-pointer"
+                    >
+                      <Pencil className="h-4 w-4 text-purple-600 dark:text-purple-400" /> Editar
+                    </Button>
+                  </DialogTrigger>
+                  {editOpen && (
+                    <PacienteFormDialog
+                      paciente={paciente}
+                      onSaved={() => {
+                        setEditOpen(false);
+                        qc.invalidateQueries({ queryKey: ["paciente", id] });
+                        qc.invalidateQueries({ queryKey: ["pacientes"] });
+                        qc.invalidateQueries({ queryKey: ["responsaveis", id] });
+                      }}
+                    />
+                  )}
+                </Dialog>
+              </div>
+            </div>
+
+            {/* Data de Nascimento */}
+            <div className="text-xs sm:text-sm text-muted-foreground font-medium bg-muted/40 px-3 py-1.5 rounded-lg border border-border/40 shrink-0">
               {paciente.data_nascimento
                 ? `Nasc. ${formatBirthDateForDisplay(paciente.data_nascimento)}`
                 : "Data de nascimento não informada"}
             </div>
-          </div>
-          <div className="flex gap-2">
-            <Badge variant={paciente.status === "ativo" ? "default" : "secondary"}>
-              {paciente.status.replace("_", " ")}
-            </Badge>
-            <Button
-              size="sm"
-              onClick={() => setProntuarioOpen(true)}
-              className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-sm"
-            >
-              <FileText className="h-4 w-4" /> Relatórios
-            </Button>
-            <Dialog open={editOpen} onOpenChange={setEditOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline" className="gap-1.5">
-                  <Pencil className="h-4 w-4" /> Editar
-                </Button>
-              </DialogTrigger>
-              {editOpen && (
-                <PacienteFormDialog
-                  paciente={paciente}
-                  onSaved={() => {
-                    setEditOpen(false);
-                    qc.invalidateQueries({ queryKey: ["paciente", id] });
-                    qc.invalidateQueries({ queryKey: ["pacientes"] });
-                    qc.invalidateQueries({ queryKey: ["responsaveis", id] });
-                  }}
-                />
-              )}
-            </Dialog>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">

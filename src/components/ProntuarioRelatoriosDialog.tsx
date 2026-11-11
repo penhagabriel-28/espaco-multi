@@ -179,6 +179,47 @@ export function ProntuarioRelatoriosDialog({
   const [isEditingObjetivo, setIsEditingObjetivo] = useState(false);
   const [isEditingPlan, setIsEditingPlan] = useState(false);
 
+  // Sincronização em tempo real de prontuário e relatórios entre todos os dispositivos
+  useEffect(() => {
+    setObjetivoCompartilhado(prontuarioData.objetivo_compartilhado || "");
+  }, [prontuarioData.objetivo_compartilhado]);
+
+  useEffect(() => {
+    if (!open || !paciente?.id) return;
+    const channelId = `prontuario-modal-realtime-${paciente.id}-${Math.random().toString(36).substring(2, 9)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pacientes",
+          filter: `id=eq.${paciente.id}`,
+        },
+        () => {
+          onProntuarioUpdated?.();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "agendamentos",
+          filter: `paciente_id=eq.${paciente.id}`,
+        },
+        () => {
+          onProntuarioUpdated?.();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [open, paciente?.id, onProntuarioUpdated]);
+
   // Local plan being edited
   const [currentPlanForm, setCurrentPlanForm] = useState<PlanoEspecialidade>(() => {
     return (

@@ -24,7 +24,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, User, Pencil, Trash2, Clock } from "lucide-react";
+import { Plus, Search, User, Pencil, Trash2, Clock, FileText } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
@@ -42,6 +42,40 @@ function PacientesPage() {
   const [editing, setEditing] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<"todos" | "ativo" | "lista_espera" | "inativo">("todos");
+
+  // Sincronização em tempo real entre todos os dispositivos
+  useEffect(() => {
+    const channelId = `pacientes-index-realtime-${Math.random().toString(36).substring(2, 9)}`;
+    const channel = supabase
+      .channel(channelId)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "pacientes",
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["pacientes"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "paciente_profissional",
+        },
+        () => {
+          qc.invalidateQueries({ queryKey: ["paciente-profissional-all"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [qc]);
 
   const {
     data: pacientes = [],
@@ -64,7 +98,7 @@ function PacientesPage() {
       }
       return data ?? [];
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 1000,
     retry: 2,
   });
 
@@ -77,7 +111,7 @@ function PacientesPage() {
       if (error) throw error;
       return data ?? [];
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 1000,
   });
 
   const deleteMutation = useMutation({
@@ -439,24 +473,28 @@ function PacientesPage() {
                           ? `Convênio: ${p.convenio_nome ?? "—"}`
                           : `Particular (${p.valor_mensal && p.valor_mensal > 0 ? "Mensal" : "Por Sessão"})`}
                       </div>
-                      <div className="flex gap-1">
+                      <div className="flex items-center gap-1.5">
                         <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs px-2.5 font-medium gap-1 text-purple-700 bg-purple-50/80 hover:bg-purple-100 hover:text-purple-800 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/80 shadow-2xs"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            setEditing(p);
-                            setOpen(true);
+                            navigate({
+                              to: "/pacientes/$id",
+                              params: { id: p.id },
+                            });
                           }}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                          Abrir ficha
                         </Button>
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          title="Excluir paciente"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
