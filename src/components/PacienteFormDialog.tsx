@@ -246,29 +246,31 @@ export function PacienteFormDialog({
     if (isResponsaveisSuccess && responsaveis && responsaveis.length > 0 && !hasLoadedResponsavel) {
       const r1 = responsaveis[0];
       const r2 = responsaveis[1];
-      const parsedEnd1 =
-        r1?.endereco ||
-        (f.endereco && f.endereco.trim()) ||
-        parseEnderecoFromObs(paciente?.observacoes) ||
-        "";
-      const parsedEnd2 =
-        r2?.endereco ||
-        (f.endereco_secundario && f.endereco_secundario.trim()) ||
-        parseEnderecoSecFromObs(paciente?.observacoes) ||
-        "";
-      setForm((f) => ({
-        ...f,
-        responsavel: r1?.nome || "",
-        telefone: formatPhone(r1?.telefone ?? ""),
-        cpf: r1?.cpf ? formatCPF(r1.cpf) : (f.cpf || ""),
-        email: r1?.email ?? "",
-        endereco: parsedEnd1,
-        responsavel_secundario: r2?.nome || "",
-        telefone_secundario: formatPhone(r2?.telefone ?? ""),
-        cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : "",
-        email_secundario: r2?.email ?? "",
-        endereco_secundario: parsedEnd2,
-      }));
+      setForm((prev) => {
+        const parsedEnd1 =
+          r1?.endereco ||
+          (prev.endereco && prev.endereco.trim()) ||
+          parseEnderecoFromObs(paciente?.observacoes) ||
+          "";
+        const parsedEnd2 =
+          r2?.endereco ||
+          (prev.endereco_secundario && prev.endereco_secundario.trim()) ||
+          parseEnderecoSecFromObs(paciente?.observacoes) ||
+          "";
+        return {
+          ...prev,
+          responsavel: r1?.nome || "",
+          telefone: formatPhone(r1?.telefone ?? ""),
+          cpf: r1?.cpf ? formatCPF(r1.cpf) : (prev.cpf || ""),
+          email: r1?.email ?? "",
+          endereco: parsedEnd1,
+          responsavel_secundario: r2?.nome || "",
+          telefone_secundario: formatPhone(r2?.telefone ?? ""),
+          cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : "",
+          email_secundario: r2?.email ?? "",
+          endereco_secundario: parsedEnd2,
+        };
+      });
       if (responsaveis.length > 1) {
         setShowSecondaryResponsible(true);
       }
