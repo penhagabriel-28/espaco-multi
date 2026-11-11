@@ -57,6 +57,7 @@ import {
   parseProntuario,
   serializeProntuarioInObs,
   DEFAULT_PLANOS,
+  cleanSessionMeta,
 } from "@/components/ProntuarioRelatoriosDialog";
 import { isProfissionalAdmin, cn } from "@/lib/utils";
 import {
@@ -725,13 +726,7 @@ function PacienteDetail() {
                       const profNome = ag.profissionais?.nome || "Profissional";
                       const profCor = ag.profissionais?.cor || "#9333ea";
                       const servNome = ag.servicos?.nome;
-                      const rawObs = ag.observacoes || "";
-                      const cleanObs = rawObs
-                        .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
-                        .replace(/\[Meio:\s*[^\]]+\]/gi, "")
-                        .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
-                        .replace(/\[Email:\s*[^\]]+\]/gi, "")
-                        .trim();
+                      const cleanObs = cleanSessionMeta(ag.observacoes);
                       const hasAba = Boolean(ag.plano_aba?.programas?.length);
                       const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
 
@@ -1004,13 +999,7 @@ function PacienteDetail() {
           ) : (
             <div className="divide-y">
               {(ags || []).map((a: any) => {
-                const rawObs = a.observacoes || "";
-                const cleanObs = rawObs
-                  .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
-                  .replace(/\[Meio:\s*[^\]]+\]/gi, "")
-                  .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
-                  .replace(/\[Email:\s*[^\]]+\]/gi, "")
-                  .trim();
+                const cleanObs = cleanSessionMeta(a.observacoes);
                 const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
                 return (
                   <div key={a.id} className="flex items-center justify-between gap-3 py-3 text-sm flex-wrap sm:flex-nowrap">

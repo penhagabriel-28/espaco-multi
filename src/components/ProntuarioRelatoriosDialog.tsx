@@ -147,6 +147,38 @@ export const serializeProntuarioInObs = (
   return `${current}\n\n${tag}`.trim();
 };
 
+export function cleanSessionMeta(raw?: string | null): string {
+  if (!raw) return "";
+  let text = raw
+    .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
+    .replace(/\[Meio:\s*[^\]]+\]/gi, "")
+    .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
+    .replace(/\[Email:\s*[^\]]+\]/gi, "")
+    .trim();
+
+  // Remove cabeçalho redundante de sessões anteriores se houver
+  text = text
+    .replace(/^Data e hora da sessão\s*\n\s*Atendimento dia[^\n]*\n\s*Identificação do Paciente:[^\n]*\n*/i, "")
+    .trim();
+
+  return text;
+}
+
+export function mergeSessionMeta(oldRaw: string | null | undefined, newText: string): string {
+  const meta: string[] = [];
+  if (oldRaw) {
+    const tipo = oldRaw.match(/\[Tipo:[^\]]+\]/i);
+    if (tipo) meta.push(tipo[0]);
+    const meio = oldRaw.match(/\[Meio:[^\]]+\]/i);
+    if (meio) meta.push(meio[0]);
+  }
+  const clean = newText.trim();
+  if (meta.length > 0) {
+    return `${meta.join(" ")}\n${clean}`.trim();
+  }
+  return clean;
+}
+
 export interface ProntuarioRelatoriosDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -745,13 +777,7 @@ export function ProntuarioRelatoriosDialog({
 
                         const planoAba = ag.plano_aba as any;
                         const hasAba = !!planoAba?.programas?.length;
-                        const rawObs = ag.observacoes || "";
-                        const cleanObs = rawObs
-                          .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
-                          .replace(/\[Meio:\s*[^\]]+\]/gi, "")
-                          .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
-                          .replace(/\[Email:\s*[^\]]+\]/gi, "")
-                          .trim();
+                        const cleanObs = cleanSessionMeta(ag.observacoes);
                         const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
                         const ajusteTexto = cleanObs || planoAba?.observacoes_medica || "";
 
@@ -1390,31 +1416,6 @@ function renderMarkdownToHtml(markdown: string): string {
     .join("\n");
 }
 
-function cleanSessionMeta(raw?: string | null): string {
-  if (!raw) return "";
-  return raw
-    .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
-    .replace(/\[Meio:\s*[^\]]+\]/gi, "")
-    .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
-    .replace(/\[Email:\s*[^\]]+\]/gi, "")
-    .trim();
-}
-
-function mergeSessionMeta(oldRaw: string | null | undefined, newText: string): string {
-  const meta: string[] = [];
-  if (oldRaw) {
-    const tipo = oldRaw.match(/\[Tipo:[^\]]+\]/i);
-    if (tipo) meta.push(tipo[0]);
-    const meio = oldRaw.match(/\[Meio:[^\]]+\]/i);
-    if (meio) meta.push(meio[0]);
-  }
-  const clean = newText.trim();
-  if (meta.length > 0) {
-    return `${meta.join(" ")}\n${clean}`.trim();
-  }
-  return clean;
-}
-
 export interface DetalhesSessaoDialogProps {
   session: any;
   pacienteNome?: string;
@@ -1451,16 +1452,6 @@ export function DetalhesSessaoDialog({
     }
   }, [session?.data_inicio]);
 
-  const dataCurta = useMemo(() => {
-    try {
-      return session?.data_inicio
-        ? format(new Date(session.data_inicio), "dd/MM", { locale: ptBR })
-        : "";
-    } catch {
-      return "";
-    }
-  }, [session?.data_inicio]);
-
   const [sessionNoteEdit, setSessionNoteEdit] = useState("");
   const [isSavingSessionNote, setIsSavingSessionNote] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1468,17 +1459,8 @@ export function DetalhesSessaoDialog({
   useEffect(() => {
     if (!session) return;
     const cleaned = cleanSessionMeta(session.observacoes);
-    if (cleaned) {
-      setSessionNoteEdit(cleaned);
-    } else {
-      setSessionNoteEdit(
-`Data e hora da sessão
-Atendimento dia ${dataCurta || format(new Date(), "dd/MM")}
-Identificação do Paciente: ${pacienteNome}
-`
-      );
-    }
-  }, [session?.id, session?.observacoes, dataCurta, pacienteNome]);
+    setSessionNoteEdit(cleaned || "");
+  }, [session?.id, session?.observacoes]);
 
   const handleCopyReport = async () => {
     if (!sessionNoteEdit) {
