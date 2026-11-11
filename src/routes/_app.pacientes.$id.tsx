@@ -111,7 +111,7 @@ function PacienteDetail() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("agendamentos")
-        .select("*, profissionais(nome, cor), servicos(nome)")
+        .select("*, profissionais(nome, cor, especialidade, registro), servicos(nome)")
         .eq("paciente_id", id)
         .order("data_inicio", { ascending: false })
         .limit(20);
@@ -936,6 +936,9 @@ function PacienteDetail() {
           onOpenChange={(open) => !open && setSelectedSessionForModal(null)}
           session={selectedSessionForModal}
           pacienteNome={paciente?.nome}
+          paciente={paciente}
+          responsaveis={responsaveis}
+          enderecoPaciente={enderecoReal}
           onSessionUpdated={() => {
             qc.invalidateQueries({ queryKey: ["paciente-ags", id] });
           }}

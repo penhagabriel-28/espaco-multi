@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -38,6 +38,16 @@ import {
   Phone,
   FileCheck2,
   Users,
+  Copy,
+  CheckCheck,
+  Stethoscope,
+  Brain,
+  GraduationCap,
+  Target,
+  Download,
+  RotateCcw,
+  AlertCircle,
+  FileCode,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -693,6 +703,11 @@ export function ProntuarioRelatoriosDialog({
 
                         const planoAba = ag.plano_aba as any;
                         const hasAba = !!planoAba?.programas?.length;
+                        const isClinicalReport =
+                          ag.observacoes?.includes("# RELATÓRIO") ||
+                          ag.observacoes?.includes("## 1.") ||
+                          ag.observacoes?.includes("RELATÓRIO DE EVOLUÇÃO") ||
+                          ag.observacoes?.includes("REGISTRO DE EVOLUÇÃO");
                         const ajusteTexto =
                           ag.observacoes?.replace(/\[Tipo:.*?\]/g, "").trim() ||
                           planoAba?.observacoes_medica ||
@@ -732,15 +747,26 @@ export function ProntuarioRelatoriosDialog({
                             {/* Ajuste / Orientação */}
                             <TableCell className="text-xs">
                               <div className="space-y-1">
-                                {hasAba && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1 mr-1"
-                                  >
-                                    <Activity className="h-2.5 w-2.5" />
-                                    Plano ABA ({planoAba.programas.length} progs)
-                                  </Badge>
-                                )}
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {hasAba && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                    >
+                                      <Activity className="h-2.5 w-2.5" />
+                                      Plano ABA ({planoAba.programas.length} progs)
+                                    </Badge>
+                                  )}
+                                  {isClinicalReport && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-purple-500/40 text-purple-700 dark:text-purple-300 bg-purple-500/10 gap-1"
+                                    >
+                                      <FileCheck2 className="h-2.5 w-2.5 text-purple-600" />
+                                      Relatório Clínico Preenchido
+                                    </Badge>
+                                  )}
+                                </div>
                                 {ajusteTexto ? (
                                   <p className="line-clamp-2 text-foreground text-xs leading-relaxed">
                                     {ajusteTexto}
@@ -788,6 +814,9 @@ export function ProntuarioRelatoriosDialog({
           onOpenChange={(open) => !open && setSelectedSession(null)}
           session={selectedSession}
           pacienteNome={paciente?.nome}
+          paciente={paciente}
+          responsaveis={responsaveis}
+          enderecoPaciente={enderecoPaciente}
           onSessionUpdated={() => {
             onProntuarioUpdated?.();
           }}
@@ -797,21 +826,642 @@ export function ProntuarioRelatoriosDialog({
   );
 }
 
-export function DetalhesSessaoDialog({
+export type ClinicalSpecialty = "fono" | "psicoterapia" | "psicopedagogia" | "aba";
+
+export const CLINICAL_SPECIALTIES_INFO: Record<
+  ClinicalSpecialty,
+  {
+    name: string;
+    sublabel: string;
+    baseNormativa: string;
+    council: string;
+    colorBadge: string;
+  }
+> = {
+  fono: {
+    name: "Fonoaudiologia",
+    sublabel: "CFFa nº 645/2021",
+    baseNormativa: "Resolução CFFa nº 645/2021 e Guia para Registro em Prontuário (CFFa)",
+    council: "CFFa",
+    colorBadge: "bg-blue-500/10 text-blue-700 border-blue-300 dark:text-blue-300",
+  },
+  psicoterapia: {
+    name: "Psicoterapia (Psicologia)",
+    sublabel: "CFP nº 01/2009",
+    baseNormativa: "Resolução CFP nº 01/2009 (alterada pela 05/2010) e Manual de Documentos Psicológicos do CFP",
+    council: "CRP",
+    colorBadge: "bg-purple-500/10 text-purple-700 border-purple-300 dark:text-purple-300",
+  },
+  psicopedagogia: {
+    name: "Psicopedagogia",
+    sublabel: "ABPp / Sem CID",
+    baseNormativa: "Código de Ética da ABPp e Lei nº 15.519/2026 (Sem emissão de CID/laudo médico)",
+    council: "CBO 2394-25 / ABPp",
+    colorBadge: "bg-amber-500/10 text-amber-700 border-amber-300 dark:text-amber-300",
+  },
+  aba: {
+    name: "Terapia ABA",
+    sublabel: "Análise do Comportamento",
+    baseNormativa: "Diretrizes e Nota Técnica do CFP e Normas do Conselho de Classe Competente",
+    council: "Conselho Competente (CRP/CREFONO/CREFITO)",
+    colorBadge: "bg-emerald-500/10 text-emerald-700 border-emerald-300 dark:text-emerald-300",
+  },
+};
+
+export function detectSpecialty(
+  servicoNome?: string,
+  profissionalEspecialidade?: string,
+  observacoes?: string
+): ClinicalSpecialty {
+  const combined = `${servicoNome || ""} ${profissionalEspecialidade || ""} ${observacoes || ""}`.toLowerCase();
+  if (combined.includes("fono") || combined.includes("audiolog") || combined.includes("voz")) return "fono";
+  if (combined.includes("aba") || combined.includes("comportament") || combined.includes("dtt")) return "aba";
+  if (combined.includes("psicopedag") || combined.includes("aprendiz") || combined.includes("pp")) return "psicopedagogia";
+  if (combined.includes("psico") || combined.includes("terapia") || combined.includes("psi")) return "psicoterapia";
+  return "psicopedagogia";
+}
+
+function calculateAge(birthDateStr?: string | null): string {
+  if (!birthDateStr) return "[Não informado na sessão]";
+  const birth = new Date(birthDateStr);
+  if (isNaN(birth.getTime())) return "[Não informado na sessão]";
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  return age > 0 ? `${age} anos` : "Menos de 1 ano";
+}
+
+function calculateDuration(start?: string | null, end?: string | null): string {
+  if (!start || !end) return "50 minutos";
+  const s = new Date(start);
+  const e = new Date(end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return "50 minutos";
+  const diffMinutes = Math.round((e.getTime() - s.getTime()) / (1000 * 60));
+  return diffMinutes > 0 ? `${diffMinutes} minutos` : "50 minutos";
+}
+
+export function generateClinicalReportTemplate({
+  specialty,
   session,
-  pacienteNome,
-  open,
-  onOpenChange,
-  onSessionUpdated,
+  paciente,
+  responsaveis = [],
+  enderecoPaciente = "",
 }: {
+  specialty: ClinicalSpecialty;
+  session?: any;
+  paciente?: any;
+  responsaveis?: any[];
+  enderecoPaciente?: string;
+}): string {
+  const pacienteNome =
+    paciente?.nome ||
+    session?.paciente?.nome ||
+    session?.pacientes?.nome ||
+    "[Não informado na sessão]";
+
+  const dataNasc = paciente?.data_nascimento
+    ? formatBirthDateForDisplay(paciente.data_nascimento)
+    : "[Não informado na sessão]";
+
+  const idade = calculateAge(paciente?.data_nascimento);
+
+  const respPrincipal = responsaveis?.[0];
+  const responsavelInfo = respPrincipal?.nome
+    ? `${respPrincipal.nome}${respPrincipal.parentesco ? ` (${respPrincipal.parentesco})` : ""}${respPrincipal.telefone ? ` - Contato: ${respPrincipal.telefone}` : ""}`
+    : (paciente?.responsavel_nome
+        ? `${paciente.responsavel_nome}${paciente.telefone ? ` - Contato: ${paciente.telefone}` : ""}`
+        : "[Não informado na sessão]");
+
+  const contatoInfo =
+    paciente?.telefone || respPrincipal?.telefone || "[Não informado na sessão]";
+
+  const profissionalNome = session?.profissionais?.nome || "[Não informado na sessão]";
+  const registroProfissional =
+    session?.profissionais?.registro || "[Não informado na sessão]";
+  const especialidadeProfissional =
+    session?.profissionais?.especialidade ||
+    session?.servicos?.nome ||
+    CLINICAL_SPECIALTIES_INFO[specialty].name;
+
+  const dataSessao = session?.data_inicio
+    ? format(new Date(session.data_inicio), "dd/MM/yyyy", { locale: ptBR })
+    : format(new Date(), "dd/MM/yyyy", { locale: ptBR });
+
+  const dataExtenso = session?.data_inicio
+    ? format(new Date(session.data_inicio), "dd 'de' MMMM 'de' yyyy", { locale: ptBR })
+    : format(new Date(), "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+
+  const horarioSessao = session?.data_inicio
+    ? `${format(new Date(session.data_inicio), "HH:mm", { locale: ptBR })}${
+        session.data_fim
+          ? ` às ${format(new Date(session.data_fim), "HH:mm", { locale: ptBR })}`
+          : ""
+      }`
+    : "[Não informado na sessão]";
+
+  const duracaoSessao = calculateDuration(session?.data_inicio, session?.data_fim);
+  const diagnosticoBase =
+    paciente?.cids_secundarios || paciente?.cid || "[Não informado na sessão]";
+
+  const planoAba = session?.plano_aba;
+  let programasAbaStr = "";
+  if (planoAba?.programas && Array.isArray(planoAba.programas) && planoAba.programas.length > 0) {
+    programasAbaStr =
+      "- **Programas ABA Aplicados e Medidas:**\n" +
+      planoAba.programas
+        .map((p: any, idx: number) => {
+          const respCount = p.respostas ? Object.keys(p.respostas).length : 0;
+          return `  - Programa ${idx + 1}: **${p.nome || "Não especificado"}** — ${
+            respCount > 0 ? `${respCount} tentativas registradas` : "em aplicação"
+          }${p.descricao ? ` (${p.descricao})` : ""}`;
+        })
+        .join("\n");
+  } else {
+    programasAbaStr =
+      "- **Programas ABA Aplicados e Medidas:** [Registrar taxa de acertos, frequência de respostas corretas, ensaios discretos executados]";
+  }
+
+  if (specialty === "fono") {
+    return `# RELATÓRIO DE EVOLUÇÃO CLÍNICA EM FONOAUDIOLOGIA
+*Base Normativa: Resolução CFFa nº 645/2021 e Guia para Registro em Prontuário do CFFa*
+
+## 1. Identificação do Paciente
+- **Nome Completo:** ${pacienteNome}
+- **Data de Nascimento:** ${dataNasc} (Idade: ${idade})
+- **Contato:** ${contatoInfo}
+- **Responsável Legal:** ${responsavelInfo}
+
+## 2. Identificação do Profissional
+- **Fonoaudiólogo(a) Responsável:** ${profissionalNome}
+- **Profissão:** Fonoaudiologia
+- **Registro Profissional:** CFFa nº ${registroProfissional}
+
+## 3. Data e Horário do Atendimento
+- **Data da Sessão:** ${dataSessao}
+- **Horário:** ${horarioSessao} (Duração: ${duracaoSessao})
+- **Tipo de Atendimento:** Sessão de Terapia Fonoaudiológica [ou: Avaliação / Reavaliação / Orientação]
+
+## 4. Anamnese e Queixa Fonoaudiológica
+- **Resumo da Demanda / Queixa Principal:** [Descrever a queixa clínica ou motivo da busca fonoaudiológica]
+
+## 5. Procedimentos e Testes Realizados na Sessão
+- **Instrumentos e Técnicas Aplicadas:** [Descrever objetivamente os exercícios miofuncionais, treino auditivo, motricidade orofacial, articulação, deglutição ou estimulação de linguagem trabalhados na sessão]
+
+## 6. Evolução e Descrição do Atendimento
+- **Aspectos Trabalhados e Respostas do Paciente:** [Descrever o engajamento, desempenho sonoro/articulatório, respostas funcionais, facilidades e dificuldades observadas]
+
+## 7. Diagnóstico Fonoaudiológico e Prognóstico
+- **Hipótese / Conclusão Diagnóstica:** [Descrever conclusão ou registrar: 'Avaliação inconclusa até a presente data, conforme prerrogativa da Resolução CFFa nº 645/2021']
+- **Prognóstico:** [Favorável / Reservado / Em evolução continuada]
+
+## 8. Condutas e Orientações Fornecidas
+- **Orientações ao Paciente / Responsável:** [Orientações práticas de estimulação diária no domicílio e condutas prescritas para a rotina]
+
+## 9. Encaminhamentos Realizados / Retornos Recebidos
+- **Encaminhamentos:** [Registrar interconsultas com Neurologia, Ortodontia, Otorrinolaringologia, etc., ou '[Não informado na sessão]']
+
+## 10. Registro de Assiduidade e Ocorrências
+- **Faltas / Atrasos / Intercorrências:** Atendimento realizado no horário previsto, sem intercorrências registradas.
+
+## 11. Termo de Consentimento e Privacidade (LGPD)
+- Os dados sensíveis contidos neste prontuário são tratados estritamente para fins de acompanhamento terapêutico fonoaudiológico, sob sigilo profissional e em conformidade com a LGPD (Lei nº 13.709/2018).
+
+---
+**Local e Data:** São Luís - MA, ${dataExtenso}  
+
+____________________________________________________  
+**${profissionalNome}**  
+Fonoaudiólogo(a) — CFFa nº ${registroProfissional}`;
+  }
+
+  if (specialty === "psicoterapia") {
+    return `# REGISTRO DE EVOLUÇÃO PSICOTERAPÊUTICA
+*Base Normativa: Resolução CFP nº 01/2009 (alterada pela 05/2010) e Manual de Documentos Psicológicos do CFP*
+
+## 1. Identificação do Paciente / Usuário
+- **Nome Completo:** ${pacienteNome}
+- **Nome Social:** [Não informado na sessão]
+- **Data de Nascimento:** ${dataNasc} (Idade: ${idade})
+- **Documento de Identificação:** [Não informado na sessão]
+- **Contato:** ${contatoInfo}
+- **Responsável Legal:** ${responsavelInfo}
+
+## 2. Identificação do Profissional
+- **Psicólogo(a) Responsável:** ${profissionalNome}
+- **Registro Profissional:** CRP nº ${registroProfissional}
+
+## 3. Dados do Atendimento
+- **Data da Sessão:** ${dataSessao}
+- **Horário:** ${horarioSessao} (Duração: ${duracaoSessao})
+- **Modalidade:** Sessão de Psicoterapia Individual
+
+## 4. Avaliação da Demanda
+- **Motivo da Busca / Demanda Terapêutica:** [Síntese da demanda clínica acolhida e foco do processo psicoterápico em andamento]
+
+## 5. Objetivos Terapêuticos
+- **Metas do Enquadre:** [Metas de curto, médio e longo prazo estabelecidas no plano terapêutico singular]
+
+## 6. Evolução da Sessão (Síntese Técnico-Científica)
+- **Procedimentos e Manejos Adotados:** [Descrever atividades realizadas, procedimentos técnico-científicos adotados segundo a abordagem clínica de referência]
+- **Processos e Respostas Observados:** [Síntese compreensiva das manifestações emocionais, elaborações do paciente e dinâmicas observadas ao longo do tempo — sem transcrição literal de falas, respeitando o princípio ético da síntese clínica do CFP]
+
+## 7. Encaminhamentos, Intercorrências ou Encerramento
+- **Encaminhamentos / Rede de Cuidados:** [Registrar encaminhamentos para Psiquiatria, Neurologia, Escola, ou 'Nenhum encaminhamento necessário nesta sessão']
+
+## 8. Documentos Complementares
+- **Referências a Registros / Avaliações:** [Referência a laudos, instrumentos de avaliação psicológica aplicados ou '[Não informado na sessão]']
+
+## 9. Sigilo Profissional e Guarda Documental
+- O presente registro tem natureza estritamente sigilosa, com guarda sob responsabilidade do profissional/instituição e acesso restrito ao paciente ou representante legal, conforme normas vigentes do CFP.
+
+---
+**Local e Data:** São Luís - MA, ${dataExtenso}  
+
+____________________________________________________  
+**${profissionalNome}**  
+Psicólogo(a) Clínico(a) — CRP nº ${registroProfissional}`;
+  }
+
+  if (specialty === "psicopedagogia") {
+    return `# RELATÓRIO DE SESSÃO PSICOPEDAGÓGICA
+*Base Normativa: Código de Ética da ABPp, Lei nº 15.519/2026 e Padrões Técnicos de Relatório Psicopedagógico*
+
+## 1. Dados Pessoais do Aprendente
+- **Nome Completo:** ${pacienteNome}
+- **Data de Nascimento:** ${dataNasc} (Idade: ${idade})
+- **Escola / Instituição de Ensino:** [Não informado na sessão]
+- **Série / Ano Escolar:** [Não informado na sessão]
+- **Responsáveis Legais:** ${responsavelInfo}
+- **Contato:** ${contatoInfo}
+
+## 2. Dados Técnicos da Avaliação / Intervenção
+- **Data da Sessão:** ${dataSessao}
+- **Local:** Espaço MULTI
+- **Duração do Atendimento:** ${duracaoSessao}
+- **Tipo de Atendimento:** Intervenção Psicopedagógica Clínica
+
+## 3. Queixa / Demanda Psicopedagógica
+- **Resumo da Demanda:** [Dificuldades relatadas no processo de ensino-aprendizagem, leitura, escrita, cálculo ou organização do pensamento]
+
+## 4. Dados Relevantes da Anamnese
+- **Histórico e Contexto:** [Dados relevantes sobre histórico escolar, desenvolvimento psicomotor e dinâmica familiar/escolar relacionados à sessão]
+
+## 5. Aspectos Trabalhados na Sessão
+- **Funções Cognitivas e Executivas:** [Atenção concentrada, memória de trabalho, planejamento, flexibilidade cognitiva]
+- **Leitura, Escrita e Linguagem:** [Decodificação, compreensão textual, fluência leitora e consciência fonológica]
+- **Raciocínio Lógico-Matemático:** [Construção do número, seriação, conservação de quantidade e resolução de problemas]
+- **Aspectos Emocionais e Vínculo com o Saber:** [Postura diante do erro, tolerância à frustração e relação com o aprender]
+
+## 6. Instrumentos, Recursos e Estratégias Utilizados
+- **Recursos Pedagógicos:** [Jogos de regras, atividades estruturadas, desafios lógico-matemáticos, materiais multissensoriais e mediação psicopedagógica]
+
+## 7. Análise dos Resultados da Sessão
+- **Avanços e Desafios Observados:** [Respostas do aprendente às mediações, estratégias espontâneas adotadas e barreiras que ainda persistem]
+
+## 8. Hipótese Diagnóstica Psicopedagógica
+- **Formulação da Natureza da Aprendizagem:** [Caracterização psicopedagógica dos processos e estilos de aprendizagem do aprendente — *Nota Ética: O presente documento possui finalidade exclusivamente psicopedagógica, não configurando laudo médico e prescindindo de CID, em estrita conformidade com as diretrizes da ABPp*]
+
+## 9. Recomendações e Encaminhamentos
+- **Orientações à Família:** [Estratégias de rotina, mediação de tarefas domiciliares e incentivo cognitivo]
+- **Orientações à Escola:** [Adequações pedagógicas, tempo estendido para avaliações e suporte mediado em sala]
+- **Encaminhamentos:** [Encaminhamentos a Fonoaudiologia, Psicologia, Neuropediatria quando achados indicarem necessidade de diagnóstico clínico complementar]
+
+---
+**Local e Data:** São Luís - MA, ${dataExtenso}  
+
+____________________________________________________  
+**${profissionalNome}**  
+Psicopedagogo(a) — CBO: 2394-25 / Inscrição ABPp: ${registroProfissional || "[Não informado na sessão]"}  
+*(Documento emitido conforme parâmetros éticos da Associação Brasileira de Psicopedagogia — ABPp)*`;
+  }
+
+  // Terapia ABA
+  return `# RELATÓRIO DE SESSÃO DE TERAPIA ABA
+*Análise do Comportamento Aplicada — Base Normativa: Diretrizes e Nota Técnica do CFP e Normas do Conselho de Classe Competente*
+
+## 1. Identificação do Paciente / Aprendiz
+- **Nome Completo:** ${pacienteNome}
+- **Idade:** ${idade}
+- **Diagnóstico de Base (estabelecido por médico especialista):** ${diagnosticoBase}
+- **Responsável Legal:** ${responsavelInfo}
+
+## 2. Identificação do Profissional e Conselho de Classe Competente
+- **Terapeuta / Aplicador(a) ABA:** ${profissionalNome}
+- **Formação de Base:** ${especialidadeProfissional}
+- **Conselho de Classe Competente:** ${registroProfissional || "[Não informado na sessão]"} (ex.: CRP / CREFONO / CREFITO)
+- **Coordenação / Supervisão do Caso:** [Não informado na sessão]
+
+## 3. Dados da Sessão
+- **Data da Sessão:** ${dataSessao}
+- **Horário:** ${horarioSessao}
+- **Duração:** ${duracaoSessao}
+- **Ambiente de Aplicação:** Sala Clínica Estruturada
+
+## 4. Objetivos do Plano de Intervenção Comportamental (PEI)
+- **Comportamentos-Alvo:** [Comunicação funcional, seguimento de instruções, imitação motora, ecoico, tato, intraverbal, habilidades sociais e redução de comportamentos disruptivos]
+
+## 5. Procedimentos ABA Aplicados na Sessão
+- **Estratégias Comportamentais:** [Ensino por Tentativas Discretas (DTT), Ensino em Ambiente Natural (NET), Modelagem, Encadeamento e Procedimento de Dica / Esvaecimento (Prompt Fading)]
+- **Esquema de Reforçamento:** [Reforçamento diferencial (DRA/DRI), emparelhamento de reforçadores e acesso a reforçadores contingentes à resposta correta]
+
+## 6. Coleta de Dados e Medidas Objetivas
+${programasAbaStr}
+- **Comportamentos Concorrentes / Desafiadores:** [Frequência, duração ou intensidade registradas — ou 'Zero ocorrência de comportamentos disruptivos na sessão']
+
+## 7. Análise de Progresso e Desempenho
+- **Resposta às Contingências:** [Taxa de acertos independentes vs. com nível de dica, aquisição e retenção dos alvos trabalhados]
+- **Generalização e Manutenção:** [Desempenho com variação de estímulos instrutivos, materiais e interlocutores]
+
+## 8. Supervisão e Equipe Multidisciplinar
+- **Alinhamento do Plano de Ensino:** [Sessão alinhada com coordenação/supervisão ABA e registro em folha de dados comportamentais]
+
+## 9. Encaminhamentos e Recomendações
+- **Ajustes no Plano Comportamental:** [Critério de aprendizagem atingido para progressão de fase ou necessidade de reforço em alvos específicos]
+- **Orientações para o Contexto Domiciliar (Treino de Pais):** [Recomendações práticas para manutenção das contingências no ambiente doméstico]
+
+---
+**Local e Data:** São Luís - MA, ${dataExtenso}  
+
+____________________________________________________  
+**${profissionalNome}**  
+Terapeuta ABA — Registro Conselho: ${registroProfissional || "[Não informado na sessão]"}`;
+}
+
+function formatInlineMarkdown(text: string) {
+  const parts: (string | React.ReactNode)[] = [];
+  const regex = /(\*\*.*?\*\*|\*.*?\*|\[Não informado na sessão\]|\[Não informado\])/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token === "[Não informado na sessão]" || token === "[Não informado]") {
+      parts.push(
+        <span
+          key={match.index}
+          className="inline-block px-1.5 py-0.2 text-[10px] font-mono text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded font-normal italic mx-0.5"
+        >
+          {token}
+        </span>
+      );
+    } else if (token.startsWith("**") && token.endsWith("**")) {
+      parts.push(
+        <strong key={match.index} className="font-semibold text-foreground">
+          {token.slice(2, -2)}
+        </strong>
+      );
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      parts.push(
+        <em key={match.index} className="italic text-foreground/80">
+          {token.slice(1, -1)}
+        </em>
+      );
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+
+  return parts;
+}
+
+function ClinicalMarkdownView({ content }: { content: string }) {
+  if (!content || !content.trim()) {
+    return (
+      <div className="p-8 text-center text-muted-foreground italic text-xs">
+        Nenhum relatório preenchido nesta sessão. Escolha um dos modelos técnicos acima para estruturar a evolução clínica.
+      </div>
+    );
+  }
+
+  const lines = content.split("\n");
+
+  return (
+    <div className="p-4 bg-background rounded-lg border border-border/80 space-y-2 text-xs leading-relaxed font-sans text-foreground">
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className="h-1.5" />;
+        }
+        if (trimmed.startsWith("# ")) {
+          return (
+            <h1
+              key={idx}
+              className="text-sm md:text-base font-extrabold text-purple-900 dark:text-purple-300 pb-1.5 border-b border-purple-200 dark:border-purple-800 tracking-wide uppercase"
+            >
+              {trimmed.substring(2)}
+            </h1>
+          );
+        }
+        if (trimmed.startsWith("## ")) {
+          return (
+            <h2
+              key={idx}
+              className="text-xs md:text-sm font-bold text-foreground mt-3 mb-1 flex items-center gap-1.5 text-purple-800 dark:text-purple-300"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-600 shrink-0 inline-block" />
+              {trimmed.substring(3)}
+            </h2>
+          );
+        }
+        if (trimmed.startsWith("### ")) {
+          return (
+            <h3 key={idx} className="text-xs font-semibold text-foreground/90 mt-2 mb-0.5">
+              {trimmed.substring(4)}
+            </h3>
+          );
+        }
+        if (trimmed.startsWith("---")) {
+          return <hr key={idx} className="my-3 border-border/60" />;
+        }
+        if (trimmed.startsWith("- ")) {
+          const bulletContent = trimmed.substring(2);
+          return (
+            <div key={idx} className="flex items-start gap-2 ml-2 my-0.5 text-xs text-foreground/90">
+              <span className="text-purple-600 font-bold shrink-0 leading-tight">•</span>
+              <span className="leading-snug">{formatInlineMarkdown(bulletContent)}</span>
+            </div>
+          );
+        }
+        return (
+          <p key={idx} className="text-xs text-foreground/90 leading-relaxed">
+            {formatInlineMarkdown(trimmed)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatInlineHtml(text: string): string {
+  return escapeHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(
+      /\[Não informado na sessão\]/g,
+      '<span style="color:#b45309;font-style:italic;">[Não informado na sessão]</span>'
+    )
+    .replace(
+      /\[Não informado\]/g,
+      '<span style="color:#b45309;font-style:italic;">[Não informado]</span>'
+    );
+}
+
+function renderMarkdownToHtml(markdown: string): string {
+  if (!markdown) return "<p>Nenhum registro</p>";
+  return markdown
+    .split("\n")
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return "<br/>";
+      if (trimmed.startsWith("# ")) return `<h1>${escapeHtml(trimmed.substring(2))}</h1>`;
+      if (trimmed.startsWith("## ")) return `<h2>${escapeHtml(trimmed.substring(3))}</h2>`;
+      if (trimmed.startsWith("### ")) return `<h3>${escapeHtml(trimmed.substring(4))}</h3>`;
+      if (trimmed.startsWith("---")) return "<hr/>";
+      if (trimmed.startsWith("- ")) {
+        return `<li>${formatInlineHtml(trimmed.substring(2))}</li>`;
+      }
+      return `<p>${formatInlineHtml(trimmed)}</p>`;
+    })
+    .join("\n");
+}
+
+export interface DetalhesSessaoDialogProps {
   session: any;
   pacienteNome?: string;
+  paciente?: any;
+  responsaveis?: any[];
+  enderecoPaciente?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSessionUpdated?: () => void;
-}) {
+}
+
+export function DetalhesSessaoDialog({
+  session,
+  pacienteNome,
+  paciente,
+  responsaveis = [],
+  enderecoPaciente = "",
+  open,
+  onOpenChange,
+  onSessionUpdated,
+}: DetalhesSessaoDialogProps) {
   const [sessionNoteEdit, setSessionNoteEdit] = useState(session?.observacoes || "");
   const [isSavingSessionNote, setIsSavingSessionNote] = useState(false);
+  const [reportTab, setReportTab] = useState<"editor" | "preview">("editor");
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setSessionNoteEdit(session?.observacoes || "");
+  }, [session?.id, session?.observacoes]);
+
+  const detectedSpecialty = useMemo(() => {
+    return detectSpecialty(
+      session?.servicos?.nome,
+      session?.profissionais?.especialidade,
+      session?.observacoes
+    );
+  }, [session]);
+
+  const handleApplyTemplate = (spec: ClinicalSpecialty) => {
+    const isBlank =
+      !sessionNoteEdit ||
+      sessionNoteEdit.trim() === "" ||
+      sessionNoteEdit.trim() === "[Tipo: Sessão Padrão]" ||
+      sessionNoteEdit.trim() === "[Tipo: Anamnese]";
+
+    if (!isBlank) {
+      const confirmReplace = window.confirm(
+        `Deseja substituir o conteúdo atual pelo modelo técnico oficial de ${CLINICAL_SPECIALTIES_INFO[spec].name}?`
+      );
+      if (!confirmReplace) return;
+    }
+
+    const template = generateClinicalReportTemplate({
+      specialty: spec,
+      session,
+      paciente,
+      responsaveis,
+      enderecoPaciente,
+    });
+
+    setSessionNoteEdit(template);
+    toast.success(`Modelo de ${CLINICAL_SPECIALTIES_INFO[spec].name} aplicado com sucesso!`);
+  };
+
+  const handleCopyReport = async () => {
+    if (!sessionNoteEdit) {
+      toast.error("Nenhum texto para copiar");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(sessionNoteEdit);
+      setCopied(true);
+      toast.success("Relatório clínico copiado para a área de transferência!");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Erro ao copiar texto");
+    }
+  };
+
+  const handleInsertMissing = () => {
+    setSessionNoteEdit((prev) => `${prev} [Não informado na sessão]`);
+    toast.info("Marcador inserido no texto");
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Não foi possível abrir janela de impressão. Permita pop-ups.");
+      return;
+    }
+    const title = `Relatório da Sessão - ${session?.paciente?.nome || pacienteNome || "Paciente"}`;
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="pt-BR">
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding: 32px; color: #111; line-height: 1.6; font-size: 13px; }
+            h1 { font-size: 16px; border-bottom: 2px solid #7c3aed; padding-bottom: 6px; color: #5b21b6; text-transform: uppercase; margin-bottom: 16px; }
+            h2 { font-size: 13px; color: #6d28d9; margin-top: 18px; margin-bottom: 6px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; }
+            h3 { font-size: 12px; font-weight: bold; margin-top: 12px; margin-bottom: 4px; }
+            p { margin: 6px 0; }
+            li { margin: 4px 0; }
+            hr { margin: 24px 0; border: none; border-top: 1px solid #cbd5e1; }
+            @media print {
+              body { padding: 10px; }
+            }
+          </style>
+        </head>
+        <body>
+          ${renderMarkdownToHtml(sessionNoteEdit)}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
+  };
 
   const handleSaveSessionAdjustment = async () => {
     if (!session?.id) return;
@@ -823,11 +1473,11 @@ export function DetalhesSessaoDialog({
         .eq("id", session.id);
 
       if (error) throw error;
-      toast.success("Ajuste da sessão atualizado com sucesso!");
+      toast.success("Relatório da sessão salvo com sucesso no prontuário!");
       onSessionUpdated?.();
       onOpenChange(false);
     } catch (err: any) {
-      toast.error("Erro ao salvar ajuste da sessão: " + err.message);
+      toast.error("Erro ao salvar relatório da sessão: " + err.message);
     } finally {
       setIsSavingSessionNote(false);
     }
@@ -837,29 +1487,39 @@ export function DetalhesSessaoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl w-full max-h-[85vh] flex flex-col p-5 overflow-hidden">
+      <DialogContent className="max-w-4xl w-full max-h-[92vh] flex flex-col p-5 overflow-hidden">
+        {/* Header */}
         <DialogHeader className="pb-2.5 border-b border-border/60 shrink-0">
-          <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
-            <FileText className="h-4 w-4 text-purple-600" />
-            Relatório da Sessão: {session.paciente?.nome || pacienteNome || "Paciente"}
-          </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-            Atendimento realizado em{" "}
-            {session.data_inicio
-              ? format(new Date(session.data_inicio), "dd/MM/yyyy 'às' HH:mm", {
-                  locale: ptBR,
-                })
-              : "—"}
-          </DialogDescription>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
+                <FileText className="h-4 w-4 text-purple-600" />
+                Relatório de Sessão / Evolução Clínica
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                Paciente: <strong className="text-foreground">{session.paciente?.nome || pacienteNome || "Paciente"}</strong> — Atendimento realizado em{" "}
+                {session.data_inicio
+                  ? format(new Date(session.data_inicio), "dd/MM/yyyy 'às' HH:mm", {
+                      locale: ptBR,
+                    })
+                  : "—"}
+              </DialogDescription>
+            </div>
+            <Badge variant="outline" className="text-[11px] font-medium border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300">
+              Evolução em Prontuário
+            </Badge>
+          </div>
         </DialogHeader>
 
+        {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-3.5 py-2 text-xs">
-          <div className="grid grid-cols-2 gap-2.5 p-3 rounded-lg bg-muted/40 border border-border/60">
+          {/* Metadata Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 rounded-lg bg-muted/30 border border-border/60">
             <div>
               <span className="text-muted-foreground block text-[10px] uppercase font-bold">
                 Profissional
               </span>
-              <span className="font-semibold text-foreground text-xs">
+              <span className="font-semibold text-foreground text-xs block truncate">
                 {session.profissionais?.nome || "—"}
               </span>
             </div>
@@ -867,7 +1527,7 @@ export function DetalhesSessaoDialog({
               <span className="text-muted-foreground block text-[10px] uppercase font-bold">
                 Serviço / Especialidade
               </span>
-              <span className="font-medium text-foreground text-xs">
+              <span className="font-medium text-foreground text-xs block truncate">
                 {session.servicos?.nome || "Sessão"}
               </span>
             </div>
@@ -879,73 +1539,243 @@ export function DetalhesSessaoDialog({
                 {session.status || "Realizado"}
               </Badge>
             </div>
-            {session.profissionais?.cor && (
-              <div>
-                <span className="text-muted-foreground block text-[10px] uppercase font-bold">
-                  Identificador
-                </span>
-                <span
-                  className="inline-block w-4 h-4 rounded-full mt-0.5"
-                  style={{ backgroundColor: session.profissionais.cor }}
-                />
-              </div>
-            )}
+            <div>
+              <span className="text-muted-foreground block text-[10px] uppercase font-bold">
+                Especialidade Sugerida
+              </span>
+              <Badge variant="outline" className="text-[10px] capitalize text-purple-700 dark:text-purple-300 border-purple-300">
+                {CLINICAL_SPECIALTIES_INFO[detectedSpecialty].name}
+              </Badge>
+            </div>
           </div>
 
-          {/* Plano ABA programas se houver */}
+          {/* Plano ABA Programas se houver */}
           {session.plano_aba?.programas?.length > 0 && (
-            <div className="space-y-2 p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+            <div className="space-y-1.5 p-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
               <span className="font-bold text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
                 <Activity className="h-3.5 w-3.5" />
-                Programas do Plano ABA Aplicados
+                Programas ABA Registrados no Agendamento ({session.plano_aba.programas.length})
               </span>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-1">
                 {session.plano_aba.programas.map((prog: any, idx: number) => {
                   const respCount = Object.keys(prog.respostas || {}).length;
                   return (
-                    <div
+                    <Badge
                       key={idx}
-                      className="p-2 rounded bg-background border border-border/60 flex items-center justify-between text-xs"
+                      variant="outline"
+                      className="text-[10px] bg-background border-border/80 text-foreground py-0.5 px-2"
                     >
-                      <div>
-                        <span className="font-medium text-foreground block">
-                          {prog.nome || `Programa ${idx + 1}`}
-                        </span>
-                        {prog.descricao && (
-                          <span className="text-[10px] text-muted-foreground block">
-                            {prog.descricao}
-                          </span>
-                        )}
-                      </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">
-                        {respCount} tentativas
-                      </Badge>
-                    </div>
+                      {prog.nome || `Prog ${idx + 1}`} ({respCount} tentativas)
+                    </Badge>
                   );
                 })}
               </div>
             </div>
           )}
 
-          {/* Ajuste / Orientação / Observações da Sessão */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold">
-                Ajuste / Orientação & Observações da Sessão
-              </Label>
-              <span className="text-[10px] text-muted-foreground">Editável pelo profissional</span>
+          {/* Modelos por Especialidade Toolbar */}
+          <div className="p-3 rounded-lg border border-purple-200/80 dark:border-purple-900/60 bg-gradient-to-r from-purple-50/50 to-indigo-50/30 dark:from-purple-950/20 dark:to-indigo-950/20 space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                <span className="text-xs font-bold text-foreground">
+                  Modelos de Relatórios Clínicos Oficiais
+                </span>
+                <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                  (Clique para estruturar conforme normas vigentes)
+                </span>
+              </div>
             </div>
-            <Textarea
-              value={sessionNoteEdit}
-              onChange={(e) => setSessionNoteEdit(e.target.value)}
-              rows={5}
-              className="text-xs resize-y"
-              placeholder="Descreva a evolução do paciente, condutas adotadas e orientações para a família..."
-            />
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {/* Fono */}
+              <Button
+                type="button"
+                variant={detectedSpecialty === "fono" ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleApplyTemplate("fono")}
+                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
+                  detectedSpecialty === "fono"
+                    ? "bg-purple-600 hover:bg-purple-700 text-white"
+                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                }`}
+              >
+                <div className="flex items-center gap-1 font-bold text-xs">
+                  <Stethoscope className="h-3 w-3 shrink-0" />
+                  <span>Fonoaudiologia</span>
+                </div>
+                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "fono" ? "text-purple-100" : "text-muted-foreground"}`}>
+                  CFFa nº 645/2021
+                </span>
+                {detectedSpecialty === "fono" && (
+                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
+                    Detectado
+                  </span>
+                )}
+              </Button>
+
+              {/* Psicoterapia */}
+              <Button
+                type="button"
+                variant={detectedSpecialty === "psicoterapia" ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleApplyTemplate("psicoterapia")}
+                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
+                  detectedSpecialty === "psicoterapia"
+                    ? "bg-purple-600 hover:bg-purple-700 text-white"
+                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                }`}
+              >
+                <div className="flex items-center gap-1 font-bold text-xs">
+                  <Brain className="h-3 w-3 shrink-0" />
+                  <span>Psicoterapia</span>
+                </div>
+                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "psicoterapia" ? "text-purple-100" : "text-muted-foreground"}`}>
+                  CFP nº 01/2009
+                </span>
+                {detectedSpecialty === "psicoterapia" && (
+                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
+                    Detectado
+                  </span>
+                )}
+              </Button>
+
+              {/* Psicopedagogia */}
+              <Button
+                type="button"
+                variant={detectedSpecialty === "psicopedagogia" ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleApplyTemplate("psicopedagogia")}
+                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
+                  detectedSpecialty === "psicopedagogia"
+                    ? "bg-purple-600 hover:bg-purple-700 text-white"
+                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                }`}
+              >
+                <div className="flex items-center gap-1 font-bold text-xs">
+                  <GraduationCap className="h-3 w-3 shrink-0" />
+                  <span>Psicopedagogia</span>
+                </div>
+                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "psicopedagogia" ? "text-purple-100" : "text-muted-foreground"}`}>
+                  ABPp (Sem CID)
+                </span>
+                {detectedSpecialty === "psicopedagogia" && (
+                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
+                    Detectado
+                  </span>
+                )}
+              </Button>
+
+              {/* Terapia ABA */}
+              <Button
+                type="button"
+                variant={detectedSpecialty === "aba" ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleApplyTemplate("aba")}
+                className={`h-auto py-2 px-2.5 flex flex-col items-start text-left justify-center relative ${
+                  detectedSpecialty === "aba"
+                    ? "bg-purple-600 hover:bg-purple-700 text-white"
+                    : "hover:bg-purple-50 dark:hover:bg-purple-950/40"
+                }`}
+              >
+                <div className="flex items-center gap-1 font-bold text-xs">
+                  <Target className="h-3 w-3 shrink-0" />
+                  <span>Terapia ABA</span>
+                </div>
+                <span className={`text-[9px] mt-0.5 ${detectedSpecialty === "aba" ? "text-purple-100" : "text-muted-foreground"}`}>
+                  Medidas / DTT
+                </span>
+                {detectedSpecialty === "aba" && (
+                  <span className="absolute top-1 right-1.5 text-[8px] bg-white text-purple-700 font-bold px-1 rounded-full uppercase">
+                    Detectado
+                  </span>
+                )}
+              </Button>
+            </div>
           </div>
+
+          {/* Tabs: Editor vs Pré-visualização */}
+          <Tabs value={reportTab} onValueChange={(val: any) => setReportTab(val)} className="w-full">
+            <div className="flex items-center justify-between pb-1.5 border-b border-border/60 flex-wrap gap-2">
+              <TabsList className="h-8">
+                <TabsTrigger value="editor" className="text-xs gap-1.5 px-3">
+                  <Pencil className="h-3 w-3" />
+                  Editar Relatório (Markdown)
+                </TabsTrigger>
+                <TabsTrigger value="preview" className="text-xs gap-1.5 px-3">
+                  <Eye className="h-3 w-3" />
+                  Visualização Clínica Formatada
+                </TabsTrigger>
+              </TabsList>
+
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleInsertMissing}
+                  className="h-7 text-[11px] px-2 gap-1 text-muted-foreground hover:text-foreground"
+                  title="Insere a marcação técnica [Não informado na sessão]"
+                >
+                  <Plus className="h-3 w-3" />
+                  [Não informado]
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyReport}
+                  className="h-7 text-[11px] px-2 gap-1"
+                >
+                  {copied ? (
+                    <>
+                      <CheckCheck className="h-3 w-3 text-emerald-600" />
+                      Copiado!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3 text-muted-foreground" />
+                      Copiar
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrint}
+                  className="h-7 text-[11px] px-2 gap-1"
+                >
+                  <Printer className="h-3 w-3 text-muted-foreground" />
+                  Imprimir / PDF
+                </Button>
+              </div>
+            </div>
+
+            <TabsContent value="editor" className="mt-2 space-y-1.5">
+              <Textarea
+                value={sessionNoteEdit}
+                onChange={(e) => setSessionNoteEdit(e.target.value)}
+                rows={15}
+                className="font-mono text-xs leading-relaxed resize-y min-h-[300px] bg-background text-foreground"
+                placeholder="Clique em um dos modelos acima para preencher automaticamente os campos obrigatórios da especialidade ou redija a evolução clínica..."
+              />
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground px-1">
+                <span>{sessionNoteEdit.length} caracteres ({sessionNoteEdit.split(/\s+/).filter(Boolean).length} palavras)</span>
+                <span>Aceita formatação Markdown (## títulos, - tópicos, **negrito**)</span>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="preview" className="mt-2">
+              <div className="max-h-[460px] overflow-y-auto pr-1">
+                <ClinicalMarkdownView content={sessionNoteEdit} />
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
-        <div className="pt-2 border-t border-border/60 flex items-center justify-between">
+        {/* Footer */}
+        <div className="pt-2.5 border-t border-border/60 flex items-center justify-between shrink-0">
           <Button
             type="button"
             variant="ghost"
@@ -955,16 +1785,18 @@ export function DetalhesSessaoDialog({
           >
             Fechar
           </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleSaveSessionAdjustment}
-            disabled={isSavingSessionNote}
-            className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white font-medium gap-1"
-          >
-            <Check className="h-3.5 w-3.5" />
-            Salvar Ajuste da Sessão
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveSessionAdjustment}
+              disabled={isSavingSessionNote}
+              className="h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white font-medium gap-1.5"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {isSavingSessionNote ? "Salvando..." : "Salvar Relatório da Sessão"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
