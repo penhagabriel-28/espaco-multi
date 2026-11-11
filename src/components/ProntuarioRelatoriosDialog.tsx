@@ -59,6 +59,13 @@ export interface ProntuarioData {
 }
 
 export const DEFAULT_PLANOS: Record<string, PlanoEspecialidade> = {
+  geral: {
+    especialidade: "geral",
+    titulo: "Plano Geral",
+    objetivos_especificos: "",
+    conduta_intervencao: "",
+    orientacoes_familia: "",
+  },
   pp: {
     especialidade: "pp",
     titulo: "Plano PP (Psicopedagogia)",
@@ -76,13 +83,6 @@ export const DEFAULT_PLANOS: Record<string, PlanoEspecialidade> = {
   psico: {
     especialidade: "psico",
     titulo: "Plano Psicologia",
-    objetivos_especificos: "",
-    conduta_intervencao: "",
-    orientacoes_familia: "",
-  },
-  to: {
-    especialidade: "to",
-    titulo: "Plano Terapia Ocupacional (TO)",
     objetivos_especificos: "",
     conduta_intervencao: "",
     orientacoes_familia: "",
@@ -162,7 +162,7 @@ export function ProntuarioRelatoriosDialog({
     return parseProntuario(paciente?.observacoes);
   }, [paciente?.observacoes]);
 
-  const [activePlanTab, setActivePlanTab] = useState("pp");
+  const [activePlanTab, setActivePlanTab] = useState("geral");
   const [objetivoCompartilhado, setObjetivoCompartilhado] = useState(
     prontuarioData.objetivo_compartilhado || ""
   );
@@ -172,9 +172,9 @@ export function ProntuarioRelatoriosDialog({
   // Local plan being edited
   const [currentPlanForm, setCurrentPlanForm] = useState<PlanoEspecialidade>(() => {
     return (
-      prontuarioData.planos["pp"] || {
-        especialidade: "pp",
-        titulo: "Plano PP (Psicopedagogia)",
+      prontuarioData.planos["geral"] || {
+        especialidade: "geral",
+        titulo: "Plano Geral",
         objetivos_especificos: "",
         conduta_intervencao: "",
         orientacoes_familia: "",
@@ -427,9 +427,12 @@ export function ProntuarioRelatoriosDialog({
                 </Button>
               </div>
 
-              {/* Tabs dos Planos por Especialidade (PP, Fono, Psico, TO, ABA) */}
+              {/* Tabs dos Planos (Plano Geral, PP, Fono, Psico, ABA) */}
               <Tabs value={activePlanTab} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="h-8 p-0.5 bg-muted/60 border border-border/60 flex flex-wrap max-w-full justify-start gap-1">
+                  <TabsTrigger value="geral" className="text-xs h-7 px-3 font-medium">
+                    Plano Geral
+                  </TabsTrigger>
                   <TabsTrigger value="pp" className="text-xs h-7 px-3">
                     Plano PP
                   </TabsTrigger>
@@ -438,9 +441,6 @@ export function ProntuarioRelatoriosDialog({
                   </TabsTrigger>
                   <TabsTrigger value="psico" className="text-xs h-7 px-3">
                     Plano Psico
-                  </TabsTrigger>
-                  <TabsTrigger value="to" className="text-xs h-7 px-3">
-                    Plano TO
                   </TabsTrigger>
                   <TabsTrigger value="aba" className="text-xs h-7 px-3">
                     Plano ABA

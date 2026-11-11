@@ -79,7 +79,7 @@ function PacienteDetail() {
   // Prontuário & Sessões states
   const [prontuarioOpen, setProntuarioOpen] = useState(false);
   const [selectedSessionForModal, setSelectedSessionForModal] = useState<any>(null);
-  const [activePlanTabInline, setActivePlanTabInline] = useState("pp");
+  const [activePlanTabInline, setActivePlanTabInline] = useState("geral");
   const [isEditingSharedGoal, setIsEditingSharedGoal] = useState(false);
   const [sharedGoalText, setSharedGoalText] = useState("");
 
@@ -498,16 +498,15 @@ function PacienteDetail() {
             </div>
 
             <Tabs value={activePlanTabInline} onValueChange={setActivePlanTabInline} className="w-full">
-              <TabsList className="grid grid-cols-3 sm:grid-cols-6 h-auto p-1 bg-muted/60">
+              <TabsList className="grid grid-cols-2 sm:grid-cols-5 h-auto p-1 bg-muted/60">
+                <TabsTrigger value="geral" className="text-xs py-1.5 font-medium">Plano Geral</TabsTrigger>
                 <TabsTrigger value="pp" className="text-xs py-1.5">Plano PP</TabsTrigger>
                 <TabsTrigger value="fono" className="text-xs py-1.5">Plano Fono</TabsTrigger>
                 <TabsTrigger value="psico" className="text-xs py-1.5">Plano Psico</TabsTrigger>
-                <TabsTrigger value="to" className="text-xs py-1.5">Plano TO</TabsTrigger>
                 <TabsTrigger value="aba" className="text-xs py-1.5">Plano ABA</TabsTrigger>
-                <TabsTrigger value="geral" className="text-xs py-1.5">Geral</TabsTrigger>
               </TabsList>
 
-              {["pp", "fono", "psico", "to", "aba", "geral"].map((tabKey) => {
+              {["geral", "pp", "fono", "psico", "aba"].map((tabKey) => {
                 const plano = prontuarioData.planos[tabKey] || DEFAULT_PLANOS[tabKey] || {
                   especialidade: tabKey,
                   titulo: `Plano ${tabKey.toUpperCase()}`,
