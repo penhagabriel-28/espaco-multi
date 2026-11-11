@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -15,10 +16,47 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Pencil, Trash2, Calendar, CalendarOff } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  Calendar,
+  CalendarOff,
+  FileText,
+  HeartPulse,
+  Sparkles,
+  Eye,
+  Check,
+  Activity,
+} from "lucide-react";
 import { toast } from "sonner";
 import { differenceInYears, format } from "date-fns";
-import { PacienteFormDialog, formatBirthDateForDisplay, formatCPF } from "@/components/PacienteFormDialog";
+import {
+  PacienteFormDialog,
+  formatBirthDateForDisplay,
+  formatCPF,
+  parseEnderecoFromObs,
+  parseEnderecoSecFromObs,
+  encodeEnderecoToObs,
+  getCleanObservacoes,
+} from "@/components/PacienteFormDialog";
+import {
+  ProntuarioRelatoriosDialog,
+  DetalhesSessaoDialog,
+  parseProntuario,
+  serializeProntuarioInObs,
+  DEFAULT_PLANOS,
+} from "@/components/ProntuarioRelatoriosDialog";
 import { isProfissionalAdmin } from "@/lib/utils";
 import {
   getDefaultRoomIdForProfessional,
@@ -37,6 +75,13 @@ function PacienteDetail() {
   const [agendaFixaOpen, setAgendaFixaOpen] = useState(false);
   const [feriasOpen, setFeriasOpen] = useState(false);
   const [gerarSemanaOpen, setGerarSemanaOpen] = useState(false);
+
+  // Prontuário & Sessões states
+  const [prontuarioOpen, setProntuarioOpen] = useState(false);
+  const [selectedSessionForModal, setSelectedSessionForModal] = useState<any>(null);
+  const [activePlanTabInline, setActivePlanTabInline] = useState("pp");
+  const [isEditingSharedGoal, setIsEditingSharedGoal] = useState(false);
+  const [sharedGoalText, setSharedGoalText] = useState("");
 
   const { data: paciente, isLoading: loadingPac, isError: errorPac, error: errPac } = useQuery({
     queryKey: ["paciente", id],
@@ -136,6 +181,28 @@ function PacienteDetail() {
   });
 
   const diasFixos = parseDiasFixos(paciente?.observacoes);
+  const prontuarioData = parseProntuario(paciente?.observacoes);
+
+  const saveSharedGoalMutation = useMutation({
+    mutationFn: async (newGoal: string) => {
+      const updated = {
+        ...prontuarioData,
+        objetivo_compartilhado: newGoal.trim(),
+      };
+      const newObs = serializeProntuarioInObs(paciente?.observacoes, updated);
+      const { error } = await supabase
+        .from("pacientes")
+        .update({ observacoes: newObs })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Objetivo compartilhado atualizado com sucesso!");
+      setIsEditingSharedGoal(false);
+      qc.invalidateQueries({ queryKey: ["paciente", id] });
+    },
+    onError: (e: any) => toast.error("Erro ao salvar objetivo compartilhado: " + e.message),
+  });
 
   const handleRemoveDiaFixo = async (dfId: string) => {
     if (!paciente) return;
@@ -205,6 +272,13 @@ function PacienteDetail() {
             <Badge variant={paciente.status === "ativo" ? "default" : "secondary"}>
               {paciente.status.replace("_", " ")}
             </Badge>
+            <Button
+              size="sm"
+              onClick={() => setProntuarioOpen(true)}
+              className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-sm"
+            >
+              <FileText className="h-4 w-4" /> Relatórios
+            </Button>
             <Dialog open={editOpen} onOpenChange={setEditOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" variant="outline" className="gap-1.5">
@@ -275,6 +349,11 @@ function PacienteDetail() {
           />
 
           <Info
+            label="Endereço"
+            value={paciente.endereco || parseEnderecoFromObs(paciente.observacoes) || "Não informado"}
+          />
+
+          <Info
             label="Cadastrado em"
             value={(() => {
               try {
@@ -290,6 +369,332 @@ function PacienteDetail() {
               <p className="mt-1 whitespace-pre-wrap text-sm">{getCleanObservacoes(paciente.observacoes)}</p>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* CARD PRONTUÁRIO MULTIPROFISSIONAL */}
+      <Card className="border-purple-200 dark:border-purple-900 shadow-sm overflow-hidden">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-purple-50/50 dark:bg-purple-950/20 border-b pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-lg bg-purple-600 text-white shadow-sm">
+              <HeartPulse className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                Prontuário Multiprofissional
+                <Badge variant="outline" className="text-purple-700 border-purple-300 bg-purple-50 dark:bg-purple-900/30 dark:text-purple-300 text-xs font-normal">
+                  Equipe Integrada
+                </Badge>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Planos por especialidade, objetivo compartilhado e relatórios de cada atendimento
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => setProntuarioOpen(true)}
+              className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white shadow-sm text-xs font-medium"
+            >
+              <FileText className="h-4 w-4" />
+              Abrir Janela de Relatórios
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-4 sm:p-6 space-y-6">
+          {/* SEÇÃO 1: OBJETIVO COMPARTILHADO (TODOS VISUALIZAR) */}
+          <div className="rounded-xl border border-purple-200 dark:border-purple-800/60 bg-gradient-to-r from-purple-50/70 via-indigo-50/40 to-purple-50/70 dark:from-purple-950/20 dark:via-indigo-950/20 dark:to-purple-950/20 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-pulse" />
+                <h4 className="text-xs sm:text-sm font-bold text-purple-950 dark:text-purple-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                  Objetivo Compartilhado (Todos Visualizar)
+                </h4>
+              </div>
+              {!isEditingSharedGoal && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSharedGoalText(prontuarioData.objetivo_compartilhado);
+                    setIsEditingSharedGoal(true);
+                  }}
+                  className="h-7 text-xs text-purple-700 hover:text-purple-800 hover:bg-purple-100/60 dark:text-purple-300 gap-1 px-2"
+                >
+                  <Pencil className="h-3 w-3" />
+                  Editar
+                </Button>
+              )}
+            </div>
+
+            {isEditingSharedGoal ? (
+              <div className="space-y-2 pt-1">
+                <Textarea
+                  value={sharedGoalText}
+                  onChange={(e) => setSharedGoalText(e.target.value)}
+                  rows={3}
+                  className="text-xs bg-background"
+                  placeholder="Defina o objetivo terapêutico compartilhado visível para todas as especialidades..."
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsEditingSharedGoal(false)}
+                    className="h-7 text-xs"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => saveSharedGoalMutation.mutate(sharedGoalText)}
+                    disabled={saveSharedGoalMutation.isPending}
+                    className="h-7 text-xs bg-purple-600 hover:bg-purple-700 text-white gap-1"
+                  >
+                    <Check className="h-3 w-3" />
+                    Salvar Objetivo
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs sm:text-sm text-foreground leading-relaxed italic bg-background/60 p-3 rounded-lg border border-purple-200/50 dark:border-purple-800/40">
+                {prontuarioData.objetivo_compartilhado ? (
+                  `"${prontuarioData.objetivo_compartilhado}"`
+                ) : (
+                  <span className="text-muted-foreground not-italic">
+                    Nenhum objetivo compartilhado cadastrado ainda. Clique em "Editar" para alinhar o foco central do paciente entre toda a equipe.
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+
+          {/* SEÇÃO 2: PLANOS POR ESPECIALIDADE */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b pb-2">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">
+                  Planos de Intervenção Terapêutica
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  Alinhe metas e condutas específicas de cada especialidade
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setProntuarioOpen(true)}
+                className="h-8 text-xs gap-1 border-purple-200 text-purple-700 hover:bg-purple-50 dark:border-purple-800 dark:text-purple-300"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Criar / Editar Plano
+              </Button>
+            </div>
+
+            <Tabs value={activePlanTabInline} onValueChange={setActivePlanTabInline} className="w-full">
+              <TabsList className="grid grid-cols-3 sm:grid-cols-6 h-auto p-1 bg-muted/60">
+                <TabsTrigger value="pp" className="text-xs py-1.5">Plano PP</TabsTrigger>
+                <TabsTrigger value="fono" className="text-xs py-1.5">Plano Fono</TabsTrigger>
+                <TabsTrigger value="psico" className="text-xs py-1.5">Plano Psico</TabsTrigger>
+                <TabsTrigger value="to" className="text-xs py-1.5">Plano TO</TabsTrigger>
+                <TabsTrigger value="aba" className="text-xs py-1.5">Plano ABA</TabsTrigger>
+                <TabsTrigger value="geral" className="text-xs py-1.5">Geral</TabsTrigger>
+              </TabsList>
+
+              {["pp", "fono", "psico", "to", "aba", "geral"].map((tabKey) => {
+                const plano = prontuarioData.planos[tabKey] || DEFAULT_PLANOS[tabKey] || {
+                  especialidade: tabKey,
+                  titulo: `Plano ${tabKey.toUpperCase()}`,
+                  objetivos_especificos: "",
+                  conduta_intervencao: "",
+                  orientacoes_familia: "",
+                };
+                const hasContent = Boolean(
+                  plano.objetivos_especificos?.trim() ||
+                  plano.conduta_intervencao?.trim() ||
+                  plano.orientacoes_familia?.trim()
+                );
+
+                return (
+                  <TabsContent key={tabKey} value={tabKey} className="mt-3">
+                    <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-xs sm:text-sm text-foreground">
+                          {plano.titulo || `Plano ${tabKey.toUpperCase()}`}
+                        </span>
+                        {plano.data_atualizacao && (
+                          <span className="text-[11px] text-muted-foreground">
+                            Atualizado em: {format(new Date(plano.data_atualizacao), "dd/MM/yyyy")}
+                          </span>
+                        )}
+                      </div>
+
+                      {hasContent ? (
+                        <div className="grid gap-3 sm:grid-cols-3 text-xs">
+                          <div className="p-3 rounded-md bg-background border space-y-1">
+                            <span className="font-bold text-[11px] text-muted-foreground block uppercase">
+                              Objetivos Específicos
+                            </span>
+                            <p className="whitespace-pre-wrap text-foreground">
+                              {plano.objetivos_especificos || "—"}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-md bg-background border space-y-1">
+                            <span className="font-bold text-[11px] text-muted-foreground block uppercase">
+                              Conduta / Intervenção
+                            </span>
+                            <p className="whitespace-pre-wrap text-foreground">
+                              {plano.conduta_intervencao || "—"}
+                            </p>
+                          </div>
+                          <div className="p-3 rounded-md bg-background border space-y-1">
+                            <span className="font-bold text-[11px] text-muted-foreground block uppercase">
+                              Orientações à Família / Escola
+                            </span>
+                            <p className="whitespace-pre-wrap text-foreground">
+                              {plano.orientacoes_familia || "—"}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 border border-dashed rounded-md bg-background/50">
+                          <p className="text-xs text-muted-foreground">
+                            Nenhum plano detalhado cadastrado para {plano.titulo || tabKey.toUpperCase()}.
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setProntuarioOpen(true)}
+                            className="mt-2 text-xs h-7 gap-1"
+                          >
+                            <Plus className="h-3 w-3" />
+                            Cadastrar Plano
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                );
+              })}
+            </Tabs>
+          </div>
+
+          {/* SEÇÃO 3: RESULTADOS (TODOS VISUALIZAR) / RELATÓRIO DE CADA SESSÃO */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">
+                  Resultados das Sessões (Todos Visualizar)
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  Acesse o relatório de cada sessão e veja os ajustes clínicos registrados
+                </p>
+              </div>
+              <Badge variant="outline" className="text-xs">
+                {ags.length} {ags.length === 1 ? "sessão" : "sessões"}
+              </Badge>
+            </div>
+
+            {ags.length === 0 ? (
+              <div className="text-center py-8 text-xs text-muted-foreground border rounded-lg bg-muted/10">
+                Nenhuma sessão registrada para este paciente ainda.
+              </div>
+            ) : (
+              <div className="rounded-lg border overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-muted/40">
+                    <TableRow>
+                      <TableHead className="w-[150px] text-xs font-bold">Data</TableHead>
+                      <TableHead className="w-[180px] text-xs font-bold">Profissional</TableHead>
+                      <TableHead className="text-xs font-bold">Ajuste / Orientação</TableHead>
+                      <TableHead className="w-[130px] text-right text-xs font-bold">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ags.map((ag: any) => {
+                      const dataFormatada = (() => {
+                        try {
+                          return ag.data_inicio
+                            ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
+                            : "—";
+                        } catch {
+                          return "—";
+                        }
+                      })();
+                      const profNome = ag.profissionais?.nome || "Profissional";
+                      const profCor = ag.profissionais?.cor || "#9333ea";
+                      const servNome = ag.servicos?.nome;
+                      const ajusteTexto = ag.observacoes?.trim() || "";
+                      const hasAba = Boolean(ag.plano_aba?.programas?.length);
+
+                      return (
+                        <TableRow key={ag.id} className="hover:bg-muted/30">
+                          <TableCell className="text-xs font-medium whitespace-nowrap">
+                            {dataFormatada}
+                          </TableCell>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                style={{ backgroundColor: profCor }}
+                              />
+                              <span className="font-medium text-foreground">{profNome}</span>
+                            </div>
+                            {servNome && (
+                              <span className="text-[10px] text-muted-foreground block pl-3.5">
+                                {servNome}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div className="space-y-1">
+                              {hasAba && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1 mr-1"
+                                >
+                                  <Activity className="h-2.5 w-2.5" />
+                                  Plano ABA ({ag.plano_aba.programas.length} progs)
+                                </Badge>
+                              )}
+                              {ajusteTexto ? (
+                                <p className="line-clamp-2 text-foreground text-xs leading-relaxed">
+                                  {ajusteTexto}
+                                </p>
+                              ) : (
+                                <span className="text-muted-foreground italic text-[11px]">
+                                  Sem observações registradas nesta sessão
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedSessionForModal(ag)}
+                              className="h-7 text-xs px-2.5 gap-1 hover:bg-purple-50 hover:text-purple-700 dark:hover:bg-purple-950/30"
+                            >
+                              <Eye className="h-3.5 w-3.5 text-purple-600" />
+                              Ver Relatório
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -336,9 +741,9 @@ function PacienteDetail() {
                           .filter(Boolean)
                           .join(" • ")}
                       </div>
-                      {(r as any).endereco && (
+                      {((r as any).endereco || parseEnderecoFromObs(paciente?.observacoes)) && (
                         <div className="text-[11px] text-muted-foreground/80">
-                          Endereço: {(r as any).endereco}
+                          Endereço: {(r as any).endereco || parseEnderecoFromObs(paciente?.observacoes)}
                         </div>
                       )}
                     </div>
@@ -499,6 +904,34 @@ function PacienteDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* DIALOG RELATÓRIOS / PRONTUÁRIO COMPLETO */}
+      {paciente && (
+        <ProntuarioRelatoriosDialog
+          open={prontuarioOpen}
+          onOpenChange={setProntuarioOpen}
+          paciente={paciente}
+          responsaveis={responsaveis}
+          agendamentos={ags}
+          onProntuarioUpdated={() => {
+            qc.invalidateQueries({ queryKey: ["paciente", id] });
+            qc.invalidateQueries({ queryKey: ["paciente-ags", id] });
+          }}
+        />
+      )}
+
+      {/* DIALOG DETALHES DA SESSÃO */}
+      {selectedSessionForModal && (
+        <DetalhesSessaoDialog
+          open={!!selectedSessionForModal}
+          onOpenChange={(open) => !open && setSelectedSessionForModal(null)}
+          session={selectedSessionForModal}
+          pacienteNome={paciente?.nome}
+          onSessionUpdated={() => {
+            qc.invalidateQueries({ queryKey: ["paciente-ags", id] });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -531,15 +964,24 @@ function ResponsavelDialog({ pacienteId, onSaved }: { pacienteId: string; onSave
         paciente_id: pacienteId,
       };
       let res = await supabase.from("responsaveis").insert(payload);
-      if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco"))) {
+      if (res.error && (res.error.message?.includes("cpf") || res.error.message?.includes("endereco") || (res.error as any).code === "42703")) {
         delete payload.cpf;
         delete payload.endereco;
         res = await supabase.from("responsaveis").insert(payload);
       }
       if (res.error) throw res.error;
+
+      if (form.endereco && form.endereco.trim()) {
+        const { data: pData } = await supabase.from("pacientes").select("observacoes").eq("id", pacienteId).single();
+        if (pData) {
+          const updatedObs = encodeEnderecoToObs(pData.observacoes, form.endereco.trim());
+          await supabase.from("pacientes").update({ observacoes: updatedObs }).eq("id", pacienteId);
+        }
+      }
     },
     onSuccess: () => {
-      toast.success("Responsável adicionado");
+      toast.success("Responsável adicionado com sucesso");
+      qc.invalidateQueries({ queryKey: ["paciente", pacienteId] });
       onSaved();
     },
     onError: (e: any) => toast.error(e.message),
@@ -657,13 +1099,6 @@ const serializeObservacoes = (rawObs: string | null | undefined, diasFixos: DiaF
     return `${cleanObs}\n\n<!--DIAS_FIXOS:${JSON.stringify(diasFixos)}-->`.trim();
   }
   return cleanObs;
-};
-
-const getCleanObservacoes = (rawObs: string | null | undefined): string => {
-  return (rawObs || "")
-    .replace(/<!--DIAS_FIXOS:.*?-->/g, "")
-    .replace(/<!--GRUPO_NF:.*?-->/g, "")
-    .trim();
 };
 
 // ============ DIALOGS FOR AGENDA FIXA & FERIAS ============

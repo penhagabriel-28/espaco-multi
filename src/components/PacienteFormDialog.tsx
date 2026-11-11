@@ -50,10 +50,61 @@ export const formatCPF = (value: string) => {
   return `${nums.substring(0, 3)}.${nums.substring(3, 6)}.${nums.substring(6, 9)}-${nums.substring(9, 11)}`;
 };
 
+export const parseEnderecoFromObs = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  const match = rawObs.match(/<!--ENDERECO:(.*?)-->/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return "";
+};
+
+export const parseEnderecoSecFromObs = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  const match = rawObs.match(/<!--ENDERECO_SECUNDARIO:(.*?)-->/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return "";
+};
+
+export const encodeEnderecoToObs = (
+  rawObs: string | null | undefined,
+  endereco: string,
+  enderecoSec?: string
+): string => {
+  let cleaned = (rawObs || "")
+    .replace(/<!--ENDERECO:.*?-->/g, "")
+    .replace(/<!--ENDERECO_SECUNDARIO:.*?-->/g, "")
+    .trim();
+  if (endereco && endereco.trim()) {
+    cleaned = `${cleaned}\n<!--ENDERECO:${encodeURIComponent(endereco.trim())}-->`.trim();
+  }
+  if (enderecoSec && enderecoSec.trim()) {
+    cleaned = `${cleaned}\n<!--ENDERECO_SECUNDARIO:${encodeURIComponent(enderecoSec.trim())}-->`.trim();
+  }
+  return cleaned;
+};
+
 const EMPTY_ARRAY: any[] = [];
 
-const getCleanObservacoes = (rawObs: string | null | undefined): string => {
-  return (rawObs || "").replace(/<!--DIAS_FIXOS:.*?-->/, "").trim();
+export const getCleanObservacoes = (rawObs: string | null | undefined): string => {
+  if (!rawObs) return "";
+  return rawObs
+    .replace(/<!--DIAS_FIXOS:.*?-->/g, "")
+    .replace(/<!--GRUPO_NF:.*?-->/g, "")
+    .replace(/<!--PRONTUARIO:.*?-->/g, "")
+    .replace(/<!--ENDERECO:.*?-->/g, "")
+    .replace(/<!--ENDERECO_SECUNDARIO:.*?-->/g, "")
+    .trim();
 };
 
 export function PacienteFormDialog({
@@ -89,12 +140,16 @@ export function PacienteFormDialog({
     telefone: "",
     cpf: paciente?.cpf ?? "",
     email: "",
-    endereco: (paciente as any)?.endereco ?? "",
+    endereco:
+      (paciente as any)?.endereco ||
+      parseEnderecoFromObs(paciente?.observacoes) ||
+      "",
     responsavel_secundario: "",
     telefone_secundario: "",
     cpf_secundario: "",
     email_secundario: "",
-    endereco_secundario: "",
+    endereco_secundario:
+      parseEnderecoSecFromObs(paciente?.observacoes) || "",
     valor_mensal: paciente?.valor_mensal ? String(paciente.valor_mensal) : "",
     apoio_frequencia: paciente?.apoio_frequencia ?? "2x",
     apoio_valor_personalizado: paciente?.apoio_valor_personalizado ? String(paciente.apoio_valor_personalizado) : "",
@@ -191,25 +246,35 @@ export function PacienteFormDialog({
     if (isResponsaveisSuccess && responsaveis && responsaveis.length > 0 && !hasLoadedResponsavel) {
       const r1 = responsaveis[0];
       const r2 = responsaveis[1];
+      const parsedEnd1 =
+        r1?.endereco ||
+        (f.endereco && f.endereco.trim()) ||
+        parseEnderecoFromObs(paciente?.observacoes) ||
+        "";
+      const parsedEnd2 =
+        r2?.endereco ||
+        (f.endereco_secundario && f.endereco_secundario.trim()) ||
+        parseEnderecoSecFromObs(paciente?.observacoes) ||
+        "";
       setForm((f) => ({
         ...f,
         responsavel: r1?.nome || "",
         telefone: formatPhone(r1?.telefone ?? ""),
         cpf: r1?.cpf ? formatCPF(r1.cpf) : (f.cpf || ""),
         email: r1?.email ?? "",
-        endereco: r1?.endereco ?? (f.endereco || ""),
+        endereco: parsedEnd1,
         responsavel_secundario: r2?.nome || "",
         telefone_secundario: formatPhone(r2?.telefone ?? ""),
         cpf_secundario: r2?.cpf ? formatCPF(r2.cpf) : "",
         email_secundario: r2?.email ?? "",
-        endereco_secundario: r2?.endereco ?? "",
+        endereco_secundario: parsedEnd2,
       }));
       if (responsaveis.length > 1) {
         setShowSecondaryResponsible(true);
       }
       setHasLoadedResponsavel(true);
     }
-  }, [responsaveis, isResponsaveisSuccess, hasLoadedResponsavel]);
+  }, [responsaveis, isResponsaveisSuccess, hasLoadedResponsavel, paciente?.observacoes]);
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhone(e.target.value);
@@ -239,15 +304,29 @@ export function PacienteFormDialog({
         }
         dbBirthDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
       }
-      let finalObservacoes = form.observacoes || null;
-      if (paciente?.observacoes) {
-        const matchDias = paciente.observacoes.match(/<!--DIAS_FIXOS:.*?-->/);
-        const matchGrupoNf = paciente.observacoes.match(/<!--GRUPO_NF:.*?-->/);
-        const extras = [matchDias?.[0], matchGrupoNf?.[0]].filter(Boolean).join("\n\n");
-        if (extras) {
-          finalObservacoes = `${form.observacoes || ""}\n\n${extras}`.trim() || null;
-        }
-      }
+      let finalObservacoes = form.observacoes || "";
+      const matchDias = paciente?.observacoes?.match(/<!--DIAS_FIXOS:.*?-->/);
+      const matchGrupoNf = paciente?.observacoes?.match(/<!--GRUPO_NF:.*?-->/);
+      const matchProntuario = paciente?.observacoes?.match(/<!--PRONTUARIO:.*?-->/);
+
+      const tagEndereco = form.endereco.trim()
+        ? `<!--ENDERECO:${encodeURIComponent(form.endereco.trim())}-->`
+        : "";
+      const tagEnderecoSec = form.endereco_secundario.trim()
+        ? `<!--ENDERECO_SECUNDARIO:${encodeURIComponent(form.endereco_secundario.trim())}-->`
+        : "";
+
+      const extras = [
+        matchDias?.[0],
+        matchGrupoNf?.[0],
+        matchProntuario?.[0],
+        tagEndereco,
+        tagEnderecoSec,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      finalObservacoes = `${finalObservacoes}\n\n${extras}`.trim() || null;
 
       const cleanCpf1 = form.cpf ? form.cpf.replace(/\D/g, "") : null;
       const cleanCpf2 = form.cpf_secundario ? form.cpf_secundario.replace(/\D/g, "") : null;
