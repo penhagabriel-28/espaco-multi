@@ -53,6 +53,7 @@ import {
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCPF, formatBirthDateForDisplay, parseEmailFromObs, parseEnderecoFromObs, parseCpfFromObs } from "@/components/PacienteFormDialog";
+import { ResumoEvolucaoIADialog } from "@/components/ResumoEvolucaoIADialog";
 
 export interface PlanoEspecialidade {
   especialidade: string;
@@ -270,6 +271,7 @@ export function ProntuarioRelatoriosDialog({
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
   const [sessionNoteEdit, setSessionNoteEdit] = useState("");
   const [isSavingSessionNote, setIsSavingSessionNote] = useState(false);
+  const [resumoIaOpen, setResumoIaOpen] = useState(false);
 
   // Sync when tab or patient changes
   const handleTabChange = (key: string) => {
@@ -393,7 +395,18 @@ export function ProntuarioRelatoriosDialog({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setResumoIaOpen(true)}
+                  className="h-8 text-xs gap-1.5 px-2.5 sm:px-3 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-2xs"
+                  title="Gerar resumo da evolução das sessões com IA"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                  <span>Resumo com IA</span>
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -752,9 +765,22 @@ export function ProntuarioRelatoriosDialog({
                   </p>
                 </div>
 
-                <Badge variant="outline" className="text-[11px]">
-                  {agendamentos.length} sessão(ões) registradas
-                </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="outline" className="text-[11px]">
+                    {agendamentos.length} sessão(ões) registradas
+                  </Badge>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setResumoIaOpen(true)}
+                    className="h-7 text-xs px-2.5 gap-1.5 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-2xs"
+                    title="Escolher período e resumir evolução do paciente com IA"
+                  >
+                    <Sparkles className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+                    <span>Resumo por Período (IA)</span>
+                  </Button>
+                </div>
               </div>
 
               {agendamentos.length === 0 ? (
@@ -1012,6 +1038,17 @@ export function ProntuarioRelatoriosDialog({
           }}
         />
       )}
+
+      {/* Dialog Resumo de Evolução com IA por Período */}
+      <ResumoEvolucaoIADialog
+        open={resumoIaOpen}
+        onOpenChange={setResumoIaOpen}
+        paciente={paciente}
+        agendamentos={agendamentos}
+        onSaved={() => {
+          onProntuarioUpdated?.();
+        }}
+      />
     </>
   );
 }

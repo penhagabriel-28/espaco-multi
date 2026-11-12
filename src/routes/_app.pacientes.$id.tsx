@@ -60,6 +60,7 @@ import {
   DEFAULT_PLANOS,
   cleanSessionMeta,
 } from "@/components/ProntuarioRelatoriosDialog";
+import { ResumoEvolucaoIADialog } from "@/components/ResumoEvolucaoIADialog";
 import { isProfissionalAdmin, cn } from "@/lib/utils";
 import {
   getDefaultRoomIdForProfessional,
@@ -81,6 +82,7 @@ function PacienteDetail() {
 
   // Prontuário & Sessões states
   const [prontuarioOpen, setProntuarioOpen] = useState(false);
+  const [resumoIaOpen, setResumoIaOpen] = useState(false);
   const [selectedSessionForModal, setSelectedSessionForModal] = useState<any>(null);
   const [activePlanTabInline, setActivePlanTabInline] = useState("geral");
   const [isEditingSharedGoal, setIsEditingSharedGoal] = useState(false);
@@ -501,7 +503,17 @@ function PacienteDetail() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setResumoIaOpen(true)}
+              className="gap-1.5 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 shadow-2xs text-xs font-medium"
+              title="Gerar resumo da evolução das sessões com IA"
+            >
+              <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+              Resumo com IA
+            </Button>
             <Button
               size="sm"
               onClick={() => setProntuarioOpen(true)}
@@ -706,9 +718,22 @@ function PacienteDetail() {
                   Acesse o relatório de cada sessão e veja os ajustes clínicos registrados
                 </p>
               </div>
-              <Badge variant="outline" className="text-xs">
-                {ags.length} {ags.length === 1 ? "sessão" : "sessões"}
-              </Badge>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className="text-xs">
+                  {ags.length} {ags.length === 1 ? "sessão" : "sessões"}
+                </Badge>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setResumoIaOpen(true)}
+                  className="h-7 text-xs px-2.5 gap-1.5 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-2xs"
+                  title="Escolher período e resumir evolução do paciente com IA"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                  <span>Resumo com IA</span>
+                </Button>
+              </div>
             </div>
 
             {ags.length === 0 ? (
@@ -1205,6 +1230,19 @@ function PacienteDetail() {
           }}
         />
       )}
+
+      {/* DIALOG RESUMO DE EVOLUÇÃO COM IA */}
+      <ResumoEvolucaoIADialog
+        open={resumoIaOpen}
+        onOpenChange={setResumoIaOpen}
+        paciente={paciente}
+        agendamentos={ags}
+        profissionais={activeProfs}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["paciente", id] });
+          qc.invalidateQueries({ queryKey: ["paciente-ags", id] });
+        }}
+      />
     </div>
   );
 }
