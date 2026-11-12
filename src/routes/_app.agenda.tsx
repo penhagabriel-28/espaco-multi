@@ -2584,21 +2584,7 @@ Fico à disposição para qualquer dúvida!`;
                 )}
 
                 <div className="space-y-1.5 animate-in fade-in duration-200">
-                  <div className="flex items-center justify-between">
-                    <Label>Observações</Label>
-                    {editing && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSessionReportOpen(true)}
-                        className="h-7 text-xs px-2.5 gap-1.5 text-purple-700 bg-purple-50 hover:bg-purple-100 border-purple-200 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
-                      >
-                        <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                        Relatório da Sessão
-                      </Button>
-                    )}
-                  </div>
+                  <Label>Observações</Label>
                   <Textarea
                     rows={2}
                     value={form.observacoes}
@@ -2607,7 +2593,7 @@ Fico à disposição para qualquer dúvida!`;
                 </div>
 
                 <DialogFooter className="gap-2 pt-2 border-t mt-4 justify-between flex-wrap">
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     {editing && (
                       <Button
                         type="button"
