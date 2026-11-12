@@ -368,25 +368,25 @@ export function ProntuarioRelatoriosDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl w-[96vw] max-h-[92vh] flex flex-col p-4 sm:p-6 overflow-hidden">
+        <DialogContent className="max-w-4xl w-[98vw] sm:w-[94vw] max-h-[94vh] sm:max-h-[90vh] flex flex-col p-3 sm:p-6 overflow-hidden">
           {/* Header */}
-          <DialogHeader className="pb-3 border-b border-border/60 shrink-0">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="h-10 w-10 rounded-xl bg-purple-500/10 border border-purple-500/25 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0 shadow-xs">
-                  <FileText className="h-5 w-5" />
+          <DialogHeader className="pb-3 border-b border-border/60 shrink-0 pr-8 sm:pr-0">
+            <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
+              <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+                <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-purple-500/10 border border-purple-500/25 flex items-center justify-center text-purple-600 dark:text-purple-400 shrink-0 shadow-xs">
+                  <FileText className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
-                <div>
-                  <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
-                    Prontuário & Relatórios do Paciente
+                <div className="min-w-0">
+                  <DialogTitle className="text-base sm:text-lg font-bold text-foreground flex flex-wrap items-center gap-1.5 sm:gap-2 leading-tight">
+                    <span>Prontuário & Relatórios</span>
                     <Badge
                       variant="outline"
-                      className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 border-purple-500/30 bg-purple-500/5"
+                      className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 border-purple-500/30 bg-purple-500/5 py-0 px-1.5"
                     >
                       Multidisciplinar
                     </Badge>
                   </DialogTitle>
-                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  <DialogDescription className="text-xs text-muted-foreground mt-0.5 line-clamp-2 sm:line-clamp-none">
                     Histórico clínico, planos terapêuticos e relatórios de sessões de{" "}
                     <strong className="text-foreground">{paciente?.nome}</strong>
                   </DialogDescription>
@@ -399,10 +399,10 @@ export function ProntuarioRelatoriosDialog({
                   variant="outline"
                   size="sm"
                   onClick={handlePrint}
-                  className="h-8 text-xs gap-1.5"
+                  className="h-8 text-xs gap-1.5 px-2.5 sm:px-3"
                 >
                   <Printer className="h-3.5 w-3.5 text-muted-foreground" />
-                  Imprimir / PDF
+                  <span>Imprimir / PDF</span>
                 </Button>
               </div>
             </div>
@@ -526,20 +526,20 @@ export function ProntuarioRelatoriosDialog({
 
               {/* Tabs dos Planos (Plano Geral, PP, Fono, Psico, ABA) */}
               <Tabs value={activePlanTab} onValueChange={handleTabChange} className="w-full">
-                <TabsList className="h-8 p-0.5 bg-muted/60 border border-border/60 flex flex-wrap max-w-full justify-start gap-1">
-                  <TabsTrigger value="geral" className="text-xs h-7 px-3 font-medium">
+                <TabsList className="h-auto min-h-8 p-1 bg-muted/60 border border-border/60 flex flex-wrap max-w-full justify-start gap-1">
+                  <TabsTrigger value="geral" className="text-xs h-7 px-2.5 sm:px-3 font-medium">
                     Plano Geral
                   </TabsTrigger>
-                  <TabsTrigger value="pp" className="text-xs h-7 px-3">
+                  <TabsTrigger value="pp" className="text-xs h-7 px-2.5 sm:px-3">
                     Plano PP
                   </TabsTrigger>
-                  <TabsTrigger value="fono" className="text-xs h-7 px-3">
+                  <TabsTrigger value="fono" className="text-xs h-7 px-2.5 sm:px-3">
                     Plano Fono
                   </TabsTrigger>
-                  <TabsTrigger value="psico" className="text-xs h-7 px-3">
+                  <TabsTrigger value="psico" className="text-xs h-7 px-2.5 sm:px-3">
                     Plano Psico
                   </TabsTrigger>
-                  <TabsTrigger value="aba" className="text-xs h-7 px-3">
+                  <TabsTrigger value="aba" className="text-xs h-7 px-2.5 sm:px-3">
                     Plano ABA
                   </TabsTrigger>
                 </TabsList>
@@ -762,126 +762,235 @@ export function ProntuarioRelatoriosDialog({
                   Nenhum atendimento ou sessão registrado para este paciente até o momento.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-muted/20">
-                        <TableHead className="w-[140px] text-xs font-bold">Data</TableHead>
-                        <TableHead className="w-[200px] text-xs font-bold">Profissional</TableHead>
-                        <TableHead className="text-xs font-bold">Ajuste / Orientação / Relatório</TableHead>
-                        <TableHead className="w-[130px] text-right text-xs font-bold">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {agendamentos.map((ag: any) => {
-                        const profNome = ag.profissionais?.nome || "Profissional";
-                        const profCor = ag.profissionais?.cor || "#8b5cf6";
-                        const servNome = ag.servicos?.nome || "";
-                        const dataFormatada = ag.data_inicio
-                          ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
-                          : "—";
+                <>
+                  {/* Visão Mobile: Cards individuais 100% visíveis sem precisar rolar horizontalmente nem usar zoom */}
+                  <div className="block md:hidden divide-y divide-border/60">
+                    {agendamentos.map((ag: any) => {
+                      const profNome = ag.profissionais?.nome || "Profissional";
+                      const profCor = ag.profissionais?.cor || "#8b5cf6";
+                      const servNome = ag.servicos?.nome || "";
+                      const dataFormatada = ag.data_inicio
+                        ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
+                        : "—";
 
-                        const planoAba = ag.plano_aba as any;
-                        const hasAba = !!planoAba?.programas?.length;
-                        const cleanObs = cleanSessionMeta(ag.observacoes);
-                        const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
-                        const ajusteTexto = cleanObs || planoAba?.observacoes_medica || "";
+                      const planoAba = ag.plano_aba as any;
+                      const hasAba = !!planoAba?.programas?.length;
+                      const cleanObs = cleanSessionMeta(ag.observacoes);
+                      const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
+                      const ajusteTexto = cleanObs || planoAba?.observacoes_medica || "";
 
-                        return (
-                          <TableRow key={ag.id} className="hover:bg-muted/40 transition-colors">
-                            {/* Data */}
-                            <TableCell className="font-medium whitespace-nowrap text-xs">
-                              <div className="flex items-center gap-1.5">
-                                <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <span>{dataFormatada}</span>
-                              </div>
-                              <span className="text-[10px] text-muted-foreground capitalize block ml-5">
+                      return (
+                        <div key={ag.id} className="p-3.5 space-y-2.5 bg-background hover:bg-muted/20 transition-colors">
+                          {/* Topo do card: Data e Status */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 font-bold text-xs text-foreground">
+                              <Calendar className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                              <span>{dataFormatada}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 capitalize font-medium text-muted-foreground">
                                 {ag.status || "agendado"}
-                              </span>
-                            </TableCell>
+                              </Badge>
+                              {isReportFilled ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                >
+                                  <FileCheck2 className="h-2.5 w-2.5 text-emerald-600" />
+                                  Preenchido
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                >
+                                  Pendente
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
 
-                            {/* Profissional */}
-                            <TableCell className="text-xs">
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className="h-2.5 w-2.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: profCor }}
-                                />
-                                <span className="font-semibold text-foreground truncate max-w-[170px]">
-                                  {profNome}
-                                </span>
-                              </div>
+                          {/* Profissional e Especialidade */}
+                          <div className="flex items-center gap-2 text-xs bg-muted/40 p-2 rounded-lg border border-border/40">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: profCor }}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <span className="font-semibold text-foreground truncate block">
+                                {profNome}
+                              </span>
                               {servNome && (
-                                <span className="text-[10px] text-muted-foreground block truncate ml-4">
+                                <span className="text-[11px] text-muted-foreground truncate block">
                                   {servNome}
                                 </span>
                               )}
-                            </TableCell>
+                            </div>
+                            {hasAba && (
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] py-0 px-1 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 shrink-0"
+                              >
+                                ABA ({planoAba.programas.length})
+                              </Badge>
+                            )}
+                          </div>
 
-                            {/* Ajuste / Orientação */}
-                            <TableCell className="text-xs">
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap items-center gap-1">
-                                  {hasAba && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
-                                    >
-                                      <Activity className="h-2.5 w-2.5" />
-                                      Plano ABA ({planoAba.programas.length} progs)
-                                    </Badge>
-                                  )}
-                                  {isReportFilled ? (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
-                                    >
-                                      <FileCheck2 className="h-2.5 w-2.5 text-emerald-600" />
-                                      Relatório Preenchido
-                                    </Badge>
-                                  ) : (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
-                                    >
-                                      Pendente
-                                    </Badge>
-                                  )}
+                          {/* Observações / Resumo */}
+                          <div className="text-xs">
+                            {ajusteTexto ? (
+                              <p className="line-clamp-2 text-foreground/90 text-xs leading-relaxed whitespace-pre-line bg-muted/20 p-2 rounded border border-border/30">
+                                {ajusteTexto}
+                              </p>
+                            ) : (
+                              <span className="text-muted-foreground italic text-[11px] block px-0.5">
+                                Sem observações registradas nesta sessão
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Botão de Ação: Ocupa toda a largura, fácil de clicar em celulares */}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedSession(ag);
+                              setSessionNoteEdit(ag.observacoes || "");
+                            }}
+                            className="w-full h-9 text-xs gap-2 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300 font-semibold shadow-xs transition-all active:scale-[0.99]"
+                          >
+                            <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                            <span>Relatório da Sessão</span>
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Visão Desktop / Telas maiores: Tabela tradicional */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/20">
+                          <TableHead className="w-[140px] text-xs font-bold">Data</TableHead>
+                          <TableHead className="w-[200px] text-xs font-bold">Profissional</TableHead>
+                          <TableHead className="text-xs font-bold">Ajuste / Orientação / Relatório</TableHead>
+                          <TableHead className="w-[130px] text-right text-xs font-bold">Ações</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {agendamentos.map((ag: any) => {
+                          const profNome = ag.profissionais?.nome || "Profissional";
+                          const profCor = ag.profissionais?.cor || "#8b5cf6";
+                          const servNome = ag.servicos?.nome || "";
+                          const dataFormatada = ag.data_inicio
+                            ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
+                            : "—";
+
+                          const planoAba = ag.plano_aba as any;
+                          const hasAba = !!planoAba?.programas?.length;
+                          const cleanObs = cleanSessionMeta(ag.observacoes);
+                          const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
+                          const ajusteTexto = cleanObs || planoAba?.observacoes_medica || "";
+
+                          return (
+                            <TableRow key={ag.id} className="hover:bg-muted/40 transition-colors">
+                              {/* Data */}
+                              <TableCell className="font-medium whitespace-nowrap text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                  <span>{dataFormatada}</span>
                                 </div>
-                                {ajusteTexto ? (
-                                  <p className="line-clamp-2 text-foreground text-xs leading-relaxed whitespace-pre-line">
-                                    {ajusteTexto}
-                                  </p>
-                                ) : (
-                                  <span className="text-muted-foreground italic text-[11px]">
-                                    Sem observações registradas nesta sessão
+                                <span className="text-[10px] text-muted-foreground capitalize block ml-5">
+                                  {ag.status || "agendado"}
+                                </span>
+                              </TableCell>
+
+                              {/* Profissional */}
+                              <TableCell className="text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className="h-2.5 w-2.5 rounded-full shrink-0"
+                                    style={{ backgroundColor: profCor }}
+                                  />
+                                  <span className="font-semibold text-foreground truncate max-w-[170px]">
+                                    {profNome}
+                                  </span>
+                                </div>
+                                {servNome && (
+                                  <span className="text-[10px] text-muted-foreground block truncate ml-4">
+                                    {servNome}
                                   </span>
                                 )}
-                              </div>
-                            </TableCell>
+                              </TableCell>
 
-                            {/* Ações */}
-                            <TableCell className="text-right whitespace-nowrap">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedSession(ag);
-                                  setSessionNoteEdit(ag.observacoes || "");
-                                }}
-                                className="h-8 text-xs px-3 gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
-                              >
-                                <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                                Relatório da Sessão
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
+                              {/* Ajuste / Orientação */}
+                              <TableCell className="text-xs">
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {hasAba && (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                      >
+                                        <Activity className="h-2.5 w-2.5" />
+                                        Plano ABA ({planoAba.programas.length} progs)
+                                      </Badge>
+                                    )}
+                                    {isReportFilled ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                      >
+                                        <FileCheck2 className="h-2.5 w-2.5 text-emerald-600" />
+                                        Relatório Preenchido
+                                      </Badge>
+                                    ) : (
+                                      <Badge
+                                        variant="outline"
+                                        className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                      >
+                                        Pendente
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {ajusteTexto ? (
+                                    <p className="line-clamp-2 text-foreground text-xs leading-relaxed whitespace-pre-line">
+                                      {ajusteTexto}
+                                    </p>
+                                  ) : (
+                                    <span className="text-muted-foreground italic text-[11px]">
+                                      Sem observações registradas nesta sessão
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+
+                              {/* Ações */}
+                              <TableCell className="text-right whitespace-nowrap">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedSession(ag);
+                                    setSessionNoteEdit(ag.observacoes || "");
+                                  }}
+                                  className="h-8 text-xs px-3 gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
+                                >
+                                  <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                                  Relatório da Sessão
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -1548,20 +1657,20 @@ export function DetalhesSessaoDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl w-full max-h-[90vh] flex flex-col p-5 overflow-hidden">
+      <DialogContent className="max-w-2xl w-[96vw] sm:w-full max-h-[92vh] flex flex-col p-3.5 sm:p-5 overflow-hidden">
         {/* Header */}
-        <DialogHeader className="pb-3 border-b border-border/60 shrink-0">
+        <DialogHeader className="pb-3 border-b border-border/60 shrink-0 pr-8 sm:pr-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div>
-              <DialogTitle className="text-base font-bold text-foreground flex items-center gap-2">
-                <FileText className="h-4 w-4 text-purple-600" />
-                Relatório da Sessão: {pacienteNome}
+            <div className="min-w-0 pr-2">
+              <DialogTitle className="text-sm sm:text-base font-bold text-foreground flex items-center gap-1.5 sm:gap-2 leading-tight">
+                <FileText className="h-4 w-4 text-purple-600 shrink-0" />
+                <span className="truncate">Relatório da Sessão: {pacienteNome}</span>
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                 Atendimento realizado em <strong>{dataFormatada}</strong>
               </DialogDescription>
             </div>
-            <Badge variant="outline" className="text-xs capitalize border-purple-200 text-purple-700 bg-purple-50">
+            <Badge variant="outline" className="text-xs capitalize border-purple-200 text-purple-700 bg-purple-50 shrink-0">
               {session.status || "Realizado"}
             </Badge>
           </div>
@@ -1570,7 +1679,7 @@ export function DetalhesSessaoDialog({
         {/* Content */}
         <div className="flex-1 overflow-y-auto space-y-3.5 py-3 text-xs">
           {/* Card Resumo do Atendimento */}
-          <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/40 border border-border/60 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 p-3 rounded-lg bg-muted/40 border border-border/60 text-xs">
             <div>
               <span className="text-[11px] text-muted-foreground block font-medium">Profissional</span>
               <span className="font-semibold text-foreground text-xs block truncate">
@@ -1598,8 +1707,8 @@ export function DetalhesSessaoDialog({
             <Textarea
               value={sessionNoteEdit}
               onChange={(e) => setSessionNoteEdit(e.target.value)}
-              rows={11}
-              className="text-sm leading-relaxed p-3.5 rounded-lg border bg-background text-foreground resize-y min-h-[220px] focus-visible:ring-purple-500"
+              rows={10}
+              className="text-xs sm:text-sm leading-relaxed p-3 sm:p-3.5 rounded-lg border bg-background text-foreground resize-y min-h-[180px] sm:min-h-[220px] focus-visible:ring-purple-500"
               placeholder="Digite o relato da sessão..."
             />
             <p className="text-[11px] text-muted-foreground italic">
@@ -1609,24 +1718,24 @@ export function DetalhesSessaoDialog({
         </div>
 
         {/* Footer */}
-        <div className="pt-3 border-t border-border/60 flex items-center justify-between flex-wrap gap-2 shrink-0">
-          <div className="flex items-center gap-1.5">
+        <div className="pt-3 border-t border-border/60 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleCopyReport}
-              className="h-8 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
+              className="flex-1 sm:flex-initial h-8 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
             >
               {copied ? (
                 <>
                   <CheckCheck className="h-3.5 w-3.5 text-emerald-600" />
-                  Copiado!
+                  <span>Copiado!</span>
                 </>
               ) : (
                 <>
                   <Copy className="h-3.5 w-3.5" />
-                  Copiar
+                  <span>Copiar</span>
                 </>
               )}
             </Button>
@@ -1635,10 +1744,10 @@ export function DetalhesSessaoDialog({
               variant="outline"
               size="sm"
               onClick={handlePrint}
-              className="h-8 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
+              className="flex-1 sm:flex-initial h-8 text-xs px-2.5 gap-1.5 text-muted-foreground hover:text-foreground"
             >
               <Printer className="h-3.5 w-3.5" />
-              Imprimir
+              <span>Imprimir</span>
             </Button>
           </div>
 
@@ -1657,10 +1766,10 @@ export function DetalhesSessaoDialog({
               size="sm"
               disabled={isSavingSessionNote}
               onClick={handleSaveSessionAdjustment}
-              className="h-8 text-xs px-4 gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-xs"
+              className="flex-1 sm:flex-initial h-8 text-xs px-4 gap-1.5 bg-purple-600 hover:bg-purple-700 text-white font-medium shadow-xs"
             >
               <Check className="h-3.5 w-3.5" />
-              {isSavingSessionNote ? "Salvando..." : "Salvar Relatório da Sessão"}
+              <span>{isSavingSessionNote ? "Salvando..." : "Salvar Relatório"}</span>
             </Button>
           </div>
         </div>

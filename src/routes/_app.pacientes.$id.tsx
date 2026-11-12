@@ -716,111 +716,219 @@ function PacienteDetail() {
                 Nenhuma sessão registrada para este paciente ainda.
               </div>
             ) : (
-              <div className="rounded-lg border overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-muted/40">
-                    <TableRow>
-                      <TableHead className="w-[150px] text-xs font-bold">Data</TableHead>
-                      <TableHead className="w-[180px] text-xs font-bold">Profissional</TableHead>
-                      <TableHead className="text-xs font-bold">Ajuste / Orientação</TableHead>
-                      <TableHead className="w-[130px] text-right text-xs font-bold">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {ags.map((ag: any) => {
-                      const dataFormatada = (() => {
-                        try {
-                          return ag.data_inicio
-                            ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
-                            : "—";
-                        } catch {
-                          return "—";
-                        }
-                      })();
-                      const profNome = ag.profissionais?.nome || "Profissional";
-                      const profCor = ag.profissionais?.cor || "#9333ea";
-                      const servNome = ag.servicos?.nome;
-                      const cleanObs = cleanSessionMeta(ag.observacoes);
-                      const hasAba = Boolean(ag.plano_aba?.programas?.length);
-                      const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
+              <>
+                {/* Visão Mobile: Cards individuais 100% visíveis sem precisar rolar horizontalmente nem usar zoom */}
+                <div className="block md:hidden divide-y rounded-lg border overflow-hidden">
+                  {ags.map((ag: any) => {
+                    const dataFormatada = (() => {
+                      try {
+                        return ag.data_inicio
+                          ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
+                          : "—";
+                      } catch {
+                        return "—";
+                      }
+                    })();
+                    const profNome = ag.profissionais?.nome || "Profissional";
+                    const profCor = ag.profissionais?.cor || "#9333ea";
+                    const servNome = ag.servicos?.nome;
+                    const cleanObs = cleanSessionMeta(ag.observacoes);
+                    const hasAba = Boolean(ag.plano_aba?.programas?.length);
+                    const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
 
-                      return (
-                        <TableRow key={ag.id} className="hover:bg-muted/30">
-                          <TableCell className="text-xs font-medium whitespace-nowrap">
-                            {dataFormatada}
-                          </TableCell>
-                          <TableCell className="text-xs whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{ backgroundColor: profCor }}
-                              />
-                              <span className="font-medium text-foreground">{profNome}</span>
-                            </div>
+                    return (
+                      <div key={ag.id} className="p-3.5 space-y-2.5 bg-background hover:bg-muted/20 transition-colors">
+                        {/* Topo do card: Data e Badges de status */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 font-bold text-xs text-foreground">
+                            <Calendar className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                            <span>{dataFormatada}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge variant="outline" className="text-[10px] py-0 px-1.5 capitalize font-medium text-muted-foreground">
+                              {ag.status || "agendado"}
+                            </Badge>
+                            {isReportFilled ? (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                              >
+                                <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+                                Preenchido
+                              </Badge>
+                            ) : (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                              >
+                                Pendente
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Profissional e Especialidade */}
+                        <div className="flex items-center gap-2 text-xs bg-muted/40 p-2 rounded-lg border border-border/40">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: profCor }}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <span className="font-semibold text-foreground truncate block">
+                              {profNome}
+                            </span>
                             {servNome && (
-                              <span className="text-[10px] text-muted-foreground block pl-3.5">
+                              <span className="text-[11px] text-muted-foreground truncate block">
                                 {servNome}
                               </span>
                             )}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {hasAba && (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
-                                  >
-                                    <Activity className="h-2.5 w-2.5" />
-                                    Plano ABA ({ag.plano_aba.programas.length} progs)
-                                  </Badge>
-                                )}
-                                {isReportFilled ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
-                                  >
-                                    <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
-                                    Relatório Preenchido
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
-                                  >
-                                    Pendente
-                                  </Badge>
-                                )}
+                          </div>
+                          {hasAba && (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] py-0 px-1 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 shrink-0"
+                            >
+                              ABA ({ag.plano_aba.programas.length})
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Observações / Resumo */}
+                        <div className="text-xs">
+                          {cleanObs ? (
+                            <p className="line-clamp-2 text-foreground/90 text-xs leading-relaxed whitespace-pre-line bg-muted/20 p-2 rounded border border-border/30">
+                              {cleanObs}
+                            </p>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[11px] block px-0.5">
+                              Sem observações registradas nesta sessão
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Botão de Ação: Ocupa toda a largura, fácil de clicar em celulares */}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedSessionForModal(ag)}
+                          className="w-full h-9 text-xs gap-2 border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300 font-semibold shadow-xs transition-all active:scale-[0.99]"
+                        >
+                          <FileText className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                          <span>Relatório da Sessão</span>
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Visão Desktop / Telas maiores: Tabela tradicional */}
+                <div className="hidden md:block rounded-lg border overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-muted/40">
+                      <TableRow>
+                        <TableHead className="w-[150px] text-xs font-bold">Data</TableHead>
+                        <TableHead className="w-[180px] text-xs font-bold">Profissional</TableHead>
+                        <TableHead className="text-xs font-bold">Ajuste / Orientação</TableHead>
+                        <TableHead className="w-[130px] text-right text-xs font-bold">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {ags.map((ag: any) => {
+                        const dataFormatada = (() => {
+                          try {
+                            return ag.data_inicio
+                              ? format(new Date(ag.data_inicio), "dd/MM/yyyy HH:mm")
+                              : "—";
+                          } catch {
+                            return "—";
+                          }
+                        })();
+                        const profNome = ag.profissionais?.nome || "Profissional";
+                        const profCor = ag.profissionais?.cor || "#9333ea";
+                        const servNome = ag.servicos?.nome;
+                        const cleanObs = cleanSessionMeta(ag.observacoes);
+                        const hasAba = Boolean(ag.plano_aba?.programas?.length);
+                        const isReportFilled = Boolean(cleanObs && cleanObs.length > 0);
+
+                        return (
+                          <TableRow key={ag.id} className="hover:bg-muted/30">
+                            <TableCell className="text-xs font-medium whitespace-nowrap">
+                              {dataFormatada}
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ backgroundColor: profCor }}
+                                />
+                                <span className="font-medium text-foreground">{profNome}</span>
                               </div>
-                              {cleanObs ? (
-                                <p className="line-clamp-2 text-foreground text-xs leading-relaxed whitespace-pre-line">
-                                  {cleanObs}
-                                </p>
-                              ) : (
-                                <span className="text-muted-foreground italic text-[11px]">
-                                  Sem observações registradas nesta sessão
+                              {servNome && (
+                                <span className="text-[10px] text-muted-foreground block pl-3.5">
+                                  {servNome}
                                 </span>
                               )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right whitespace-nowrap">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setSelectedSessionForModal(ag)}
-                              className="h-8 text-xs px-3 gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
-                            >
-                              <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                              Relatório da Sessão
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {hasAba && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                    >
+                                      <Activity className="h-2.5 w-2.5" />
+                                      Plano ABA ({ag.plano_aba.programas.length} progs)
+                                    </Badge>
+                                  )}
+                                  {isReportFilled ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                    >
+                                      <Check className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400" />
+                                      Relatório Preenchido
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                    >
+                                      Pendente
+                                    </Badge>
+                                  )}
+                                </div>
+                                {cleanObs ? (
+                                  <p className="line-clamp-2 text-foreground text-xs leading-relaxed whitespace-pre-line">
+                                    {cleanObs}
+                                  </p>
+                                ) : (
+                                  <span className="text-muted-foreground italic text-[11px]">
+                                    Sem observações registradas nesta sessão
+                                  </span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right whitespace-nowrap">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedSessionForModal(ag)}
+                                className="h-8 text-xs px-3 gap-1.5 border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-800 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 font-medium shadow-sm transition-all"
+                              >
+                                <FileText className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                                Relatório da Sessão
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </div>
         </CardContent>
