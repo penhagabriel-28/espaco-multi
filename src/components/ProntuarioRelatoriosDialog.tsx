@@ -54,6 +54,24 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatCPF, formatBirthDateForDisplay, parseEmailFromObs, parseEnderecoFromObs, parseCpfFromObs } from "@/components/PacienteFormDialog";
 import { ResumoEvolucaoIADialog } from "@/components/ResumoEvolucaoIADialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+
+export const STATUS_LABEL: Record<string, string> = {
+  pendente: "Pendente",
+  confirmado: "Confirmado",
+  cancelado: "Cancelado",
+  realizado: "Realizado",
+  falta: "Falta",
+  pago: "Pago",
+  ferias: "Férias",
+};
 
 export interface PlanoEspecialidade {
   especialidade: string;
@@ -815,8 +833,21 @@ export function ProntuarioRelatoriosDialog({
                             </div>
 
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <Badge variant="outline" className="text-[10px] py-0 px-1.5 capitalize font-medium text-muted-foreground">
-                                {ag.status || "agendado"}
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-[10px] py-0 px-1.5 font-medium uppercase tracking-wider",
+                                  ag.status === "confirmado" && "border-green-500/40 text-green-700 bg-green-50/70",
+                                  ag.status === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50/70",
+                                  ag.status === "cancelado" && "border-red-500/40 text-red-700 bg-red-50/70",
+                                  ag.status === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50/70",
+                                  ag.status === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50/70",
+                                  ag.status === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50/70",
+                                  ag.status === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50/70",
+                                  !ag.status && "text-muted-foreground",
+                                )}
+                              >
+                                {STATUS_LABEL[ag.status] || ag.status || "Pendente"}
                               </Badge>
                               {isReportFilled ? (
                                 <Badge
@@ -929,9 +960,24 @@ export function ProntuarioRelatoriosDialog({
                                   <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                   <span>{dataFormatada}</span>
                                 </div>
-                                <span className="text-[10px] text-muted-foreground capitalize block ml-5">
-                                  {ag.status || "agendado"}
-                                </span>
+                                <div className="ml-5 mt-1">
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "text-[9px] py-0 px-1 font-semibold uppercase tracking-wider",
+                                      ag.status === "confirmado" && "border-green-500/40 text-green-700 bg-green-50/70",
+                                      ag.status === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50/70",
+                                      ag.status === "cancelado" && "border-red-500/40 text-red-700 bg-red-50/70",
+                                      ag.status === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50/70",
+                                      ag.status === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50/70",
+                                      ag.status === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50/70",
+                                      ag.status === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50/70",
+                                      !ag.status && "text-muted-foreground",
+                                    )}
+                                  >
+                                    {STATUS_LABEL[ag.status] || ag.status || "Pendente"}
+                                  </Badge>
+                                </div>
                               </TableCell>
 
                               {/* Profissional */}
@@ -1605,6 +1651,7 @@ export function DetalhesSessaoDialog({
   }, [session?.data_inicio]);
 
   const [sessionNoteEdit, setSessionNoteEdit] = useState("");
+  const [sessionStatusEdit, setSessionStatusEdit] = useState("pendente");
   const [isSavingSessionNote, setIsSavingSessionNote] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -1612,7 +1659,8 @@ export function DetalhesSessaoDialog({
     if (!session) return;
     const cleaned = cleanSessionMeta(session.observacoes);
     setSessionNoteEdit(cleaned || "");
-  }, [session?.id, session?.observacoes]);
+    setSessionStatusEdit(session.status || "pendente");
+  }, [session?.id, session?.observacoes, session?.status]);
 
   const handleCopyReport = async () => {
     if (!sessionNoteEdit) {
@@ -1676,7 +1724,10 @@ export function DetalhesSessaoDialog({
       const fullNote = mergeSessionMeta(session.observacoes, sessionNoteEdit);
       const { error } = await supabase
         .from("agendamentos")
-        .update({ observacoes: fullNote })
+        .update({
+          observacoes: fullNote,
+          status: sessionStatusEdit,
+        })
         .eq("id", session.id);
 
       if (error) throw error;
@@ -1707,9 +1758,88 @@ export function DetalhesSessaoDialog({
                 Atendimento realizado em <strong>{dataFormatada}</strong>
               </DialogDescription>
             </div>
-            <Badge variant="outline" className="text-xs capitalize border-purple-200 text-purple-700 bg-purple-50 shrink-0">
-              {session.status || "Realizado"}
-            </Badge>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] text-muted-foreground font-medium hidden sm:inline">Status:</span>
+              <Select
+                value={sessionStatusEdit || "pendente"}
+                onValueChange={setSessionStatusEdit}
+              >
+                <SelectTrigger
+                  className={cn(
+                    "h-7 w-[125px] text-[10px] font-bold uppercase cursor-pointer rounded-full px-2.5 transition-all shadow-2xs border",
+                    sessionStatusEdit === "confirmado" && "border-green-500/40 text-green-700 bg-green-50 hover:bg-green-100/70",
+                    sessionStatusEdit === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50 hover:bg-emerald-100/70",
+                    sessionStatusEdit === "cancelado" && "border-red-500/40 text-red-700 bg-red-50 hover:bg-red-100/70",
+                    sessionStatusEdit === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50 hover:bg-blue-100/70",
+                    sessionStatusEdit === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50 hover:bg-orange-100/70",
+                    sessionStatusEdit === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50 hover:bg-yellow-100/70",
+                    sessionStatusEdit === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50 hover:bg-sky-100/70",
+                  )}
+                >
+                  <SelectValue>
+                    <span className="flex items-center gap-1.5 truncate">
+                      <span
+                        className={cn(
+                          "w-1.5 h-1.5 rounded-full shrink-0",
+                          sessionStatusEdit === "confirmado" && "bg-green-500",
+                          sessionStatusEdit === "pago" && "bg-emerald-500",
+                          sessionStatusEdit === "cancelado" && "bg-red-500",
+                          sessionStatusEdit === "realizado" && "bg-blue-500",
+                          sessionStatusEdit === "falta" && "bg-orange-500",
+                          sessionStatusEdit === "pendente" && "bg-yellow-500",
+                          sessionStatusEdit === "ferias" && "bg-sky-500",
+                        )}
+                      />
+                      {STATUS_LABEL[sessionStatusEdit] || sessionStatusEdit}
+                    </span>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent align="end" className="min-w-[130px]">
+                  <SelectItem value="realizado" className="text-xs font-semibold text-blue-700 dark:text-blue-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      Realizado
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="confirmado" className="text-xs font-semibold text-green-700 dark:text-green-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      Confirmado
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="pago" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      Pago
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="pendente" className="text-xs font-semibold text-yellow-700 dark:text-yellow-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                      Pendente
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="falta" className="text-xs font-semibold text-orange-700 dark:text-orange-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-orange-500" />
+                      Falta
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="cancelado" className="text-xs font-semibold text-red-700 dark:text-red-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                      Cancelado
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="ferias" className="text-xs font-semibold text-sky-700 dark:text-sky-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-sky-500" />
+                      Férias
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </DialogHeader>
 

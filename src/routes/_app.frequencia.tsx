@@ -63,6 +63,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, isProfissionalAdmin, isProfActiveInPeriod } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DetalhesSessaoDialog } from "@/components/ProntuarioRelatoriosDialog";
 
 const normalizeString = (str: string) =>
   str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
@@ -201,6 +202,7 @@ const STATUS_LABEL: Record<string, string> = {
   realizado: "Realizado",
   falta: "Falta",
   pago: "Pago",
+  ferias: "Férias",
 };
 
 function FrequenciaPage() {
@@ -215,6 +217,13 @@ function FrequenciaPage() {
     ag: null,
   });
   const [viewSignDialog, setViewSignDialog] = useState<{ open: boolean; ag: any }>({
+    open: false,
+    ag: null,
+  });
+  const [sessionReportDialog, setSessionReportDialog] = useState<{
+    open: boolean;
+    ag: any;
+  }>({
     open: false,
     ag: null,
   });
@@ -586,6 +595,29 @@ function FrequenciaPage() {
     },
   });
 
+  // Update Appointment Status Mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ agId, status }: { agId: string; status: string }) => {
+      const { error } = await supabase
+        .from("agendamentos")
+        .update({ status } as any)
+        .eq("id", agId);
+      if (error) throw error;
+      return { agId, status };
+    },
+    onSuccess: ({ status }) => {
+      toast.success(`Status da sessão atualizado para "${STATUS_LABEL[status] || status}"`);
+      qc.invalidateQueries({ queryKey: ["freq-agendamentos"] });
+      qc.invalidateQueries({ queryKey: ["agendamentos"] });
+      qc.invalidateQueries({ queryKey: ["paciente-ags"] });
+      qc.invalidateQueries({ queryKey: ["paciente"] });
+    },
+    onError: (err: any) => {
+      console.error(err);
+      toast.error("Erro ao atualizar status: " + err.message);
+    },
+  });
+
   const handleOpenSign = (ag: any) => {
     let initialName = "";
     if (ag?.paciente_id) {
@@ -935,26 +967,87 @@ function FrequenciaPage() {
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <Badge
-                              variant="outline"
-                              className={cn(
-                                "text-[9px] font-bold uppercase",
-                                a.status === "confirmado" &&
-                                  "border-green-500/30 text-green-600 bg-green-50/50",
-                                a.status === "pago" &&
-                                  "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                                a.status === "cancelado" &&
-                                  "border-red-500/30 text-red-600 bg-red-50/50",
-                                a.status === "realizado" &&
-                                  "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                                a.status === "falta" &&
-                                  "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                                a.status === "pendente" &&
-                                  "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
-                              )}
+                            <Select
+                              value={a.status || "pendente"}
+                              onValueChange={(newStatus) => {
+                                updateStatusMutation.mutate({ agId: a.id, status: newStatus });
+                              }}
                             >
-                              {STATUS_LABEL[a.status] || a.status}
-                            </Badge>
+                              <SelectTrigger
+                                className={cn(
+                                  "h-6 w-[105px] text-[9px] font-bold uppercase cursor-pointer rounded-full px-2 shadow-2xs border",
+                                  a.status === "confirmado" && "border-green-500/40 text-green-700 bg-green-50",
+                                  a.status === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50",
+                                  a.status === "cancelado" && "border-red-500/40 text-red-700 bg-red-50",
+                                  a.status === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50",
+                                  a.status === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50",
+                                  a.status === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50",
+                                  a.status === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50",
+                                )}
+                              >
+                                <SelectValue>
+                                  <span className="flex items-center gap-1 truncate">
+                                    <span
+                                      className={cn(
+                                        "w-1.5 h-1.5 rounded-full shrink-0",
+                                        a.status === "confirmado" && "bg-green-500",
+                                        a.status === "pago" && "bg-emerald-500",
+                                        a.status === "cancelado" && "bg-red-500",
+                                        a.status === "realizado" && "bg-blue-500",
+                                        a.status === "falta" && "bg-orange-500",
+                                        a.status === "pendente" && "bg-yellow-500",
+                                        a.status === "ferias" && "bg-sky-500",
+                                      )}
+                                    />
+                                    {STATUS_LABEL[a.status] || a.status}
+                                  </span>
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent align="end" className="min-w-[125px]">
+                                <SelectItem value="realizado" className="text-xs font-semibold text-blue-700 dark:text-blue-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                    Realizado
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="confirmado" className="text-xs font-semibold text-green-700 dark:text-green-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                                    Confirmado
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="pago" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                    Pago
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="pendente" className="text-xs font-semibold text-yellow-700 dark:text-yellow-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                                    Pendente
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="falta" className="text-xs font-semibold text-orange-700 dark:text-orange-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-orange-500" />
+                                    Falta
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="cancelado" className="text-xs font-semibold text-red-700 dark:text-red-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                                    Cancelado
+                                  </span>
+                                </SelectItem>
+                                <SelectItem value="ferias" className="text-xs font-semibold text-sky-700 dark:text-sky-400">
+                                  <span className="flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-sky-500" />
+                                    Férias
+                                  </span>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
 
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -1005,7 +1098,7 @@ function FrequenciaPage() {
                           </div>
                         </div>
 
-                        <div className="pt-1">
+                        <div className="pt-1 flex flex-col gap-1.5">
                           {signed ? (
                             <Button
                               variant="outline"
@@ -1035,6 +1128,16 @@ function FrequenciaPage() {
                               <Plus className="h-3.5 w-3.5" /> Assinar Digitalmente
                             </Button>
                           )}
+
+                          <Button
+                            variant="outline"
+                            type="button"
+                            size="sm"
+                            onClick={() => setSessionReportDialog({ open: true, ag: a })}
+                            className="w-full h-8 gap-1.5 text-xs px-2.5 text-purple-700 border-purple-200 hover:bg-purple-50 hover:text-purple-800 font-medium justify-center cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-purple-600" /> Ficha da Sessão
+                          </Button>
                         </div>
                       </div>
                     );
@@ -1051,7 +1154,7 @@ function FrequenciaPage() {
                         <TableHead>Especialidade</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Frequência / Assinatura</TableHead>
-                        <TableHead className="w-[80px] text-right">Ações</TableHead>
+                        <TableHead className="w-[120px] text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1073,26 +1176,87 @@ function FrequenciaPage() {
                               {a.servicos?.nome || "Sessão"}
                             </TableCell>
                             <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[9px] font-bold uppercase",
-                                  a.status === "confirmado" &&
-                                    "border-green-500/30 text-green-600 bg-green-50/50",
-                                  a.status === "pago" &&
-                                    "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                                  a.status === "cancelado" &&
-                                    "border-red-500/30 text-red-600 bg-red-50/50",
-                                  a.status === "realizado" &&
-                                    "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                                  a.status === "falta" &&
-                                    "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                                  a.status === "pendente" &&
-                                    "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
-                                )}
+                              <Select
+                                value={a.status || "pendente"}
+                                onValueChange={(newStatus) => {
+                                  updateStatusMutation.mutate({ agId: a.id, status: newStatus });
+                                }}
                               >
-                                {STATUS_LABEL[a.status] || a.status}
-                              </Badge>
+                                <SelectTrigger
+                                  className={cn(
+                                    "h-7 w-[125px] text-[10px] font-bold uppercase cursor-pointer rounded-full px-2.5 transition-all shadow-2xs border",
+                                    a.status === "confirmado" && "border-green-500/40 text-green-700 bg-green-50 hover:bg-green-100/70",
+                                    a.status === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50 hover:bg-emerald-100/70",
+                                    a.status === "cancelado" && "border-red-500/40 text-red-700 bg-red-50 hover:bg-red-100/70",
+                                    a.status === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50 hover:bg-blue-100/70",
+                                    a.status === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50 hover:bg-orange-100/70",
+                                    a.status === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50 hover:bg-yellow-100/70",
+                                    a.status === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50 hover:bg-sky-100/70",
+                                  )}
+                                >
+                                  <SelectValue>
+                                    <span className="flex items-center gap-1.5 truncate">
+                                      <span
+                                        className={cn(
+                                          "w-1.5 h-1.5 rounded-full shrink-0",
+                                          a.status === "confirmado" && "bg-green-500",
+                                          a.status === "pago" && "bg-emerald-500",
+                                          a.status === "cancelado" && "bg-red-500",
+                                          a.status === "realizado" && "bg-blue-500",
+                                          a.status === "falta" && "bg-orange-500",
+                                          a.status === "pendente" && "bg-yellow-500",
+                                          a.status === "ferias" && "bg-sky-500",
+                                        )}
+                                      />
+                                      {STATUS_LABEL[a.status] || a.status}
+                                    </span>
+                                  </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent align="start" className="min-w-[130px]">
+                                  <SelectItem value="realizado" className="text-xs font-semibold text-blue-700 dark:text-blue-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                      Realizado
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="confirmado" className="text-xs font-semibold text-green-700 dark:text-green-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                                      Confirmado
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="pago" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                      Pago
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="pendente" className="text-xs font-semibold text-yellow-700 dark:text-yellow-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                                      Pendente
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="falta" className="text-xs font-semibold text-orange-700 dark:text-orange-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-orange-500" />
+                                      Falta
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="cancelado" className="text-xs font-semibold text-red-700 dark:text-red-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-red-500" />
+                                      Cancelado
+                                    </span>
+                                  </SelectItem>
+                                  <SelectItem value="ferias" className="text-xs font-semibold text-sky-700 dark:text-sky-400">
+                                    <span className="flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-sky-500" />
+                                      Férias
+                                    </span>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
                             </TableCell>
                             <TableCell>
                               {signed ? (
@@ -1124,17 +1288,28 @@ function FrequenciaPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-right">
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Excluir Sessão"
-                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title="Ficha / Relatório da Sessão"
+                                  onClick={() => setSessionReportDialog({ open: true, ag: a })}
+                                  className="h-8 px-2 text-xs text-purple-700 hover:text-purple-800 hover:bg-purple-50 flex items-center gap-1 font-medium cursor-pointer"
+                                >
+                                  <FileText className="h-3.5 w-3.5" />
+                                  <span className="hidden lg:inline">Ficha</span>
+                                </Button>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title="Excluir Sessão"
+                                      className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
                                 <AlertDialogContent>
                                   <AlertDialogHeader>
                                     <AlertDialogTitle>Excluir Sessão</AlertDialogTitle>
@@ -1153,7 +1328,8 @@ function FrequenciaPage() {
                                   </AlertDialogFooter>
                                 </AlertDialogContent>
                               </AlertDialog>
-                            </TableCell>
+                            </div>
+                          </TableCell>
                           </TableRow>
                         );
                       })}
@@ -1527,6 +1703,22 @@ function FrequenciaPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Detalhes / Ficha da Sessão Dialog */}
+      {sessionReportDialog.open && sessionReportDialog.ag && (
+        <DetalhesSessaoDialog
+          open={sessionReportDialog.open}
+          onOpenChange={(open) => !open && setSessionReportDialog({ open: false, ag: null })}
+          session={sessionReportDialog.ag}
+          pacienteNome={sessionReportDialog.ag.pacientes?.nome}
+          onSessionUpdated={() => {
+            qc.invalidateQueries({ queryKey: ["freq-agendamentos"] });
+            qc.invalidateQueries({ queryKey: ["agendamentos"] });
+            qc.invalidateQueries({ queryKey: ["paciente-ags"] });
+            qc.invalidateQueries({ queryKey: ["paciente"] });
+          }}
+        />
+      )}
 
       {/* Global CSS for Print */}
       <style>{`
