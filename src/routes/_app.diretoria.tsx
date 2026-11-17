@@ -246,6 +246,23 @@ const AVAILABLE_MONTHS = [
   { value: "2027-01", label: "Janeiro / 2027" },
 ];
 
+async function fetchAllPages<T>(
+  fetcher: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const pageSize = 1000;
+  let all: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await fetcher(from, from + pageSize - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 function DiretoriaPageContent() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -376,6 +393,37 @@ function DiretoriaPageContent() {
 
   const effectiveInicio = inicio && inicio.trim() ? inicio : initialRange.start;
   const effectiveFim = fim && fim.trim() ? fim : initialRange.end;
+  const validInicio = effectiveInicio <= effectiveFim ? effectiveInicio : effectiveFim;
+  const validFim = effectiveInicio <= effectiveFim ? effectiveFim : effectiveInicio;
+  const compStart = validInicio ? `${validInicio.substring(0, 7)}-01` : validInicio;
+  const compEnd = validFim ? `${validFim.substring(0, 7)}-31` : validFim;
+
+  // Check if current inicio and fim match a single full month
+  const currentMonthValue = useMemo(() => {
+    if (!inicio || !fim) return "custom";
+    const startM = inicio.substring(0, 7);
+    const endM = fim.substring(0, 7);
+    if (startM === endM) {
+      const expected = getMonthDateRange(startM);
+      if (inicio === expected.start && fim === expected.end) {
+        return startM;
+      }
+    }
+    return "custom";
+  }, [inicio, fim]);
+
+  const periodMonthsCount = useMemo(() => {
+    try {
+      if (!validInicio || !validFim) return 1;
+      const [y1, m1] = validInicio.split("-").map(Number);
+      const [y2, m2] = validFim.split("-").map(Number);
+      const diff = (y2 - y1) * 12 + (m2 - m1) + 1;
+      return Math.max(1, diff);
+    } catch {
+      return 1;
+    }
+  }, [validInicio, validFim]);
+
   const [oldestDebitMonth, setOldestDebitMonth] = useState("");
 
   // Mural de Recados States
@@ -556,19 +604,20 @@ function DiretoriaPageContent() {
 
   // Fetch Invoices
   const { data: faturas = [], isLoading: loadingFaturas } = useQuery<any[]>({
-    queryKey: ["dir-faturas", effectiveInicio, effectiveFim],
+    queryKey: ["dir-faturas", validInicio, validFim],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("faturas")
-        .select(
-           "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id, profissional_id, especialidade",
-        )
-        .gte("competencia", effectiveInicio)
-        .lte("competencia", effectiveFim)
-        .order("competencia", { ascending: true })
-        .order("vencimento", { ascending: true });
-      if (error) throw error;
-      return data;
+      return fetchAllPages(async (from, to) => {
+        return supabase
+          .from("faturas")
+          .select(
+             "id, valor, status, competencia, vencimento, pago_em, metodo, observacoes, paciente_id, profissional_id, especialidade",
+          )
+          .gte("competencia", compStart)
+          .lte("competencia", compEnd)
+          .order("competencia", { ascending: true })
+          .order("vencimento", { ascending: true })
+          .range(from, to);
+      });
     },
   });
 
@@ -616,6 +665,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
@@ -784,6 +834,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       toast.success("Sessão excluída da cobrança com sucesso!");
     },
@@ -848,6 +899,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       toast.success("Itens e cobranças selecionados foram excluídos com sucesso!");
       setSelectedRowIds([]);
@@ -912,6 +964,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
@@ -952,6 +1005,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       toast.success("Sessão atualizada com sucesso!");
     },
@@ -984,6 +1038,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       toast.success("Sessão adicionada com sucesso!");
     },
@@ -1026,6 +1081,7 @@ function DiretoriaPageContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dir-faturas"] });
+      queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens"] });
       queryClient.invalidateQueries({ queryKey: ["dir-fatura-itens-all"] });
       queryClient.invalidateQueries({ queryKey: ["dir-linked-agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["dir-agendamentos-repasses"] });
@@ -1039,16 +1095,17 @@ function DiretoriaPageContent() {
 
   // Fetch Expenses
   const { data: despesas = [], isLoading: loadingDespesas } = useQuery<any[]>({
-    queryKey: ["dir-despesas", effectiveInicio, effectiveFim],
+    queryKey: ["dir-despesas", validInicio, validFim],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("despesas")
-        .select("*")
-        .gte("data", effectiveInicio)
-        .lte("data", effectiveFim)
-        .order("data", { ascending: false });
-      if (error) throw error;
-      return data;
+      return fetchAllPages(async (from, to) => {
+        return supabase
+          .from("despesas")
+          .select("*")
+          .gte("data", validInicio)
+          .lte("data", validFim)
+          .order("data", { ascending: false })
+          .range(from, to);
+      });
     },
   });
 
@@ -1257,74 +1314,77 @@ function DiretoriaPageContent() {
 
   // Fetch all agendamentos for professional payment calculation
   const { data: agendamentosRepasses = [], isLoading: loadingAgendamentos } = useQuery<any[]>({
-    queryKey: ["dir-agendamentos-repasses", effectiveInicio, effectiveFim],
+    queryKey: ["dir-agendamentos-repasses", validInicio, validFim],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("agendamentos")
-        .select(
-          `
-          id,
-          status,
-          data_inicio,
-          paciente_id,
-          profissional_id,
-          servico_id,
-          observacoes,
-          pacientes (
+      return fetchAllPages(async (from, to) => {
+        return supabase
+          .from("agendamentos")
+          .select(
+            `
             id,
-            nome,
-            cids_secundarios
-          ),
-          profissionais (
-            id,
-            nome,
-            especialidade,
-            valor_sessao,
-            valores_config
-          ),
-          servicos (
-            id,
-            nome
+            status,
+            data_inicio,
+            paciente_id,
+            profissional_id,
+            servico_id,
+            observacoes,
+            pacientes (
+              id,
+              nome,
+              cids_secundarios
+            ),
+            profissionais (
+              id,
+              nome,
+              especialidade,
+              valor_sessao,
+              valores_config
+            ),
+            servicos (
+              id,
+              nome
+            )
+          `,
           )
-        `,
-        )
-        .gte("data_inicio", `${effectiveInicio}T00:00:00`)
-        .lte("data_inicio", `${effectiveFim}T23:59:59`);
-      if (error) throw error;
-      return data || [];
+          .gte("data_inicio", `${validInicio}T00:00:00`)
+          .lte("data_inicio", `${validFim}T23:59:59`)
+          .order("data_inicio", { ascending: true })
+          .range(from, to);
+      });
     },
   });
 
   // Fetch all fatura_itens in a single fast query using inner join on faturas.competencia
   const { data: faturaItens = [], isLoading: loadingFaturaItens } = useQuery<any[]>({
-    queryKey: ["dir-fatura-itens", effectiveInicio, effectiveFim],
+    queryKey: ["dir-fatura-itens", validInicio, validFim],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("fatura_itens")
-        .select(`
-          id,
-          fatura_id,
-          total,
-          valor_unitario,
-          agendamento_id,
-          descricao,
-          faturas!inner (
+      return fetchAllPages(async (from, to) => {
+        return supabase
+          .from("fatura_itens")
+          .select(`
             id,
-            status,
-            pago_em,
-            metodo,
-            vencimento,
-            profissional_id,
-            especialidade,
-            paciente_id,
-            competencia,
-            valor
-          )
-        `)
-        .gte("faturas.competencia", effectiveInicio)
-        .lte("faturas.competencia", effectiveFim);
-      if (error) throw error;
-      return data || [];
+            fatura_id,
+            total,
+            valor_unitario,
+            agendamento_id,
+            descricao,
+            faturas!inner (
+              id,
+              status,
+              pago_em,
+              metodo,
+              vencimento,
+              profissional_id,
+              especialidade,
+              paciente_id,
+              competencia,
+              valor
+            )
+          `)
+          .gte("faturas.competencia", compStart)
+          .lte("faturas.competencia", compEnd)
+          .range(from, to);
+      });
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -1333,12 +1393,12 @@ function DiretoriaPageContent() {
     const ids = new Set<string>();
     (faturaItens || []).forEach((item: any) => {
       const comp = item.faturas?.competencia;
-      if (comp && comp >= effectiveInicio && comp <= effectiveFim && item.agendamento_id) {
+      if (comp && comp >= compStart && comp <= compEnd && item.agendamento_id) {
         ids.add(item.agendamento_id);
       }
     });
     return Array.from(ids);
-  }, [faturaItens, effectiveInicio, effectiveFim]);
+  }, [faturaItens, compStart, compEnd]);
 
   const { data: linkedAgendamentos = [] } = useQuery<any[]>({
     queryKey: ["dir-linked-agendamentos", linkedAgendamentoIds],
@@ -2033,7 +2093,7 @@ function DiretoriaPageContent() {
 
   const [customProfSalariesOverrides, setCustomProfSalariesOverrides] = useState<Record<string, number>>({});
   const saveTimeoutRef = useRef<Record<string, any>>({});
-  const periodKey = `${effectiveInicio}_${effectiveFim}`;
+  const periodKey = `${validInicio}_${validFim}`;
 
   // Synchronize database data from Supabase into customPatientDefaults, customProfSalariesDefaults, and customRepasses on load / period change
   useEffect(() => {
@@ -3088,18 +3148,20 @@ function DiretoriaPageContent() {
 
     // 1. Initialize all active professionals in the period
     (profissionais || []).forEach((p: any) => {
-      if (!isProfActiveInPeriod(p, effectiveInicio, effectiveFim, true)) return;
+      if (!isProfActiveInPeriod(p, validInicio, validFim, true)) return;
 
       const isAdm = isProfissionalAdmin(p);
       const cargo = (p as any).cargo || (p.valores_config as any)?.cargo || (isAdm ? p.especialidade : null);
       const isAcioniza = isAcionizaProf(p.id);
       
-      const defaultSalary =
+      const periodMonths = periodMonthsCount;
+      const baseSalary =
         customProfSalariesDefaults[p.id] !== undefined && customProfSalariesDefaults[p.id] > 0
           ? customProfSalariesDefaults[p.id]
           : isAcioniza
           ? 300
           : (customProfSalariesDefaults[p.id] ?? 0);
+      const defaultSalary = baseSalary * (periodMonths > 1 ? periodMonths : 1);
       const currentSalary = customProfSalariesOverrides[p.id] !== undefined ? customProfSalariesOverrides[p.id] : defaultSalary;
       const isSalaryModified = Math.abs(currentSalary - defaultSalary) > 0.01;
       const isSalaryCustomized = isAcioniza
@@ -3344,7 +3406,12 @@ function DiretoriaPageContent() {
             : isLorenzoOtherApoio && (!patientDefault?.value || patientDefault.value === 360)
               ? 240.00
               : (patientDefault?.value !== undefined ? patientDefault.value : baseVal);
-          const totalVal = override?.value !== undefined ? override.value : defaultVal;
+          const pacSessions = (agendamentosRepasses || []).filter(
+            (ag: any) => ag.paciente_id === data.pacId && ag.profissional_id === profId && (ag.status === "realizado" || ag.status === "pago" || ag.status === "falta")
+          );
+          const distinctMonths = new Set(pacSessions.map((ag: any) => ag.data_inicio ? String(ag.data_inicio).substring(0, 7) : "").filter(Boolean)).size;
+          const monthsMultiplier = distinctMonths > 1 ? distinctMonths : 1;
+          const totalVal = override?.value !== undefined ? override.value : defaultVal * monthsMultiplier;
           const repVal = totalVal * (rate / 100);
 
           totalSess += sessions;
@@ -3506,7 +3573,7 @@ function DiretoriaPageContent() {
     return (profissionais || [])
       .filter((p: any) => {
         if (selectedBillingProfs.includes(p.id)) return true;
-        return isProfActiveInPeriod(p, effectiveInicio, effectiveFim);
+        return isProfActiveInPeriod(p, validInicio, validFim);
       })
       .filter((p: any) =>
         normalizeString(p.nome).includes(normalizeString(billingProfSearch))
@@ -3518,7 +3585,7 @@ function DiretoriaPageContent() {
         if (!aSel && bSel) return 1;
         return a.nome.localeCompare(b.nome);
       });
-  }, [profissionais, effectiveInicio, effectiveFim, selectedBillingProfs, billingProfSearch]);
+  }, [profissionais, validInicio, validFim, selectedBillingProfs, billingProfSearch]);
 
   // Patient Faturas Modal state
   const [patientFaturasDialog, setPatientFaturasDialog] = useState<{
@@ -5547,11 +5614,21 @@ function DiretoriaPageContent() {
               <Calendar className="h-3.5 w-3.5" /> Mês de Referência
             </Label>
             <div className="flex items-center gap-2">
-              <Select value={selectedMonth} onValueChange={handleMonthChange}>
+              <Select
+                value={currentMonthValue}
+                onValueChange={(val) => {
+                  if (val !== "custom") handleMonthChange(val);
+                }}
+              >
                 <SelectTrigger className="h-10 min-w-[170px]">
                   <SelectValue placeholder="Selecione o mês" />
                 </SelectTrigger>
                 <SelectContent>
+                  {currentMonthValue === "custom" && (
+                    <SelectItem value="custom" className="font-semibold text-primary">
+                      Período Personalizado
+                    </SelectItem>
+                  )}
                   {availableMonthsList.map((m) => (
                     <SelectItem key={m.value} value={m.value}>
                       {m.label}
@@ -6015,7 +6092,9 @@ function DiretoriaPageContent() {
                   <CardTitle className="text-lg flex items-center gap-2">
                     Resumo por Profissional
                     <Badge variant="secondary" className="font-medium text-xs">
-                      {format(new Date(effectiveInicio + "T12:00:00"), "MMMM 'de' yyyy", { locale: ptBR })}
+                      {currentMonthValue !== "custom"
+                        ? format(new Date(validInicio + "T12:00:00"), "MMMM 'de' yyyy", { locale: ptBR })
+                        : `${format(new Date(validInicio + "T12:00:00"), "dd/MM/yyyy")} a ${format(new Date(validFim + "T12:00:00"), "dd/MM/yyyy")}`}
                     </Badge>
                   </CardTitle>
                   <CardDescription>
@@ -6023,11 +6102,21 @@ function DiretoriaPageContent() {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Select value={selectedMonth} onValueChange={handleMonthChange}>
+                  <Select
+                    value={currentMonthValue}
+                    onValueChange={(val) => {
+                      if (val !== "custom") handleMonthChange(val);
+                    }}
+                  >
                     <SelectTrigger className="w-[180px] h-9 text-xs">
                       <SelectValue placeholder="Selecione o mês" />
                     </SelectTrigger>
                     <SelectContent>
+                      {currentMonthValue === "custom" && (
+                        <SelectItem value="custom" className="text-xs font-semibold text-primary">
+                          Período Personalizado
+                        </SelectItem>
+                      )}
                       {availableMonthsList.map((m) => (
                         <SelectItem key={m.value} value={m.value} className="text-xs">
                           {m.label}
