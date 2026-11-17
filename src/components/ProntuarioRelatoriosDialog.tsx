@@ -175,6 +175,7 @@ export function cleanSessionMeta(raw?: string | null): string {
     .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
     .replace(/\[Meio:\s*[^\]]+\]/gi, "")
     .replace(/\[Pagamentos:\s*\[[\s\S]*?\]\]/gi, "")
+    .replace(/\[PagamentoParcial:\s*[^\]]+\]/gi, "")
     .replace(/\[StatusPagamento:\s*[^\]]+\]/gi, "")
     .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
     .replace(/\[Email:\s*[^\]]+\]/gi, "")
@@ -196,6 +197,8 @@ export function mergeSessionMeta(oldRaw: string | null | undefined, newText: str
     if (tipo) meta.push(tipo[0]);
     const pagamentos = oldRaw.match(/\[Pagamentos:\s*\[[\s\S]*?\]\]/i);
     if (pagamentos) meta.push(pagamentos[0]);
+    const pagParcial = oldRaw.match(/\[PagamentoParcial:[^\]]+\]/i);
+    if (pagParcial) meta.push(pagParcial[0]);
     const statusPag = oldRaw.match(/\[StatusPagamento:[^\]]+\]/i);
     if (statusPag) meta.push(statusPag[0]);
     const meio = oldRaw.match(/\[Meio:[^\]]+\]/i);

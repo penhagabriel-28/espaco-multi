@@ -1,6 +1,7 @@
 export type FormaPagamentoSessao =
   | "Pix"
   | "Espécie"
+  | "Pix + Espécie"
   | "Débito"
   | "Crédito"
   | "Boleto"
@@ -10,8 +11,8 @@ export interface ParcelaPagamento {
   id: string;
   valor: number;
   forma: FormaPagamentoSessao;
-  data: string; // YYYY-MM-DD
-  descricao?: string; // ex: "Sinal / Antecipado", "No dia da sessão", etc.
+  data: string;
+  descricao?: string;
 }
 
 export interface InfoPagamentoSessao {
@@ -25,240 +26,123 @@ export interface InfoPagamentoSessao {
   resumoMeios: string;
 }
 
-export function normalizarFormaPagamento(val?: string | null): FormaPagamentoSessao {
-  if (!val) return "Pix";
-  const v = val.trim().toLowerCase();
-  if (v.includes("esp") || v.includes("dinheiro")) return "Espécie";
-  if (v.includes("deb") || v.includes("déb")) return "Débito";
-  if (v.includes("cred") || v.includes("créd")) return "Crédito";
-  if (v.includes("bol")) return "Boleto";
-  if (v.includes("transf")) return "Transferência";
-  return "Pix";
+export interface InfoPagamentoSimples {
+  meio: string;
+  pagamentoParcial: string;
+  isParcial: boolean;
+  cleanObservacoes: string;
 }
 
-export function formatarDataBrasileira(dataStr?: string | null): string {
-  if (!dataStr) return "";
-  const parts = dataStr.split("-");
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
-  return dataStr;
-}
-
-/**
- * Converte data em texto como "09/11" ou "09/11/2026" para "YYYY-MM-DD"
- */
-function converterParaISOData(textoData?: string, anoPadrao?: number): string {
-  if (!textoData) {
-    return new Date().toISOString().slice(0, 10);
-  }
-  const clean = textoData.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
-    return clean;
-  }
-  const matchDMY = clean.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
-  if (matchDMY) {
-    const dia = matchDMY[1].padStart(2, "0");
-    const mes = matchDMY[2].padStart(2, "0");
-    let ano = matchDMY[3];
-    if (!ano) {
-      ano = String(anoPadrao || new Date().getFullYear());
-    } else if (ano.length === 2) {
-      ano = `20${ano}`;
-    }
-    return `${ano}-${mes}-${dia}`;
-  }
-  return new Date().toISOString().slice(0, 10);
-}
-
-/**
- * Faz o parse das observações do agendamento buscando:
- * 1) Tag estruturada [Pagamentos: [...]]
- * 2) Anotações manuais legadas como "PG PIX- R$100,00 (09/11)"
- * 3) Tag [Meio: Pix]
- * Retorna as informações calculadas de pagamento e o texto limpo de observações.
- */
-export function parsePagamentoSessao(
-  observacoesRaw: string | null | undefined,
-  valorEstimado?: number,
-  dataSessao?: string | null
-): { info: InfoPagamentoSessao; cleanObservacoes: string; statusPagamentoTag: "quitado" | "parcial" | "pendente" | null } {
-  const raw = observacoesRaw || "";
-  let clean = raw;
-
-  // Remover tipo de agendamento se estiver no texto
-  clean = clean.replace(/^\[Tipo:\s*(Anamnese|Sessão Padrão)\]\n?/i, "");
-
-  // Status de pagamento explícito na tag
-  let statusPagamentoTag: "quitado" | "parcial" | "pendente" | null = null;
-  const statusMatch = clean.match(/\[StatusPagamento:\s*(quitado|parcial|pendente)\]/i);
-  if (statusMatch) {
-    statusPagamentoTag = statusMatch[1].toLowerCase() as any;
-    clean = clean.replace(statusMatch[0], "");
+export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples {
+  if (!raw) {
+    return { meio: "Pix", pagamentoParcial: "", isParcial: false, cleanObservacoes: "" };
   }
 
-  // Meio registrado anteriormente
-  const meioMatch = clean.match(/\[Meio:\s*([^\]]+)\]/i);
-  const meioRegistrado = meioMatch ? meioMatch[1].trim() : null;
+  let text = raw;
+
+  // Meio registrado
+  let meio = "Pix";
+  const meioMatch = text.match(/\[Meio:\s*([^\]]+)\]/i);
   if (meioMatch) {
-    clean = clean.replace(meioMatch[0], "");
+    meio = meioMatch[1].trim();
+    text = text.replace(meioMatch[0], "");
   }
 
-  let pagamentos: ParcelaPagamento[] = [];
-  let isFromStructured = false;
+  // Status parcial
+  let isParcial = false;
+  const statusMatch = text.match(/\[StatusPagamento:\s*(quitado|parcial|pendente)\]/i);
+  if (statusMatch) {
+    if (statusMatch[1].toLowerCase() === "parcial") isParcial = true;
+    text = text.replace(statusMatch[0], "");
+  }
 
-  // 1) Tag estruturada [Pagamentos: [...]]
-  const pagamentosMatch = clean.match(/\[Pagamentos:\s*(\[[\s\S]*?\])\]/);
-  if (pagamentosMatch) {
+  // Tag explícita de PagamentoParcial
+  let pagamentoParcial = "";
+  const parcialMatch = text.match(/\[PagamentoParcial:\s*([^\]]+)\]/i);
+  if (parcialMatch) {
+    pagamentoParcial = parcialMatch[1].trim();
+    text = text.replace(parcialMatch[0], "");
+  }
+
+  // Remove tag JSON legada se houver
+  const jsonMatch = text.match(/\[Pagamentos:\s*\[[\s\S]*?\]\]/i);
+  if (jsonMatch) {
     try {
-      const parsed = JSON.parse(pagamentosMatch[1]);
+      const jsonContent = jsonMatch[0].replace(/^\[Pagamentos:\s*/i, "").replace(/\]$/, "");
+      const parsed = JSON.parse(jsonContent);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        pagamentos = parsed.map((item, idx) => ({
-          id: String(item.id || `pag-${Date.now()}-${idx}`),
-          valor: Number(item.valor) || 0,
-          forma: normalizarFormaPagamento(item.forma),
-          data: item.data || new Date().toISOString().slice(0, 10),
-          descricao: item.descricao || "",
-        }));
-        isFromStructured = true;
+        if (!pagamentoParcial) {
+          pagamentoParcial = parsed
+            .map((p: any) => `${p.forma || "PG"}: R$ ${p.valor || 0}${p.data ? ` (${p.data})` : ""}`)
+            .join(" | ");
+        }
+        if (parsed.length > 1 && (!meioMatch || meio === "Pix")) {
+          meio = "Pix + Espécie";
+        }
       }
     } catch {
-      // Ignora erro de JSON malformado
+      // ignore
     }
-    clean = clean.replace(pagamentosMatch[0], "");
+    text = text.replace(jsonMatch[0], "");
   }
 
-  // Ano padrão para conversão de datas
-  const anoPadrao = dataSessao ? new Date(dataSessao).getFullYear() : new Date().getFullYear();
+  // Remove tipo se houver
+  text = text.replace(/\[Tipo:\s*(Anamnese|Sessão Padrão)\]\n?/i, "");
 
-  // 2) Se não encontrou estruturado, buscar anotações manuais legadas como:
-  // "PG PIX- R$100,00 (09/11)" ou "PG ESP- R$100,00 (11/11)"
+  // Anotações legadas tipo PG PIX- R$100,00 (09/11)
   const manualRegex = /PG\s+(PIX|ESP|ESPÉCIE|ESPECIE|DINHEIRO|DÉBITO|DEBITO|CRÉDITO|CREDITO|BOL|BOLETO|TRANSF|TRANSFERÊNCIA)[-\s:]+R?\$?\s*([\d.,]+)(?:\s*\(([^)]+)\))?/gi;
-  if (!isFromStructured) {
-    let m: RegExpExecArray | null;
-    const manualMatches: ParcelaPagamento[] = [];
-    while ((m = manualRegex.exec(clean)) !== null) {
-      const forma = normalizarFormaPagamento(m[1]);
-      const rawValor = m[2].replace(/\./g, "").replace(",", ".");
-      const valor = parseFloat(rawValor) || 0;
-      const extra = m[3] ? m[3].trim() : "";
-      const dataIso = converterParaISOData(extra, anoPadrao);
-      manualMatches.push({
-        id: `pg-manual-${Date.now()}-${manualMatches.length}`,
-        valor,
-        forma,
-        data: dataIso,
-        descricao: extra ? `Ref: (${extra})` : "",
-      });
-    }
-
-    if (manualMatches.length > 0) {
-      pagamentos = manualMatches;
-      // Remove do texto de observações para deixar limpo
-      clean = clean.replace(manualRegex, "");
-    }
+  const foundManual: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = manualRegex.exec(text)) !== null) {
+    foundManual.push(m[0].trim());
   }
 
-  // 3) Se não encontrou pagamentos ainda, mas tem [Meio: ...]:
-  if (pagamentos.length === 0 && meioRegistrado) {
-    const defaultData = dataSessao ? dataSessao.slice(0, 10) : new Date().toISOString().slice(0, 10);
-    // Se há múltiplos meios como "Pix + Espécie"
-    if (meioRegistrado.includes("+")) {
-      const parts = meioRegistrado.split("+").map((s) => s.trim());
-      const partVal = valorEstimado && valorEstimado > 0 ? valorEstimado / parts.length : 0;
-      pagamentos = parts.map((p, idx) => ({
-        id: `pg-init-${idx}`,
-        valor: Math.round(partVal * 100) / 100,
-        forma: normalizarFormaPagamento(p),
-        data: defaultData,
-        descricao: `Parcela ${idx + 1}`,
-      }));
-    } else {
-      pagamentos = [
-        {
-          id: `pg-init-0`,
-          valor: valorEstimado || 0,
-          forma: normalizarFormaPagamento(meioRegistrado),
-          data: defaultData,
-          descricao: "Pagamento integral",
-        },
-      ];
+  if (!pagamentoParcial && foundManual.length > 0) {
+    pagamentoParcial = foundManual.join(" | ");
+    if (foundManual.length > 1 && (!meioMatch || meio === "Pix")) {
+      meio = "Pix + Espécie";
     }
   }
+  text = text.replace(manualRegex, "");
 
-  // Limpeza de quebras de linha excedentes no texto de observação
-  clean = clean.replace(/^\s*[\r\n]/gm, "").trim();
+  const cleanObservacoes = text.replace(/^\s*[\r\n]/gm, "").trim();
 
-  // Calcular totais
-  const valorTotalSessao = valorEstimado && valorEstimado > 0 ? valorEstimado : pagamentos.reduce((acc, p) => acc + (p.valor || 0), 0);
-  const totalPago = pagamentos.reduce((acc, p) => acc + (p.valor || 0), 0);
-  const saldoRestante = Math.max(0, Math.round((valorTotalSessao - totalPago) * 100) / 100);
-
-  const isQuitado = valorTotalSessao > 0 ? totalPago >= valorTotalSessao - 0.01 : totalPago > 0;
-  const isParcial = totalPago > 0 && !isQuitado;
-
-  // Meios distintos para resumo
-  const formasUnicas = Array.from(new Set(pagamentos.map((p) => p.forma)));
-  const resumoMeios = formasUnicas.length > 0 ? formasUnicas.join(" + ") : (meioRegistrado || "Pix");
-
-  const tipo: "unico" | "parcial_dividido" =
-    pagamentos.length > 1 || isParcial || statusPagamentoTag === "parcial"
-      ? "parcial_dividido"
-      : "unico";
-
-  return {
-    info: {
-      tipo,
-      valorTotalSessao,
-      pagamentos,
-      totalPago,
-      saldoRestante,
-      isQuitado,
-      isParcial,
-      resumoMeios,
-    },
-    cleanObservacoes: clean,
-    statusPagamentoTag,
-  };
+  return { meio, pagamentoParcial, isParcial, cleanObservacoes };
 }
 
-/**
- * Codifica o registro de pagamento em formato estruturado dentro do campo observações.
- */
-export function encodePagamentoSessao(
+export function encodePagamentoSimples(
   cleanObservacoes: string,
-  info: InfoPagamentoSessao,
+  meio: string,
+  pagamentoParcial?: string,
+  isParcial?: boolean,
   tipoAgendamento?: string
 ): string {
   // Limpar texto de tags existentes para evitar duplicidade
   const clean = (cleanObservacoes || "")
-    .replace(/^\[Tipo:\s*(Anamnese|Sessão Padrão)\]\n?/i, "")
+    .replace(/^\[Tipo:\s*(Anamnese|Sessão Padrão)\]\n?/gi, "")
     .replace(/\[StatusPagamento:\s*(quitado|parcial|pendente)\]\n?/gi, "")
     .replace(/\[Meio:\s*[^\]]+\]\n?/gi, "")
+    .replace(/\[PagamentoParcial:\s*[^\]]+\]\n?/gi, "")
     .replace(/\[Pagamentos:\s*\[[\s\S]*?\]\]\n?/gi, "")
     .replace(/PG\s+(PIX|ESP|ESPÉCIE|ESPECIE|DINHEIRO|DÉBITO|DEBITO|CRÉDITO|CREDITO|BOL|BOLETO|TRANSF|TRANSFERÊNCIA)[-\s:]+R?\$?\s*([\d.,]+)(?:\s*\(([^)]+)\))?\n?/gi, "")
     .trim();
 
   const parts: string[] = [];
 
-  // Prefixo de tipo de atendimento (se informado)
   if (tipoAgendamento) {
     parts.push(tipoAgendamento === "anamnese" ? "[Tipo: Anamnese]" : "[Tipo: Sessão Padrão]");
   }
 
-  if (info.pagamentos && info.pagamentos.length > 0) {
-    // 1) Tag estruturada de pagamentos
-    parts.push(`[Pagamentos: ${JSON.stringify(info.pagamentos)}]`);
+  if (meio) {
+    parts.push(`[Meio: ${meio.trim()}]`);
+  }
 
-    // 2) Status de quitação do pagamento
-    if (info.isQuitado) {
-      parts.push(`[StatusPagamento: quitado]`);
-    } else if (info.isParcial || info.totalPago > 0) {
-      parts.push(`[StatusPagamento: parcial]`);
-    }
+  if (isParcial) {
+    parts.push(`[StatusPagamento: parcial]`);
+  }
 
-    // 3) Resumo do meio para retrocompatibilidade
-    parts.push(`[Meio: ${info.resumoMeios || "Pix"}]`);
+  if (pagamentoParcial && pagamentoParcial.trim()) {
+    parts.push(`[PagamentoParcial: ${pagamentoParcial.trim()}]`);
   }
 
   if (clean) {
@@ -266,4 +150,39 @@ export function encodePagamentoSessao(
   }
 
   return parts.join("\n");
+}
+
+// Backwards-compatible aliases for existing components
+export function parsePagamentoSessao(raw?: string | null, _valorPadrao?: number, _dataPadrao?: string) {
+  const parsed = parsePagamentoSimples(raw);
+  const isParcial = parsed.isParcial || Boolean(parsed.pagamentoParcial);
+  const info: InfoPagamentoSessao = {
+    tipo: isParcial ? "parcial_dividido" : "unico",
+    valorTotalSessao: 0,
+    pagamentos: [],
+    totalPago: 0,
+    saldoRestante: 0,
+    isQuitado: !isParcial,
+    isParcial,
+    resumoMeios: parsed.meio,
+  };
+  return {
+    info,
+    cleanObservacoes: parsed.cleanObservacoes,
+    statusPagamentoTag: isParcial ? "parcial" : (raw?.includes("[StatusPagamento: quitado]") ? "quitado" : null),
+  };
+}
+
+export function encodePagamentoSessao(
+  cleanObservacoes: string,
+  info: InfoPagamentoSessao,
+  tipoAgendamento?: string
+): string {
+  return encodePagamentoSimples(
+    cleanObservacoes,
+    info.resumoMeios || "Pix",
+    undefined,
+    info.isParcial,
+    tipoAgendamento
+  );
 }

@@ -48,11 +48,8 @@ import { addDays, addWeeks, endOfWeek, format, isSameDay, startOfWeek } from "da
 import { ptBR } from "date-fns/locale";
 import { cn, isProfissionalAdmin } from "@/lib/utils";
 import {
-  parsePagamentoSessao,
-  encodePagamentoSessao,
-  type FormaPagamentoSessao,
-  type ParcelaPagamento,
-  type InfoPagamentoSessao,
+  parsePagamentoSimples,
+  encodePagamentoSimples,
 } from "@/lib/pagamentoSessao";
 import { brl } from "@/lib/despesasRecorrentes";
 import {
@@ -848,18 +845,14 @@ const FragmentRow = memo(
                 const fimSessao = a.data_fim ? new Date(a.data_fim) : new Date(a.data_inicio);
                 const passouHorario = agora > fimSessao;
 
-                const { info: pagInfo, statusPagamentoTag } = parsePagamentoSessao(
-                  a.observacoes,
-                  undefined,
-                  a.data_inicio
-                );
-                const isParcial = pagInfo.isParcial || statusPagamentoTag === "parcial" || a.status === "pago_parcial";
-                const isQuitado = a.status === "pago" || pagInfo.isQuitado || statusPagamentoTag === "quitado";
+                const pagParsed = parsePagamentoSimples(a.observacoes);
+                const isParcial = a.status === "pago_parcial" || pagParsed.isParcial || Boolean(pagParsed.pagamentoParcial);
+                const isQuitado = a.status === "pago" && !isParcial;
 
                 const naoPago = !isQuitado && a.status !== "cancelado" && a.status !== "ferias";
                 const isAtrasadoNaoPago = !isMensal && passouHorario && naoPago;
 
-                const meio = pagInfo.resumoMeios || (a.observacoes?.match(/\[Meio:\s*([^\]]+)\]/i)?.[1] ?? null);
+                const meio = pagParsed.meio;
 
                 return (
                   <button
@@ -915,10 +908,10 @@ const FragmentRow = memo(
                         <Badge
                           variant="destructive"
                           className="h-4 px-1 text-[8px] font-extrabold uppercase shrink-0 bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-0.5 animate-pulse shadow-2xs"
-                          title={isParcial ? `Sessão finalizada com saldo restante de ${brl(pagInfo.saldoRestante)} pendente!` : "Sessão finalizada sem confirmação de pagamento!"}
+                          title={isParcial && pagParsed.pagamentoParcial ? `Sessão com pagamento parcial pendente: ${pagParsed.pagamentoParcial}` : "Sessão finalizada sem confirmação de pagamento!"}
                         >
                           <AlertCircle className="h-2.5 w-2.5" />
-                          {isParcial ? `Cobrar ${brl(pagInfo.saldoRestante)}` : "Cobrar"}
+                          Cobrar
                         </Badge>
                       )}
 
@@ -927,9 +920,9 @@ const FragmentRow = memo(
                         <Badge
                           variant="outline"
                           className="h-4 px-1 text-[8px] uppercase font-bold shrink-0 border border-amber-500/40 text-amber-700 bg-amber-50/80 dark:bg-amber-950/40 dark:text-amber-300"
-                          title={pagInfo.saldoRestante > 0 ? `Pago ${brl(pagInfo.totalPago)} de ${brl(pagInfo.valorTotalSessao)} (Falta ${brl(pagInfo.saldoRestante)})` : "Pagamento parcial registrado"}
+                          title={pagParsed.pagamentoParcial || "Pagamento parcial registrado"}
                         >
-                          Parcial {pagInfo.totalPago > 0 ? `(${brl(pagInfo.totalPago)})` : ""}
+                          Parcial
                         </Badge>
                       ) : (
                         <Badge
@@ -1031,24 +1024,23 @@ function AgendamentoDialog({
   const [tipoAgendamento, setTipoAgendamento] = useState<"sessao" | "anamnese">(initialTipo);
 
   const {
-    info: initialPagamentoInfo,
+    meio: initialMeio,
+    pagamentoParcial: initialPagParcial,
+    isParcial: initialIsParcial,
     cleanObservacoes: initialParsedCleanObs,
-    statusPagamentoTag,
-  } = parsePagamentoSessao(editing?.observacoes, undefined, editing?.data_inicio);
+  } = parsePagamentoSimples(editing?.observacoes);
 
-  const initialPaymentMethod = initialPagamentoInfo.pagamentos[0]?.forma || "Pix";
+  const initialPaymentMethod = initialMeio || "Pix";
   const initialPacientePagouFalta =
-    editing?.status === "falta" && initialPagamentoInfo.pagamentos.length > 0 ? "sim" : "nao";
+    editing?.status === "falta" && (initialPagParcial || editing?.observacoes?.includes("[Meio:")) ? "sim" : "nao";
   const [pacientePagouFalta, setPacientePagouFalta] = useState<"sim" | "nao">(initialPacientePagouFalta);
 
   const initialStatus =
-    statusPagamentoTag === "parcial" || (editing?.status !== "pago" && initialPagamentoInfo.isParcial)
+    initialIsParcial || editing?.status === "pago_parcial"
       ? "pago_parcial"
       : editing?.status ?? "pendente";
 
   const initialObservacoes = initialParsedCleanObs;
-
-  const [pagamentoInfo, setPagamentoInfo] = useState<InfoPagamentoSessao>(initialPagamentoInfo);
 
   const initialProfId = editing?.profissional_id ?? defaults?.professionalId ?? "";
 
@@ -1062,6 +1054,7 @@ function AgendamentoDialog({
     recorrencia: editing?.recorrencia ?? "unica",
     observacoes: initialObservacoes,
     meio_pagamento: initialPaymentMethod,
+    pagamento_parcial: initialPagParcial || "",
     sala_id: editing?.sala_id ?? "",
     plano_aba: editing?.plano_aba ?? null,
   });
@@ -1480,180 +1473,7 @@ Fico à disposição para qualquer dúvida!`;
     return 0;
   }, [specialtyUpper, currentPricing, tipoAgendamento]);
 
-  useEffect(() => {
-    if (valorEsperado > 0 && (pagamentoInfo.valorTotalSessao === 0 || !editing)) {
-      setPagamentoInfo((prev) => {
-        const saldo = Math.max(0, Math.round((valorEsperado - prev.totalPago) * 100) / 100);
-        return {
-          ...prev,
-          valorTotalSessao: valorEsperado,
-          saldoRestante: saldo,
-          isQuitado: prev.totalPago >= valorEsperado - 0.01 && valorEsperado > 0,
-          isParcial: prev.totalPago > 0 && prev.totalPago < valorEsperado - 0.01,
-        };
-      });
-    }
-  }, [valorEsperado, editing]);
 
-  const recalculatePagamento = (
-    pagamentos: ParcelaPagamento[],
-    valorTotal = pagamentoInfo.valorTotalSessao,
-    tipo = pagamentoInfo.tipo
-  ) => {
-    const totalPago = pagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
-    const saldoRestante = Math.max(0, Math.round((valorTotal - totalPago) * 100) / 100);
-    const isQuitado = valorTotal > 0 ? totalPago >= valorTotal - 0.01 : totalPago > 0;
-    const isParcial = totalPago > 0 && !isQuitado;
-    const formasUnicas = Array.from(new Set(pagamentos.map((p) => p.forma)));
-    const resumoMeios = formasUnicas.length > 0 ? formasUnicas.join(" + ") : "Pix";
-
-    const nextInfo: InfoPagamentoSessao = {
-      tipo,
-      valorTotalSessao: valorTotal,
-      pagamentos,
-      totalPago,
-      saldoRestante,
-      isQuitado,
-      isParcial,
-      resumoMeios,
-    };
-    setPagamentoInfo(nextInfo);
-
-    if (formasUnicas[0]) {
-      setForm((prev) => ({ ...prev, meio_pagamento: formasUnicas[0] }));
-    }
-
-    if (isQuitado && form.status === "pago_parcial") {
-      setForm((prev) => ({ ...prev, status: "pago" }));
-    } else if (isParcial && form.status === "pago") {
-      setForm((prev) => ({ ...prev, status: "pago_parcial" }));
-    }
-  };
-
-  const atualizarFormaUnica = (forma: FormaPagamentoSessao) => {
-    const current = pagamentoInfo.pagamentos[0];
-    const updated: ParcelaPagamento[] = [
-      {
-        id: current?.id || `pg-${Date.now()}`,
-        valor: current?.valor ?? (pagamentoInfo.valorTotalSessao || 0),
-        forma,
-        data: current?.data || (formDate || new Date().toISOString().slice(0, 10)),
-        descricao: current?.descricao || "Pagamento integral",
-      },
-    ];
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, "unico");
-  };
-
-  const atualizarValorUnico = (valor: number) => {
-    const current = pagamentoInfo.pagamentos[0];
-    const updated: ParcelaPagamento[] = [
-      {
-        id: current?.id || `pg-${Date.now()}`,
-        valor,
-        forma: current?.forma || "Pix",
-        data: current?.data || (formDate || new Date().toISOString().slice(0, 10)),
-        descricao: current?.descricao || "Pagamento integral",
-      },
-    ];
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, "unico");
-  };
-
-  const atualizarDataUnica = (data: string) => {
-    const current = pagamentoInfo.pagamentos[0];
-    const updated: ParcelaPagamento[] = [
-      {
-        id: current?.id || `pg-${Date.now()}`,
-        valor: current?.valor ?? (pagamentoInfo.valorTotalSessao || 0),
-        forma: current?.forma || "Pix",
-        data,
-        descricao: current?.descricao || "Pagamento integral",
-      },
-    ];
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, "unico");
-  };
-
-  const alternarModoPagamento = (modo: "unico" | "parcial_dividido") => {
-    if (modo === "parcial_dividido") {
-      if (pagamentoInfo.pagamentos.length <= 1) {
-        const total = pagamentoInfo.valorTotalSessao || valorEsperado || 200;
-        const val1 = Math.round((total / 2) * 100) / 100;
-        const val2 = Math.round((total - val1) * 100) / 100;
-        const todayIso = new Date().toISOString().slice(0, 10);
-        const sessionDateIso = formDate || todayIso;
-
-        const p1: ParcelaPagamento = {
-          id: `pg-${Date.now()}-1`,
-          valor: val1 > 0 ? val1 : 100,
-          forma: "Pix",
-          data: todayIso,
-          descricao: "Sinal / Antecipado (Pix)",
-        };
-        const p2: ParcelaPagamento = {
-          id: `pg-${Date.now()}-2`,
-          valor: val2 > 0 ? val2 : 100,
-          forma: "Espécie",
-          data: sessionDateIso,
-          descricao: "No dia da sessão (Espécie)",
-        };
-        recalculatePagamento([p1, p2], total, "parcial_dividido");
-        if (form.status === "pendente") {
-          setForm((prev) => ({ ...prev, status: "pago_parcial" }));
-        }
-        return;
-      }
-      setPagamentoInfo((prev) => ({ ...prev, tipo: "parcial_dividido" }));
-    } else {
-      const total = pagamentoInfo.totalPago > 0 ? pagamentoInfo.totalPago : (pagamentoInfo.valorTotalSessao || valorEsperado || 0);
-      const forma = pagamentoInfo.pagamentos[0]?.forma || "Pix";
-      const p: ParcelaPagamento = {
-        id: `pg-${Date.now()}`,
-        valor: total,
-        forma,
-        data: formDate || new Date().toISOString().slice(0, 10),
-        descricao: "Pagamento integral",
-      };
-      recalculatePagamento([p], total, "unico");
-    }
-  };
-
-  const adicionarParcela = () => {
-    const restante = pagamentoInfo.saldoRestante > 0 ? pagamentoInfo.saldoRestante : 0;
-    const sessionDateIso = formDate || new Date().toISOString().slice(0, 10);
-    const nova: ParcelaPagamento = {
-      id: `pg-${Date.now()}`,
-      valor: restante,
-      forma: "Espécie",
-      data: sessionDateIso,
-      descricao: pagamentoInfo.pagamentos.length === 0 ? "Sinal antecipado" : "No dia da sessão",
-    };
-    const updated = [...pagamentoInfo.pagamentos, nova];
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, "parcial_dividido");
-  };
-
-  const quitarRestante = () => {
-    if (pagamentoInfo.saldoRestante <= 0) return;
-    const sessionDateIso = formDate || new Date().toISOString().slice(0, 10);
-    const nova: ParcelaPagamento = {
-      id: `pg-${Date.now()}`,
-      valor: pagamentoInfo.saldoRestante,
-      forma: "Espécie",
-      data: sessionDateIso,
-      descricao: "Restante no dia da sessão",
-    };
-    const updated = [...pagamentoInfo.pagamentos, nova];
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, "parcial_dividido");
-    setForm((prev) => ({ ...prev, status: "pago" }));
-  };
-
-  const atualizarParcela = (id: string, patch: Partial<ParcelaPagamento>) => {
-    const updated = pagamentoInfo.pagamentos.map((p) => (p.id === id ? { ...p, ...patch } : p));
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, pagamentoInfo.tipo);
-  };
-
-  const removerParcela = (id: string) => {
-    const updated = pagamentoInfo.pagamentos.filter((p) => p.id !== id);
-    recalculatePagamento(updated, pagamentoInfo.valorTotalSessao, pagamentoInfo.tipo);
-  };
 
   const handleDateChange = (dateVal: string) => {
     if (!dateVal) return;
@@ -1776,16 +1596,16 @@ Fico à disposição para qualquer dúvida!`;
         qc.invalidateQueries({ queryKey: ["serv-min"] });
       }
 
-      const finalObservacoes = encodePagamentoSessao(
+      const isParcial = form.status === "pago_parcial" || Boolean(form.pagamento_parcial?.trim());
+      const finalObservacoes = encodePagamentoSimples(
         form.observacoes,
-        pagamentoInfo,
+        form.meio_pagamento || "Pix",
+        form.pagamento_parcial,
+        isParcial,
         specialtyUpper !== "AP" ? tipoAgendamento : undefined
       );
 
-      const statusToSave =
-        form.status === "pago_parcial"
-          ? (pagamentoInfo.isQuitado ? "pago" : "confirmado")
-          : form.status;
+      const statusToSave = form.status === "pago_parcial" ? "confirmado" : form.status;
 
       // Calculate valor for sync
       let valor = 0;
@@ -1808,6 +1628,7 @@ Fico à disposição para qualquer dúvida!`;
           form.status !== (editing.status ?? "pendente") ||
           tipoAgendamento !== initialTipo ||
           form.meio_pagamento !== initialPaymentMethod ||
+          form.pagamento_parcial !== (initialPagParcial || "") ||
           form.sala_id !== (editing.sala_id ?? "");
         void hasOtherFieldsChanged;
 
@@ -2177,14 +1998,16 @@ Fico à disposição para qualquer dúvida!`;
                       {(() => {
                         const fim = editing?.data_fim ? new Date(editing.data_fim) : (editing?.data_inicio ? new Date(editing.data_inicio) : null);
                         const passou = fim && new Date() > fim;
-                        const pendente = form.status !== "pago" && form.status !== "cancelado" && form.status !== "ferias";
+                        const isQuitado = form.status === "pago";
+                        const pendente = !isQuitado && form.status !== "cancelado" && form.status !== "ferias";
                         if (!isMensal && passou && pendente) {
+                          const isParcial = form.status === "pago_parcial" || Boolean(form.pagamento_parcial);
                           return (
                             <div className="col-span-2 p-2 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold flex items-center gap-2">
                               <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
                               <span>
-                                {pagamentoInfo.isParcial
-                                  ? `Sessão finalizada com saldo restante de ${brl(pagamentoInfo.saldoRestante)} a receber. Favor cobrar o responsável.`
+                                {isParcial
+                                  ? `Sessão finalizada com pagamento parcial pendente (${form.pagamento_parcial || "a regularizar"}). Favor cobrar o responsável.`
                                   : "Sessão finalizada sem registro de pagamento. Favor conferir com o responsável e alterar o status para Pago."}
                               </span>
                             </div>
@@ -2193,6 +2016,14 @@ Fico à disposição para qualquer dúvida!`;
                         return null;
                       })()}
                     </div>
+                    {form.pagamento_parcial && (
+                      <div className="mt-1 text-xs">
+                        <span className="text-muted-foreground font-medium">Pagamento Parcial / Sinal:</span>{" "}
+                        <span className="text-foreground font-semibold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          {form.pagamento_parcial}
+                        </span>
+                      </div>
+                    )}
                     {form.observacoes && (
                       <div className="mt-1">
                         <span className="text-muted-foreground font-medium">Observações:</span>{" "}
@@ -2761,24 +2592,13 @@ Fico à disposição para qualquer dúvida!`;
                       <Select
                         value={form.status}
                         onValueChange={(v) => {
-                          setForm({ ...form, status: v as any });
-                          if (v === "pago_parcial") {
-                            if (pagamentoInfo.pagamentos.length === 0) {
-                              alternarModoPagamento("parcial_dividido");
+                          setForm((prev) => {
+                            const next = { ...prev, status: v as any };
+                            if (v === "pago_parcial" && (!prev.meio_pagamento || prev.meio_pagamento === "Pix")) {
+                              next.meio_pagamento = "Pix + Espécie";
                             }
-                          } else if (v === "pago") {
-                            if (pagamentoInfo.pagamentos.length === 0) {
-                              const val = pagamentoInfo.valorTotalSessao || valorEsperado || 0;
-                              const p: ParcelaPagamento = {
-                                id: `pg-${Date.now()}`,
-                                valor: val,
-                                forma: "Pix",
-                                data: formDate || new Date().toISOString().slice(0, 10),
-                                descricao: "Pagamento integral",
-                              };
-                              recalculatePagamento([p], val, "unico");
-                            }
-                          }
+                            return next;
+                          });
                         }}
                       >
                         <SelectTrigger>
@@ -2803,9 +2623,52 @@ Fico à disposição para qualquer dúvida!`;
                         <MessageCircle className="h-4 w-4 fill-green-600/10" />
                         {whatsappUrl ? "WhatsApp Paciente" : "Sem WhatsApp"}
                       </Button>
+                      {!form.pagamento_parcial && (form.status === "pendente" || form.status === "confirmado") && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setForm((prev) => ({
+                              ...prev,
+                              status: "pago_parcial",
+                              meio_pagamento: "Pix + Espécie",
+                            }));
+                          }}
+                          className="text-[11px] text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer pt-0.5"
+                        >
+                          + Registrar sinal / pagamento antecipado
+                        </button>
+                      )}
                     </div>
 
-                    {form.status === "pendente" && (
+                    {(form.status === "pago" || form.status === "pago_parcial" || (form.status === "falta" && pacientePagouFalta === "sim")) ? (
+                      <div className="space-y-1.5 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between">
+                          <Label>Forma de Pagamento</Label>
+                          {form.meio_pagamento && (
+                            <span className="text-[10px] text-muted-foreground font-mono">
+                              {form.meio_pagamento}
+                            </span>
+                          )}
+                        </div>
+                        <Select
+                          value={form.meio_pagamento}
+                          onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pix">Pix</SelectItem>
+                            <SelectItem value="Espécie">Espécie</SelectItem>
+                            <SelectItem value="Pix + Espécie">Pix + Espécie</SelectItem>
+                            <SelectItem value="Débito">Débito</SelectItem>
+                            <SelectItem value="Crédito">Crédito</SelectItem>
+                            <SelectItem value="Boleto">Boleto</SelectItem>
+                            <SelectItem value="Transferência">Transferência</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : form.status === "pendente" ? (
                       <div className="space-y-1.5 animate-in fade-in duration-200">
                         <Label>Recorrência</Label>
                         <Select
@@ -2823,310 +2686,16 @@ Fico à disposição para qualquer dúvida!`;
                           </SelectContent>
                         </Select>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
-                  {/* SEÇÃO COMPLETA DE REGISTRO DE PAGAMENTO (ÚNICO OU PARCIAL / DIVIDIDO) */}
-                  {(form.status === "pago" ||
-                    form.status === "pago_parcial" ||
-                    pagamentoInfo.pagamentos.length > 0 ||
-                    (form.status === "falta" && pacientePagouFalta === "sim")) ? (
-                    <div className="rounded-xl border border-border/80 bg-slate-50/60 dark:bg-slate-900/30 p-3.5 space-y-3 animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                            <DollarSign className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <div className="text-xs font-bold text-foreground flex items-center gap-1.5 flex-wrap">
-                              <span>Registro de Pagamento</span>
-                              {pagamentoInfo.isQuitado ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-300 font-semibold"
-                                >
-                                  ✓ Quitado 100%
-                                </Badge>
-                              ) : pagamentoInfo.isParcial ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] bg-amber-50 text-amber-800 border-amber-300 font-bold animate-pulse"
-                                >
-                                  Parcial ({brl(pagamentoInfo.totalPago)} de {brl(pagamentoInfo.valorTotalSessao)})
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                                  Pendente
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-muted-foreground">
-                              {tipoAgendamento === "anamnese" ? "Anamnese" : "Sessão"} • Suporta pagamento dividido (ex: Sinal Pix + Restante no dia)
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Alternar Pagamento Único vs Parcial/Dividido */}
-                        <div className="flex items-center gap-1 bg-muted/80 p-0.5 rounded-md border text-[11px]">
-                          <button
-                            type="button"
-                            onClick={() => alternarModoPagamento("unico")}
-                            className={cn(
-                              "px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer",
-                              pagamentoInfo.tipo === "unico" && pagamentoInfo.pagamentos.length <= 1
-                                ? "bg-background text-foreground shadow-xs font-semibold"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            Pagamento Único
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => alternarModoPagamento("parcial_dividido")}
-                            className={cn(
-                              "px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer",
-                              pagamentoInfo.tipo === "parcial_dividido" || pagamentoInfo.pagamentos.length > 1
-                                ? "bg-background text-emerald-700 dark:text-emerald-300 shadow-xs font-bold"
-                                : "text-muted-foreground hover:text-foreground"
-                            )}
-                          >
-                            Parcial / Dividido
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Resumo Financeiro da Sessão */}
-                      <div className="grid grid-cols-3 gap-2 p-2 rounded-lg bg-background border text-center">
-                        <div className="p-1.5 rounded bg-muted/30">
-                          <span className="text-[10px] text-muted-foreground block font-medium">Valor Total</span>
-                          <span className="text-xs sm:text-sm font-bold text-foreground">
-                            {brl(pagamentoInfo.valorTotalSessao)}
-                          </span>
-                        </div>
-                        <div className="p-1.5 rounded bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/50">
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-400 block font-medium">Total Já Pago</span>
-                          <span className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-300">
-                            {brl(pagamentoInfo.totalPago)}
-                          </span>
-                        </div>
-                        <div
-                          className={cn(
-                            "p-1.5 rounded border",
-                            pagamentoInfo.saldoRestante > 0
-                              ? "bg-amber-50/70 dark:bg-amber-950/20 border-amber-300/60 text-amber-800 dark:text-amber-300"
-                              : "bg-emerald-50/30 border-emerald-200 text-emerald-700"
-                          )}
-                        >
-                          <span className="text-[10px] block font-medium">
-                            {pagamentoInfo.saldoRestante > 0 ? "Restante a Pagar" : "Status"}
-                          </span>
-                          <span className="text-xs sm:text-sm font-bold">
-                            {pagamentoInfo.saldoRestante > 0 ? brl(pagamentoInfo.saldoRestante) : "100% Quitado"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Conteúdo: Pagamento Único */}
-                      {pagamentoInfo.tipo === "unico" && pagamentoInfo.pagamentos.length <= 1 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Forma de Pagamento</Label>
-                            <Select
-                              value={pagamentoInfo.pagamentos[0]?.forma || "Pix"}
-                              onValueChange={(f) => atualizarFormaUnica(f as FormaPagamentoSessao)}
-                            >
-                              <SelectTrigger className="h-9 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Pix">Pix</SelectItem>
-                                <SelectItem value="Espécie">Espécie</SelectItem>
-                                <SelectItem value="Débito">Débito</SelectItem>
-                                <SelectItem value="Crédito">Crédito</SelectItem>
-                                <SelectItem value="Boleto">Boleto</SelectItem>
-                                <SelectItem value="Transferência">Transferência</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className="space-y-1">
-                            <Label className="text-xs">Valor Pago (R$)</Label>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              className="h-9 text-xs font-mono font-semibold"
-                              value={pagamentoInfo.pagamentos[0]?.valor ?? (pagamentoInfo.valorTotalSessao || 0)}
-                              onChange={(e) => atualizarValorUnico(parseFloat(e.target.value) || 0)}
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <Label className="text-xs">Data do Pagamento</Label>
-                            <Input
-                              type="date"
-                              className="h-9 text-xs"
-                              value={pagamentoInfo.pagamentos[0]?.data || formDate || new Date().toISOString().slice(0, 10)}
-                              onChange={(e) => atualizarDataUnica(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        /* Conteúdo: Pagamento Parcial / Dividido */
-                        <div className="space-y-2.5 pt-1">
-                          <div className="space-y-2">
-                            {pagamentoInfo.pagamentos.map((p, idx) => (
-                              <div
-                                key={p.id}
-                                className="p-2.5 rounded-lg border bg-background/90 shadow-2xs space-y-2"
-                              >
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="font-semibold text-foreground flex items-center gap-1.5">
-                                    <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center">
-                                      {idx + 1}
-                                    </span>
-                                    <span>{p.descricao || `Pagamento ${idx + 1}`}</span>
-                                  </span>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive cursor-pointer"
-                                    onClick={() => removerParcela(p.id)}
-                                    title="Excluir este pagamento"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                  <div className="space-y-1">
-                                    <Label className="text-[11px] text-muted-foreground">Valor (R$)</Label>
-                                    <Input
-                                      type="number"
-                                      step="0.01"
-                                      className="h-8 text-xs font-mono font-semibold"
-                                      value={p.valor}
-                                      onChange={(e) =>
-                                        atualizarParcela(p.id, { valor: parseFloat(e.target.value) || 0 })
-                                      }
-                                    />
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <Label className="text-[11px] text-muted-foreground">Forma</Label>
-                                    <Select
-                                      value={p.forma}
-                                      onValueChange={(f) =>
-                                        atualizarParcela(p.id, { forma: f as FormaPagamentoSessao })
-                                      }
-                                    >
-                                      <SelectTrigger className="h-8 text-xs">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="Pix">Pix</SelectItem>
-                                        <SelectItem value="Espécie">Espécie</SelectItem>
-                                        <SelectItem value="Débito">Débito</SelectItem>
-                                        <SelectItem value="Crédito">Crédito</SelectItem>
-                                        <SelectItem value="Boleto">Boleto</SelectItem>
-                                        <SelectItem value="Transferência">Transferência</SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <Label className="text-[11px] text-muted-foreground">Data</Label>
-                                    <Input
-                                      type="date"
-                                      className="h-8 text-xs"
-                                      value={p.data}
-                                      onChange={(e) => atualizarParcela(p.id, { data: e.target.value })}
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="space-y-1">
-                                  <Label className="text-[11px] text-muted-foreground">Identificação / Momento</Label>
-                                  <Input
-                                    placeholder="Ex: Sinal antecipado / No dia da sessão / Entrada..."
-                                    className="h-7 text-xs bg-muted/20"
-                                    value={p.descricao || ""}
-                                    onChange={(e) => atualizarParcela(p.id, { descricao: e.target.value })}
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Ações: Adicionar Parcela ou Quitar Restante */}
-                          <div className="flex items-center gap-2 flex-wrap pt-1">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs gap-1.5 cursor-pointer"
-                              onClick={() => adicionarParcela()}
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              Adicionar Pagamento
-                            </Button>
-
-                            {pagamentoInfo.saldoRestante > 0 && (
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                size="sm"
-                                className="h-8 text-xs gap-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 font-semibold cursor-pointer"
-                                onClick={() => quitarRestante()}
-                              >
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                                Quitar Restante ({brl(pagamentoInfo.saldoRestante)})
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    /* Botão para registrar sinal/pagamento adiantado quando status for pendente/confirmado */
-                    <div className="pt-0.5">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs gap-1.5 text-emerald-700 bg-emerald-50/60 hover:bg-emerald-100 border-emerald-200/80 cursor-pointer"
-                        onClick={() => {
-                          setForm((prev) => ({ ...prev, status: "pago_parcial" }));
-                          alternarModoPagamento("parcial_dividido");
-                        }}
-                      >
-                        <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
-                        Registrar Sinal / Pagamento Parcial (ex: Pix + Espécie)
-                      </Button>
-                    </div>
-                  )}
-                </div>
-
-                {form.status === "falta" && (
-                  <div className="animate-in fade-in duration-200">
-                    <div className="space-y-1.5 max-w-xs">
+                  {/* Pergunta quando falta */}
+                  {form.status === "falta" && (
+                    <div className="space-y-1.5 animate-in fade-in duration-200 max-w-xs">
                       <Label>O paciente pagou por esta sessão?</Label>
                       <Select
                         value={pacientePagouFalta}
-                        onValueChange={(v) => {
-                          setPacientePagouFalta(v as "sim" | "nao");
-                          if (v === "sim" && pagamentoInfo.pagamentos.length === 0) {
-                            const val = pagamentoInfo.valorTotalSessao || valorEsperado || 0;
-                            const p: ParcelaPagamento = {
-                              id: `pg-${Date.now()}`,
-                              valor: val,
-                              forma: "Pix",
-                              data: formDate || new Date().toISOString().slice(0, 10),
-                              descricao: "Pagamento de falta",
-                            };
-                            recalculatePagamento([p], val, "unico");
-                          }
-                        }}
+                        onValueChange={(v) => setPacientePagouFalta(v as "sim" | "nao")}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Selecione..." />
@@ -3137,8 +2706,30 @@ Fico à disposição para qualquer dúvida!`;
                         </SelectContent>
                       </Select>
                     </div>
-                  </div>
-                )}
+                  )}
+
+                  {/* O ÚNICO CAMPO A MAIS: Pagamento Parcial / Sinal */}
+                  {(form.status === "pago" ||
+                    form.status === "pago_parcial" ||
+                    form.meio_pagamento === "Pix + Espécie" ||
+                    Boolean(form.pagamento_parcial?.trim())) && (
+                    <div className="space-y-1.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+                          <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
+                          Pagamento Parcial / Sinal (ex: Pix + Espécie)
+                        </Label>
+                        <span className="text-[10px] text-muted-foreground">Opcional</span>
+                      </div>
+                      <Input
+                        placeholder="Ex: PG PIX- R$ 100,00 (09/11) | PG ESP- R$ 100,00 (11/11)"
+                        className="h-9 text-xs font-mono"
+                        value={form.pagamento_parcial}
+                        onChange={(e) => setForm({ ...form, pagamento_parcial: e.target.value })}
+                      />
+                    </div>
+                  )}
+                </div>
 
                 <div className="space-y-1.5 animate-in fade-in duration-200">
                   <Label>Observações</Label>
