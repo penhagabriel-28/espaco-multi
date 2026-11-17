@@ -3,6 +3,84 @@ import { ptBR } from "date-fns/locale";
 
 export type TipoDespesaRecorrente = "fixo" | "variavel";
 
+export interface DespesaMeta {
+  descricaoLimpa: string;
+  status: "pago" | "pendente";
+  tipo: "fixo" | "variavel";
+}
+
+/**
+ * Extrai os metadados [status:pago|pendente] e [tipo:fixo|variavel]
+ * embutidos na descrição da despesa. Caso não existam, define valores inteligentes por padrão.
+ */
+export function parseDespesaMeta(rawDescricao: string, categoria?: string): DespesaMeta {
+  if (!rawDescricao) {
+    return { descricaoLimpa: "", status: "pago", tipo: "variavel" };
+  }
+
+  let status: "pago" | "pendente" = "pago";
+  let tipo: "fixo" | "variavel" | null = null;
+  let clean = rawDescricao;
+
+  // Extrair tag [status:pago] ou [status:pendente]
+  const statusMatch = clean.match(/\[status:\s*(pago|pendente)\]/i);
+  if (statusMatch) {
+    status = statusMatch[1].toLowerCase() as "pago" | "pendente";
+    clean = clean.replace(statusMatch[0], "");
+  }
+
+  // Extrair tag [tipo:fixo] ou [tipo:variavel]
+  const tipoMatch = clean.match(/\[tipo:\s*(fixo|variavel)\]/i);
+  if (tipoMatch) {
+    tipo = tipoMatch[1].toLowerCase() as "fixo" | "variavel";
+    clean = clean.replace(tipoMatch[0], "");
+  }
+
+  clean = clean.trim();
+
+  // Se o tipo não foi explicitamente taggeado, deduz com base no nome/categoria
+  if (!tipo) {
+    const lower = clean.toLowerCase();
+    const catLower = (categoria || "").toLowerCase();
+    if (
+      lower.includes("aluguel") ||
+      lower.includes("contador") ||
+      lower.includes("empr") ||
+      lower.includes("folha") ||
+      lower.includes("pessoal") ||
+      catLower === "aluguel"
+    ) {
+      tipo = "fixo";
+    } else {
+      tipo = "variavel";
+    }
+  }
+
+  return {
+    descricaoLimpa: clean,
+    status,
+    tipo,
+  };
+}
+
+/**
+ * Codifica o status de pagamento e o tipo da despesa na descrição de forma padronizada.
+ */
+export function encodeDespesaDescricao(
+  descricaoLimpa: string,
+  meta: { status?: "pago" | "pendente"; tipo?: "fixo" | "variavel" }
+): string {
+  const clean = (descricaoLimpa || "")
+    .replace(/\[status:\s*(pago|pendente)\]/gi, "")
+    .replace(/\[tipo:\s*(fixo|variavel)\]/gi, "")
+    .trim();
+
+  const status = meta.status || "pago";
+  const tipo = meta.tipo || "variavel";
+
+  return `${clean} [status:${status}][tipo:${tipo}]`;
+}
+
 export interface ContaRecorrente {
   id: string;
   nome: string;
@@ -297,7 +375,7 @@ export interface MatchContaDespesa {
   despesasEncontradas: any[];
   valorEfetivo: number;
   valorPrevistoFinal: number;
-  status: "pago" | "parcial" | "pendente" | "variavel_pendente";
+  status: "pago" | "parcial" | "pendente" | "variavel_pendente" | "pendente_lancado";
   infoEmprestimo: InfoParcelaEmprestimo | null;
   infoPessoal?: {
     mesAnteriorNome: string;
@@ -390,7 +468,12 @@ export function cruzarContasComDespesas(
         return desc.includes(nomeNorm);
       });
 
-      const valorEfetivo = matches.reduce(
+      const matchesPagos = matches.filter((d: any) => {
+        const meta = parseDespesaMeta(d.descricao, d.categoria);
+        return meta.status === "pago";
+      });
+
+      const valorEfetivo = matchesPagos.reduce(
         (acc, cur) => acc + (Number(cur.valor) || 0),
         0
       );
@@ -399,14 +482,18 @@ export function cruzarContasComDespesas(
 
       let status: MatchContaDespesa["status"] = "pendente";
       if (isFixo) {
-        if (matches.length > 0) {
+        if (matchesPagos.length > 0) {
           status = valorEfetivo >= valorPrevistoFinal * 0.95 ? "pago" : "parcial";
+        } else if (matches.length > 0) {
+          status = "pendente_lancado";
         } else {
           status = "pendente";
         }
       } else {
-        if (matches.length > 0) {
+        if (matchesPagos.length > 0) {
           status = "pago";
+        } else if (matches.length > 0) {
+          status = "pendente_lancado";
         } else {
           status = "variavel_pendente";
         }

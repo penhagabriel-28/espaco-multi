@@ -38,6 +38,7 @@ import {
   Activity,
   Search,
   Calendar,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanoAbaDialog } from "@/components/PlanoAbaDialog";
@@ -262,7 +263,9 @@ function Agenda() {
           pacientes (
             id,
             nome,
-            cids_secundarios
+            cids_secundarios,
+            valor_mensal,
+            tipo_atendimento
           ),
           profissionais (
             id,
@@ -824,71 +827,123 @@ const FragmentRow = memo(
               >
                 <Plus className="h-4 w-4 md:h-3.5 md:w-3.5" />
               </button>
-              {cellAgs.map((a: any) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEdit(a);
-                  }}
-                  className="mb-1 block w-full rounded-md border-l-4 bg-card pl-2 pr-6 py-1 text-left text-xs shadow-sm transition hover:shadow"
-                  style={{ borderLeftColor: a.profissionais?.cor ?? "var(--primary)" }}
-                >
-                  <div className="truncate font-medium text-foreground">{a.pacientes?.nome}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {safeFormatDate(a.data_inicio, "HH:mm")} {a.salas?.nome ? `• ${a.salas.nome}` : ""}
-                  </div>
-                  <div className="truncate text-[9px] text-muted-foreground">
-                    {a.profissionais?.nome}
-                  </div>
-                  {getEspecialidade(a) && (
-                    <div className="truncate text-[9px] font-medium text-primary">
-                      {getEspecialidade(a)}
+              {cellAgs.map((a: any) => {
+                const isMensal = Boolean(
+                  (a.pacientes?.valor_mensal && Number(a.pacientes.valor_mensal) > 0) ||
+                  (a.servicos?.nome?.toLowerCase() === "apoio" && a.pacientes?.apoio_frequencia !== "avulso")
+                );
+
+                const agora = new Date();
+                const fimSessao = a.data_fim ? new Date(a.data_fim) : new Date(a.data_inicio);
+                const passouHorario = agora > fimSessao;
+                const naoPago = a.status !== "pago" && a.status !== "cancelado" && a.status !== "ferias";
+                const isAtrasadoNaoPago = !isMensal && passouHorario && naoPago;
+
+                const meioMatch = a.observacoes?.match(
+                  /\[Meio:\s*(Pix|Espécie|Especie|Débito|Debito|Crédito|Credito|Boleto)\]/i,
+                );
+                const meio = meioMatch ? meioMatch[1] : null;
+
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(a);
+                    }}
+                    className={cn(
+                      "mb-1 block w-full rounded-md border-l-4 bg-card pl-2 pr-6 py-1 text-left text-xs shadow-sm transition hover:shadow relative",
+                      isAtrasadoNaoPago && "ring-2 ring-rose-500 bg-rose-50/50 dark:bg-rose-950/30 border-l-rose-600 shadow-rose-100 dark:shadow-none"
+                    )}
+                    style={{ borderLeftColor: isAtrasadoNaoPago ? "#e11d48" : (a.profissionais?.cor ?? "var(--primary)") }}
+                  >
+                    <div className="truncate font-medium text-foreground">{a.pacientes?.nome}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {safeFormatDate(a.data_inicio, "HH:mm")} {a.salas?.nome ? `• ${a.salas.nome}` : ""}
                     </div>
-                  )}
-                  {(() => {
-                    const meioMatch = a.observacoes?.match(
-                      /\[Meio:\s*(Pix|Espécie|Especie|Débito|Debito|Crédito|Credito|Boleto)\]/i,
-                    );
-                    const meio = meioMatch ? meioMatch[1] : null;
-                    return (
-                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    <div className="truncate text-[9px] text-muted-foreground">
+                      {a.profissionais?.nome}
+                    </div>
+                    {getEspecialidade(a) && (
+                      <div className="truncate text-[9px] font-medium text-primary">
+                        {getEspecialidade(a)}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      {/* Modalidade de Pagamento */}
+                      {isMensal ? (
+                        <Badge
+                          variant="outline"
+                          className="h-4 px-1 text-[8px] font-semibold shrink-0 border-purple-200 text-purple-700 bg-purple-50/70 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800"
+                        >
+                          Mensal
+                        </Badge>
+                      ) : (
                         <Badge
                           variant="outline"
                           className={cn(
-                            "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
-                            a.status === "confirmado" &&
-                              "border-green-500/30 text-green-600 bg-green-50/50",
-                            a.status === "pago" &&
-                              "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
-                            a.status === "cancelado" &&
-                              "border-red-500/30 text-red-600 bg-red-50/50",
-                            a.status === "realizado" &&
-                              "border-blue-500/30 text-blue-600 bg-blue-50/50",
-                            a.status === "falta" &&
-                              "border-orange-500/30 text-orange-600 bg-orange-50/50",
-                            a.status === "pendente" &&
-                              "border-yellow-500/30 text-yellow-600 bg-yellow-50/50",
-                            a.status === "ferias" &&
-                              "border-sky-500/30 text-sky-600 bg-sky-50/50",
+                            "h-4 px-1 text-[8px] font-semibold shrink-0 border",
+                            isAtrasadoNaoPago
+                              ? "border-rose-400 text-rose-700 bg-rose-100/90 font-bold dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-700"
+                              : "border-sky-200 text-sky-700 bg-sky-50/70 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800"
                           )}
                         >
-                          {STATUS_LABEL[a.status] || a.status}
+                          Por Sessão
                         </Badge>
-                        {a.status === "pago" && meio && (
-                          <Badge
-                            variant="secondary"
-                            className="h-4 px-1 text-[8px] font-semibold shrink-0 bg-emerald-100/80 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-none"
-                          >
-                            {meio}
-                          </Badge>
+                      )}
+
+                      {/* Alerta em Vermelho: Sessão encerrada sem pagamento */}
+                      {isAtrasadoNaoPago && (
+                        <Badge
+                          variant="destructive"
+                          className="h-4 px-1 text-[8px] font-extrabold uppercase shrink-0 bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-0.5 animate-pulse shadow-2xs"
+                          title="Sessão finalizada sem confirmação de pagamento!"
+                        >
+                          <AlertCircle className="h-2.5 w-2.5" />
+                          Cobrar
+                        </Badge>
+                      )}
+
+                      {/* Status da Sessão */}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
+                          a.status === "confirmado" &&
+                            "border-green-500/30 text-green-600 bg-green-50/50",
+                          a.status === "pago" &&
+                            "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
+                          a.status === "cancelado" &&
+                            "border-red-500/30 text-red-600 bg-red-50/50",
+                          a.status === "realizado" &&
+                            (isAtrasadoNaoPago
+                              ? "border-rose-400 text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300"
+                              : "border-blue-500/30 text-blue-600 bg-blue-50/50"),
+                          a.status === "falta" &&
+                            "border-orange-500/30 text-orange-600 bg-orange-50/50",
+                          a.status === "pendente" &&
+                            (isAtrasadoNaoPago
+                              ? "border-rose-400 text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300"
+                              : "border-yellow-500/30 text-yellow-600 bg-yellow-50/50"),
+                          a.status === "ferias" &&
+                            "border-sky-500/30 text-sky-600 bg-sky-50/50",
                         )}
-                      </div>
-                    );
-                  })()}
-                </button>
-              ))}
+                      >
+                        {STATUS_LABEL[a.status] || a.status}
+                      </Badge>
+                      {a.status === "pago" && meio && (
+                        <Badge
+                          variant="secondary"
+                          className="h-4 px-1 text-[8px] font-semibold shrink-0 bg-emerald-100/80 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-none"
+                        >
+                          {meio}
+                        </Badge>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           );
         })}
@@ -1864,6 +1919,20 @@ Fico à disposição para qualquer dúvida!`;
                           )}
                       </div>
                       <div>
+                        <span className="text-muted-foreground font-medium">Modalidade:</span>{" "}
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "h-4 px-1.5 text-[9px] font-semibold",
+                            isMensal
+                              ? "border-purple-200 text-purple-700 bg-purple-50"
+                              : "border-sky-200 text-sky-700 bg-sky-50"
+                          )}
+                        >
+                          {isMensal ? "Mensal" : "Por Sessão"}
+                        </Badge>
+                      </div>
+                      <div>
                         <span className="text-muted-foreground font-medium">Recorrência:</span>{" "}
                         <span className="text-foreground font-semibold capitalize">
                           {form.recorrencia || "única"}
@@ -1885,6 +1954,20 @@ Fico à disposição para qualquer dúvida!`;
                           {Array.isArray(salas) ? (salas.find((s: any) => s.id === form.sala_id)?.nome || "Sem Sala") : "Sem Sala"}
                         </span>
                       </div>
+                      {(() => {
+                        const fim = editing?.data_fim ? new Date(editing.data_fim) : (editing?.data_inicio ? new Date(editing.data_inicio) : null);
+                        const passou = fim && new Date() > fim;
+                        const pendente = form.status !== "pago" && form.status !== "cancelado" && form.status !== "ferias";
+                        if (!isMensal && passou && pendente) {
+                          return (
+                            <div className="col-span-2 p-2 rounded-md bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold flex items-center gap-2">
+                              <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                              <span>Sessão finalizada sem registro de pagamento. Favor conferir com o responsável e alterar o status para <strong>Pago</strong>.</span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                     {form.observacoes && (
                       <div className="mt-1">

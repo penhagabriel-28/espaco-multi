@@ -86,6 +86,8 @@ import {
   cruzarContasComDespesas,
   calcularInfoEmprestimo,
   brl,
+  parseDespesaMeta,
+  encodeDespesaDescricao,
 } from "@/lib/despesasRecorrentes";
 
 export const Route = createFileRoute("/_app/despesas")({
@@ -186,6 +188,8 @@ function DespesasPage() {
   const [valor, setValor] = useState("");
   const [data, setData] = useState(format(new Date(), "yyyy-MM-dd"));
   const [categoria, setCategoria] = useState("Outros");
+  const [statusPagamento, setStatusPagamento] = useState<"pago" | "pendente">("pago");
+  const [tipoDespesa, setTipoDespesa] = useState<"fixo" | "variavel">("fixo");
 
   // Filters for registered expenses table
   const [buscaDespesa, setBuscaDespesa] = useState("");
@@ -289,6 +293,19 @@ function DespesasPage() {
     // Total Efetivo Real de todos os lançamentos do banco no período
     const totalRealPeriodo = despesas.reduce((acc: number, cur: any) => acc + (Number(cur.valor) || 0), 0);
 
+    // Total pago vs pendente das despesas registradas
+    let totalDespesasPagas = 0;
+    let totalDespesasPendentes = 0;
+    despesas.forEach((d: any) => {
+      const meta = parseDespesaMeta(d.descricao, d.categoria);
+      const val = Number(d.valor) || 0;
+      if (meta.status === "pago") {
+        totalDespesasPagas += val;
+      } else {
+        totalDespesasPendentes += val;
+      }
+    });
+
     const qtdFixasTotal = fixasAtivas.length;
     const qtdFixasPagas = matchesRecorrentes.filter(
       (m) => m.conta.tipo === "fixo" && (m.status === "pago" || m.status === "parcial")
@@ -306,6 +323,8 @@ function DespesasPage() {
       totalVariaveisLancadas,
       totalPrevistoConsolidado,
       totalRealPeriodo,
+      totalDespesasPagas,
+      totalDespesasPendentes,
       qtdFixasTotal,
       qtdFixasPagas,
       progressoFixas,
@@ -331,6 +350,8 @@ function DespesasPage() {
       setValor("");
       setData(format(new Date(), "yyyy-MM-dd"));
       setCategoria("Outros");
+      setStatusPagamento("pago");
+      setTipoDespesa("fixo");
     },
     onError: (err: any) => {
       console.error(err);
@@ -385,6 +406,64 @@ function DespesasPage() {
     },
   });
 
+  // Quick toggle status (pago <-> pendente)
+  const toggleExpenseStatusMutation = useMutation({
+    mutationFn: async (despesa: any) => {
+      const meta = parseDespesaMeta(despesa.descricao, despesa.categoria);
+      const newStatus = meta.status === "pago" ? "pendente" : "pago";
+      const newDesc = encodeDespesaDescricao(meta.descricaoLimpa, {
+        status: newStatus,
+        tipo: meta.tipo,
+      });
+      const { error } = await supabase
+        .from("despesas")
+        .update({ descricao: newDesc })
+        .eq("id", despesa.id);
+      if (error) throw error;
+      return newStatus;
+    },
+    onSuccess: (newStatus) => {
+      queryClient.invalidateQueries({ queryKey: ["despesas-page"] });
+      toast.success(
+        newStatus === "pago"
+          ? "Despesa marcada como PAGA!"
+          : "Despesa marcada como PENDENTE!"
+      );
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao alterar status: " + err.message);
+    },
+  });
+
+  // Quick toggle tipo (fixo <-> variavel)
+  const toggleExpenseTipoMutation = useMutation({
+    mutationFn: async (despesa: any) => {
+      const meta = parseDespesaMeta(despesa.descricao, despesa.categoria);
+      const newTipo = meta.tipo === "fixo" ? "variavel" : "fixo";
+      const newDesc = encodeDespesaDescricao(meta.descricaoLimpa, {
+        status: meta.status,
+        tipo: newTipo,
+      });
+      const { error } = await supabase
+        .from("despesas")
+        .update({ descricao: newDesc })
+        .eq("id", despesa.id);
+      if (error) throw error;
+      return newTipo;
+    },
+    onSuccess: (newTipo) => {
+      queryClient.invalidateQueries({ queryKey: ["despesas-page"] });
+      toast.success(
+        newTipo === "fixo"
+          ? "Despesa marcada como FIXA!"
+          : "Despesa marcada como VARIÁVEL!"
+      );
+    },
+    onError: (err: any) => {
+      toast.error("Erro ao alterar tipo: " + err.message);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!descricao.trim()) {
@@ -397,8 +476,13 @@ function DespesasPage() {
       return;
     }
 
+    const finalDescricao = encodeDespesaDescricao(descricao, {
+      status: statusPagamento,
+      tipo: tipoDespesa,
+    });
+
     createExpenseMutation.mutate({
-      descricao,
+      descricao: finalDescricao,
       valor: parsedValor,
       data,
       categoria,
@@ -431,6 +515,8 @@ function DespesasPage() {
     setValor(valSugerido);
     setData(dataSugerida);
     setCategoria(conta.categoria || "Outros");
+    setTipoDespesa(conta.tipo === "fixo" ? "fixo" : "variavel");
+    setStatusPagamento("pago");
 
     toast.info(`Preenchendo despesa: "${descSugerida}". Complete e confirme o lançamento.`);
 
@@ -444,19 +530,31 @@ function DespesasPage() {
     open: false,
     despesa: null,
   });
-  const [expenseForm, setExpenseForm] = useState({
+  const [expenseForm, setExpenseForm] = useState<{
+    descricao: string;
+    valor: string;
+    data: string;
+    categoria: string;
+    status: "pago" | "pendente";
+    tipo: "fixo" | "variavel";
+  }>({
     descricao: "",
     valor: "",
     data: format(new Date(), "yyyy-MM-dd"),
     categoria: "Outros",
+    status: "pago",
+    tipo: "fixo",
   });
 
   const handleOpenEditExpense = (despesa: any) => {
+    const meta = parseDespesaMeta(despesa.descricao, despesa.categoria);
     setExpenseForm({
-      descricao: despesa.descricao,
+      descricao: meta.descricaoLimpa,
       valor: String(despesa.valor),
       data: despesa.data,
       categoria: despesa.categoria || "Outros",
+      status: meta.status,
+      tipo: meta.tipo,
     });
     setEditExpenseDialog({ open: true, despesa });
   };
@@ -756,17 +854,36 @@ function DespesasPage() {
                       </TableCell>
 
                       {/* Tipo */}
-                      <TableCell>
-                        <Badge
-                          variant={isFixo ? "default" : "secondary"}
-                          className={`text-[10px] px-2 py-0.5 ${
-                            isFixo
-                              ? "bg-primary/90 text-primary-foreground"
-                              : "bg-muted text-muted-foreground border-border"
-                          }`}
+                      <TableCell className="text-center">
+                        <Select
+                          value={conta.tipo}
+                          onValueChange={(newTipo: "fixo" | "variavel") => {
+                            const updated = contasRecorrentes.map((c) =>
+                              c.id === conta.id ? { ...c, tipo: newTipo } : c
+                            );
+                            handleSaveContasRecorrentes(updated);
+                            toast.success(`Conta "${conta.nome}" alterada para ${newTipo === "fixo" ? "Fixa" : "Variável"}`);
+                          }}
                         >
-                          {isFixo ? "Fixo" : "Variável"}
-                        </Badge>
+                          <SelectTrigger
+                            className={cn(
+                              "h-6 w-[88px] text-[10px] font-bold uppercase cursor-pointer rounded-full px-2 shadow-2xs border",
+                              isFixo
+                                ? "border-blue-500/40 text-blue-700 bg-blue-50 hover:bg-blue-100/70"
+                                : "border-purple-500/40 text-purple-700 bg-purple-50 hover:bg-purple-100/70"
+                            )}
+                          >
+                            <SelectValue>{isFixo ? "Fixo" : "Variável"}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent align="start" className="min-w-[100px]">
+                            <SelectItem value="fixo" className="text-xs font-semibold text-blue-700">
+                              Fixo
+                            </SelectItem>
+                            <SelectItem value="variavel" className="text-xs font-semibold text-purple-700">
+                              Variável
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
                       </TableCell>
 
                       {/* Vencimento / Detalhamento / Empréstimo / Repasse Pessoal */}
@@ -915,6 +1032,10 @@ function DespesasPage() {
                           <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 gap-1 text-[11px]">
                             <Clock className="h-3 w-3" /> Pago Parcial
                           </Badge>
+                        ) : status === "pendente_lancado" ? (
+                          <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40 gap-1 text-[11px]">
+                            <Clock className="h-3 w-3" /> A Pagar (Lançado)
+                          </Badge>
                         ) : isFixo ? (
                           <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-500/40 gap-1 text-[11px]">
                             <Clock className="h-3 w-3" /> Pendente
@@ -986,16 +1107,35 @@ function DespesasPage() {
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-sm text-foreground truncate">{conta.nome}</div>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <Badge
-                            variant={isFixo ? "default" : "secondary"}
-                            className={`text-[9px] px-1.5 py-0 h-4 ${
-                              isFixo
-                                ? "bg-primary/90 text-primary-foreground"
-                                : "bg-muted text-muted-foreground"
-                            }`}
+                          <Select
+                            value={conta.tipo}
+                            onValueChange={(newTipo: "fixo" | "variavel") => {
+                              const updated = contasRecorrentes.map((c) =>
+                                c.id === conta.id ? { ...c, tipo: newTipo } : c
+                              );
+                              handleSaveContasRecorrentes(updated);
+                              toast.success(`Conta "${conta.nome}" alterada para ${newTipo === "fixo" ? "Fixa" : "Variável"}`);
+                            }}
                           >
-                            {isFixo ? "Fixo" : "Variável"}
-                          </Badge>
+                            <SelectTrigger
+                              className={cn(
+                                "h-5 w-[76px] text-[9px] font-bold uppercase cursor-pointer rounded-full px-1.5 shadow-2xs border",
+                                isFixo
+                                  ? "border-blue-500/40 text-blue-700 bg-blue-50"
+                                  : "border-purple-500/40 text-purple-700 bg-purple-50"
+                              )}
+                            >
+                              <SelectValue>{isFixo ? "Fixo" : "Variável"}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent align="start" className="min-w-[90px]">
+                              <SelectItem value="fixo" className="text-xs font-semibold text-blue-700">
+                                Fixo
+                              </SelectItem>
+                              <SelectItem value="variavel" className="text-xs font-semibold text-purple-700">
+                                Variável
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
                           <span className="text-[10px] text-muted-foreground">• {conta.categoria}</span>
                         </div>
                       </div>
@@ -1010,6 +1150,10 @@ function DespesasPage() {
                       ) : status === "parcial" ? (
                         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 gap-1 text-[10px] py-0.5">
                           <Clock className="h-3 w-3" /> Parcial
+                        </Badge>
+                      ) : status === "pendente_lancado" ? (
+                        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/40 gap-1 text-[10px] py-0.5">
+                          <Clock className="h-3 w-3" /> A Pagar
                         </Badge>
                       ) : isFixo ? (
                         <Badge variant="outline" className="text-amber-600 dark:text-amber-400 border-amber-500/40 gap-1 text-[10px] py-0.5">
@@ -1218,6 +1362,64 @@ function DespesasPage() {
                   </Select>
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="expense-status" className="text-xs">
+                      Status de Pagamento
+                    </Label>
+                    <Select
+                      value={statusPagamento}
+                      onValueChange={(val: "pago" | "pendente") => setStatusPagamento(val)}
+                    >
+                      <SelectTrigger id="expense-status" className="h-9 text-xs w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pago" className="text-emerald-700 font-semibold text-xs">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            Paga (Quitada)
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="pendente" className="text-amber-700 font-semibold text-xs">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                            Pendente (A Pagar)
+                          </span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="expense-tipo" className="text-xs">
+                      Tipo de Despesa
+                    </Label>
+                    <Select
+                      value={tipoDespesa}
+                      onValueChange={(val: "fixo" | "variavel") => setTipoDespesa(val)}
+                    >
+                      <SelectTrigger id="expense-tipo" className="h-9 text-xs w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fixo" className="text-blue-700 font-semibold text-xs">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-blue-500" />
+                            Fixa
+                          </span>
+                        </SelectItem>
+                        <SelectItem value="variavel" className="text-purple-700 font-semibold text-xs">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-purple-500" />
+                            Variável
+                          </span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <Button
                   type="submit"
                   disabled={isMutating}
@@ -1294,145 +1496,245 @@ function DespesasPage() {
                         <TableHead>Data</TableHead>
                         <TableHead>Descrição</TableHead>
                         <TableHead>Categoria</TableHead>
+                        <TableHead className="text-center">Tipo</TableHead>
+                        <TableHead className="text-center">Status</TableHead>
                         <TableHead className="text-right">Valor</TableHead>
                         <TableHead className="w-[100px] text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {despesasFiltradas.map((d: any) => (
-                        <TableRow key={d.id} className="hover:bg-muted/30">
-                          <TableCell className="font-medium text-xs">
-                            {format(new Date(d.data + "T12:00:00"), "dd/MM/yyyy")}
-                          </TableCell>
-                          <TableCell className="max-w-[220px] truncate text-sm" title={d.descricao}>
-                            {d.descricao}
-                          </TableCell>
-                          <TableCell>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">
-                              {d.categoria || "Outros"}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right font-semibold text-rose-600 dark:text-rose-400">
-                            {brl(Number(d.valor))}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                onClick={() => handleOpenEditExpense(d)}
-                                title="Editar Despesa"
+                      {despesasFiltradas.map((d: any) => {
+                        const meta = parseDespesaMeta(d.descricao, d.categoria);
+                        const isPaga = meta.status === "pago";
+                        const isFixa = meta.tipo === "fixo";
+
+                        return (
+                          <TableRow key={d.id} className="hover:bg-muted/30">
+                            <TableCell className="font-medium text-xs whitespace-nowrap">
+                              {format(new Date(d.data + "T12:00:00"), "dd/MM/yyyy")}
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate text-sm font-medium" title={meta.descricaoLimpa}>
+                              {meta.descricaoLimpa}
+                            </TableCell>
+                            <TableCell>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground whitespace-nowrap">
+                                {d.categoria || "Outros"}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => toggleExpenseTipoMutation.mutate(d)}
+                                title="Clique para alternar entre Fixa e Variável"
+                                className="cursor-pointer transition-transform hover:scale-105"
                               >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                    title="Excluir Despesa"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      Tem certeza que deseja excluir esta despesa?
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Esta ação é irreversível. A despesa "{d.descricao}" no valor de{" "}
-                                      {brl(Number(d.valor))} será excluída permanentemente.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() => deleteExpenseMutation.mutate(d.id)}
-                                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[10px] font-semibold uppercase px-2 py-0.5 cursor-pointer shadow-2xs",
+                                    isFixa
+                                      ? "bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100 dark:bg-blue-950/50 dark:text-blue-300"
+                                      : "bg-purple-50 text-purple-700 border-purple-300 hover:bg-purple-100 dark:bg-purple-950/50 dark:text-purple-300"
+                                  )}
+                                >
+                                  {isFixa ? "Fixa" : "Variável"}
+                                </Badge>
+                              </button>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <button
+                                type="button"
+                                onClick={() => toggleExpenseStatusMutation.mutate(d)}
+                                title="Clique para alternar entre Paga e Pendente"
+                                className="cursor-pointer transition-transform hover:scale-105"
+                              >
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[10px] font-semibold uppercase px-2 py-0.5 cursor-pointer gap-1 shadow-2xs",
+                                    isPaga
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300"
+                                      : "bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 dark:bg-amber-950/50 dark:text-amber-300"
+                                  )}
+                                >
+                                  {isPaga ? (
+                                    <>
+                                      <CheckCircle2 className="h-3 w-3" /> Paga
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Clock className="h-3 w-3" /> Pendente
+                                    </>
+                                  )}
+                                </Badge>
+                              </button>
+                            </TableCell>
+                            <TableCell className="text-right font-semibold text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                              {brl(Number(d.valor))}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-foreground cursor-pointer"
+                                  onClick={() => handleOpenEditExpense(d)}
+                                  title="Editar Despesa"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-muted-foreground hover:text-destructive cursor-pointer"
+                                      title="Excluir Despesa"
                                     >
-                                      Excluir
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>
+                                        Tem certeza que deseja excluir esta despesa?
+                                      </AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Esta ação é irreversível. A despesa "{meta.descricaoLimpa}" no valor de{" "}
+                                        {brl(Number(d.valor))} será excluída permanentemente.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => deleteExpenseMutation.mutate(d.id)}
+                                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground cursor-pointer"
+                                      >
+                                        Excluir
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
 
                 {/* Mobile: Lista vertical limpa e adaptável */}
                 <div className="divide-y divide-border/60 block md:hidden max-h-[500px] overflow-y-auto">
-                  {despesasFiltradas.map((d: any) => (
-                    <div key={d.id} className="p-3.5 space-y-2 hover:bg-muted/20 transition-colors">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-foreground flex items-center gap-1.5">
-                          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                          {format(new Date(d.data + "T12:00:00"), "dd/MM/yyyy")}
-                        </span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-muted text-muted-foreground">
-                          {d.categoria || "Outros"}
-                        </span>
-                      </div>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground leading-snug break-words">
-                            {d.descricao}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <span className="text-sm font-bold text-rose-600 dark:text-rose-400">
-                            {brl(Number(d.valor))}
+                  {despesasFiltradas.map((d: any) => {
+                    const meta = parseDespesaMeta(d.descricao, d.categoria);
+                    const isPaga = meta.status === "pago";
+                    const isFixa = meta.tipo === "fixo";
+
+                    return (
+                      <div key={d.id} className="p-3.5 space-y-2 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-center justify-between text-xs flex-wrap gap-1">
+                          <span className="font-semibold text-foreground flex items-center gap-1.5">
+                            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                            {format(new Date(d.data + "T12:00:00"), "dd/MM/yyyy")}
                           </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleExpenseTipoMutation.mutate(d)}
+                              className="cursor-pointer"
+                              title="Alterar tipo"
+                            >
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-[9px] font-semibold uppercase px-1.5 py-0 cursor-pointer",
+                                  isFixa
+                                    ? "bg-blue-50 text-blue-700 border-blue-200"
+                                    : "bg-purple-50 text-purple-700 border-purple-200"
+                                )}
+                              >
+                                {isFixa ? "Fixa" : "Variável"}
+                              </Badge>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleExpenseStatusMutation.mutate(d)}
+                              className="cursor-pointer"
+                              title="Alterar status"
+                            >
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-[9px] font-semibold uppercase px-1.5 py-0 cursor-pointer",
+                                  isPaga
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                                    : "bg-amber-50 text-amber-700 border-amber-300"
+                                )}
+                              >
+                                {isPaga ? "Paga" : "Pendente"}
+                              </Badge>
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-foreground leading-snug break-words">
+                              {meta.descricaoLimpa}
+                            </p>
+                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] text-muted-foreground bg-muted mt-0.5">
+                              {d.categoria || "Outros"}
+                            </span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-bold text-rose-600 dark:text-rose-400">
+                              {brl(Number(d.valor))}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-1 pt-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                            onClick={() => handleOpenEditExpense(d)}
+                          >
+                            <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 mr-1" /> Excluir
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="w-[90vw] max-w-md">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Excluir despesa?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  A despesa "{meta.descricaoLimpa}" de {brl(Number(d.valor))} será excluída permanentemente.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteExpenseMutation.mutate(d.id)}
+                                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground cursor-pointer"
+                                >
+                                  Excluir
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
                       </div>
-                      <div className="flex items-center justify-end gap-1 pt-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => handleOpenEditExpense(d)}
-                        >
-                          <Pencil className="h-3.5 w-3.5 mr-1" /> Editar
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5 mr-1" /> Excluir
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent className="w-[90vw] max-w-md">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Excluir despesa?
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                A despesa "{d.descricao}" de {brl(Number(d.valor))} será excluída permanentemente.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteExpenseMutation.mutate(d.id)}
-                                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                              >
-                                Excluir
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </>
             )}
@@ -1480,9 +1782,13 @@ function DespesasPage() {
               }
 
               if (editExpenseDialog.despesa) {
+                const finalDescricao = encodeDespesaDescricao(expenseForm.descricao, {
+                  status: expenseForm.status,
+                  tipo: expenseForm.tipo,
+                });
                 updateExpenseMutation.mutate({
                   id: editExpenseDialog.despesa.id,
-                  descricao: expenseForm.descricao,
+                  descricao: finalDescricao,
                   valor: parsedValor,
                   data: expenseForm.data,
                   categoria: expenseForm.categoria,
@@ -1545,6 +1851,60 @@ function DespesasPage() {
                   <SelectItem value="Outros">Outros Gastos</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-status" className="text-xs font-medium">Status do Pagamento</Label>
+                <Select
+                  value={expenseForm.status}
+                  onValueChange={(val: "pago" | "pendente") => setExpenseForm({ ...expenseForm, status: val })}
+                >
+                  <SelectTrigger id="edit-expense-status" className="w-full h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pago" className="text-emerald-700 font-semibold text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                        Paga (Quitada)
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="pendente" className="text-amber-700 font-semibold text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                        Pendente (A Pagar)
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-tipo" className="text-xs font-medium">Tipo de Despesa</Label>
+                <Select
+                  value={expenseForm.tipo}
+                  onValueChange={(val: "fixo" | "variavel") => setExpenseForm({ ...expenseForm, tipo: val })}
+                >
+                  <SelectTrigger id="edit-expense-tipo" className="w-full h-9 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixo" className="text-blue-700 font-semibold text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-blue-500" />
+                        Despesa Fixa
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="variavel" className="text-purple-700 font-semibold text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-500" />
+                        Despesa Variável
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <DialogFooter>
