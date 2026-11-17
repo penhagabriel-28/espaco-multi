@@ -1046,7 +1046,7 @@ function AgendamentoDialog({
   const initialPagamentosParciais: ItemPagamentoParcial[] =
     initialPagamentosList.length > 0
       ? initialPagamentosList
-      : [{ data: defaultDateStr, forma: "Pix" }];
+      : [{ data: defaultDateStr, forma: "Pix", valor: "" }];
 
   const [pagamentosParciais, setPagamentosParciais] = useState<ItemPagamentoParcial[]>(initialPagamentosParciais);
 
@@ -2033,7 +2033,14 @@ Fico à disposição para qualquer dúvida!`;
                       <div className="mt-1 text-xs">
                         <span className="text-muted-foreground font-medium">Pagamento Parcial Registrado:</span>{" "}
                         <span className="text-foreground font-semibold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                          {pagamentosParciais.map((p) => `${p.forma} (${p.data ? p.data.split("-").slice(1).reverse().join("/") : ""})`).join(" | ")}
+                          {pagamentosParciais
+                            .map((p) => {
+                              const valStr = p.valor ? `R$ ${p.valor}` : "";
+                              const dataStr = p.data ? p.data.split("-").slice(1).reverse().join("/") : "";
+                              const extra = [valStr, dataStr].filter(Boolean).join(" - ");
+                              return extra ? `${p.forma} (${extra})` : p.forma;
+                            })
+                            .join(" | ")}
                         </span>
                       </div>
                     )}
@@ -2599,16 +2606,17 @@ Fico à disposição para qualquer dúvida!`;
                 </div>
 
                 <div className="space-y-3">
-                  <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <Label>Status</Label>
+                  {/* Linha Status e WhatsApp */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">Status</Label>
+                    <div className="flex items-center gap-2">
                       <Select
                         value={form.status}
                         onValueChange={(v) => {
                           setForm((prev) => ({ ...prev, status: v as any }));
                         }}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger className="h-9 flex-1 sm:max-w-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -2619,11 +2627,12 @@ Fico à disposição para qualquer dúvida!`;
                           ))}
                         </SelectContent>
                       </Select>
+
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="w-full mt-1.5 h-8 gap-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200/60 dark:border-green-900/30 text-xs"
+                        className="h-9 gap-1.5 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200/60 dark:border-green-900/30 text-xs shrink-0"
                         disabled={!whatsappUrl}
                         onClick={() => whatsappUrl && window.open(whatsappUrl, "_blank")}
                       >
@@ -2631,91 +2640,117 @@ Fico à disposição para qualquer dúvida!`;
                         {whatsappUrl ? "WhatsApp Paciente" : "Sem WhatsApp"}
                       </Button>
                     </div>
-
-                    {form.status === "pago" || (form.status === "falta" && pacientePagouFalta === "sim") ? (
-                      <div className="space-y-1.5 animate-in fade-in duration-200">
-                        <Label>Forma de Pagamento</Label>
-                        <Select
-                          value={form.meio_pagamento}
-                          onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Pix">Pix</SelectItem>
-                            <SelectItem value="Espécie">Espécie</SelectItem>
-                            <SelectItem value="Pix + Espécie">Pix + Espécie</SelectItem>
-                            <SelectItem value="Débito">Débito</SelectItem>
-                            <SelectItem value="Crédito">Crédito</SelectItem>
-                            <SelectItem value="Boleto">Boleto</SelectItem>
-                            <SelectItem value="Transferência">Transferência</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : form.status === "pendente" ? (
-                      <div className="space-y-1.5 animate-in fade-in duration-200">
-                        <Label>Recorrência</Label>
-                        <Select
-                          value={form.recorrencia}
-                          onValueChange={(v) => setForm({ ...form, recorrencia: v as any })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="unica">Única</SelectItem>
-                            <SelectItem value="semanal">Semanal</SelectItem>
-                            <SelectItem value="quinzenal">Quinzenal</SelectItem>
-                            <SelectItem value="mensal">Mensal</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ) : null}
                   </div>
 
-                  {/* Quando for selecionado o status "Pago Parcial": exibe somente campo de data com a forma correspondente e botão adicionar pagamento */}
+                  {/* Campo de Forma de Pagamento quando status for Pago */}
+                  {(form.status === "pago" || (form.status === "falta" && pacientePagouFalta === "sim")) && (
+                    <div className="space-y-1.5 animate-in fade-in duration-200 max-w-[220px]">
+                      <Label className="text-xs font-medium">Forma de Pagamento</Label>
+                      <Select
+                        value={form.meio_pagamento}
+                        onValueChange={(v) => setForm({ ...form, meio_pagamento: v })}
+                      >
+                        <SelectTrigger className="h-9 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pix">Pix</SelectItem>
+                          <SelectItem value="Espécie">Espécie</SelectItem>
+                          <SelectItem value="Pix + Espécie">Pix + Espécie</SelectItem>
+                          <SelectItem value="Débito">Débito</SelectItem>
+                          <SelectItem value="Crédito">Crédito</SelectItem>
+                          <SelectItem value="Boleto">Boleto</SelectItem>
+                          <SelectItem value="Transferência">Transferência</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* Recorrência quando status for Pendente */}
+                  {form.status === "pendente" && (
+                    <div className="space-y-1.5 animate-in fade-in duration-200 max-w-[220px]">
+                      <Label className="text-xs font-medium">Recorrência</Label>
+                      <Select
+                        value={form.recorrencia}
+                        onValueChange={(v) => setForm({ ...form, recorrencia: v as any })}
+                      >
+                        <SelectTrigger className="h-9 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unica">Única</SelectItem>
+                          <SelectItem value="semanal">Semanal</SelectItem>
+                          <SelectItem value="quinzenal">Quinzenal</SelectItem>
+                          <SelectItem value="mensal">Mensal</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* Quando for selecionado o status "Pago Parcial": Data Pagamento - Valor - Forma de pagamento e botão Novo Pagamento */}
                   {form.status === "pago_parcial" && (
-                    <div className="space-y-2.5 p-3 rounded-lg border border-border/80 bg-slate-50/50 dark:bg-slate-900/20 animate-in fade-in duration-200">
-                      <div className="space-y-2">
+                    <div className="space-y-2 pt-1 animate-in fade-in duration-200">
+                      {/* Cabeçalhos das colunas */}
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground pb-0.5 overflow-x-auto">
+                        <span className="w-[130px] shrink-0">Data Pagamento</span>
+                        <span className="w-[105px] shrink-0">Valor</span>
+                        <span className="w-[145px] shrink-0">Forma de pagamento</span>
+                      </div>
+
+                      {/* Linhas de pagamentos */}
+                      <div className="space-y-2 overflow-x-auto pb-0.5">
                         {pagamentosParciais.map((pg, index) => (
-                          <div key={index} className="flex items-end gap-2">
-                            <div className="flex-1 space-y-1">
-                              <Label className="text-xs">Data</Label>
+                          <div key={index} className="flex items-center gap-2">
+                            <Input
+                              type="date"
+                              className="h-9 w-[130px] shrink-0 text-xs px-2"
+                              value={pg.data}
+                              onChange={(e) => {
+                                const copy = [...pagamentosParciais];
+                                copy[index] = { ...copy[index], data: e.target.value };
+                                setPagamentosParciais(copy);
+                              }}
+                            />
+
+                            <div className="relative w-[105px] shrink-0">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground font-semibold">
+                                R$
+                              </span>
                               <Input
-                                type="date"
-                                className="h-9 text-xs"
-                                value={pg.data}
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0,00"
+                                className="h-9 w-full pl-6 pr-2 text-xs font-mono font-medium"
+                                value={pg.valor ?? ""}
                                 onChange={(e) => {
                                   const copy = [...pagamentosParciais];
-                                  copy[index] = { ...copy[index], data: e.target.value };
+                                  copy[index] = { ...copy[index], valor: e.target.value };
                                   setPagamentosParciais(copy);
                                 }}
                               />
                             </div>
-                            <div className="flex-1 space-y-1">
-                              <Label className="text-xs">Forma de Pagamento</Label>
-                              <Select
-                                value={pg.forma}
-                                onValueChange={(v) => {
-                                  const copy = [...pagamentosParciais];
-                                  copy[index] = { ...copy[index], forma: v };
-                                  setPagamentosParciais(copy);
-                                }}
-                              >
-                                <SelectTrigger className="h-9 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Pix">Pix</SelectItem>
-                                  <SelectItem value="Espécie">Espécie</SelectItem>
-                                  <SelectItem value="Débito">Débito</SelectItem>
-                                  <SelectItem value="Crédito">Crédito</SelectItem>
-                                  <SelectItem value="Boleto">Boleto</SelectItem>
-                                  <SelectItem value="Transferência">Transferência</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
+
+                            <Select
+                              value={pg.forma}
+                              onValueChange={(v) => {
+                                const copy = [...pagamentosParciais];
+                                copy[index] = { ...copy[index], forma: v };
+                                setPagamentosParciais(copy);
+                              }}
+                            >
+                              <SelectTrigger className="h-9 w-[145px] shrink-0 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Pix">Pix</SelectItem>
+                                <SelectItem value="Espécie">Espécie</SelectItem>
+                                <SelectItem value="Débito">Débito</SelectItem>
+                                <SelectItem value="Crédito">Crédito</SelectItem>
+                                <SelectItem value="Boleto">Boleto</SelectItem>
+                                <SelectItem value="Transferência">Transferência</SelectItem>
+                              </SelectContent>
+                            </Select>
+
                             {pagamentosParciais.length > 1 && (
                               <Button
                                 type="button"
@@ -2734,7 +2769,8 @@ Fico à disposição para qualquer dúvida!`;
                         ))}
                       </div>
 
-                      <div>
+                      {/* Botão Novo Pagamento abaixo da linha */}
+                      <div className="pt-0.5">
                         <Button
                           type="button"
                           variant="outline"
@@ -2743,11 +2779,11 @@ Fico à disposição para qualquer dúvida!`;
                           onClick={() => {
                             const defaultDate = form.data_inicio ? form.data_inicio.slice(0, 10) : new Date().toISOString().slice(0, 10);
                             const nextForma = pagamentosParciais.some((p) => p.forma === "Pix") ? "Espécie" : "Pix";
-                            setPagamentosParciais([...pagamentosParciais, { data: defaultDate, forma: nextForma }]);
+                            setPagamentosParciais([...pagamentosParciais, { data: defaultDate, forma: nextForma, valor: "" }]);
                           }}
                         >
                           <Plus className="h-3.5 w-3.5" />
-                          Adicionar pagamento
+                          Novo Pagamento
                         </Button>
                       </div>
                     </div>

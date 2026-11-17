@@ -10,6 +10,7 @@ export type FormaPagamentoSessao =
 export interface ItemPagamentoParcial {
   data: string;
   forma: string;
+  valor?: number | string;
 }
 
 export interface ParcelaPagamento {
@@ -108,12 +109,18 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
           pagamentos.push({
             data: p.data ? parseDataBR(p.data) : new Date().toISOString().slice(0, 10),
             forma: p.forma || "Pix",
+            valor: p.valor != null ? String(p.valor) : "",
           });
         });
         isParcial = true;
         if (!pagamentoParcial) {
           pagamentoParcial = pagamentos
-            .map((p) => `${p.forma} (${p.data.split("-").slice(1).reverse().join("/")})`)
+            .map((p) => {
+              const valStr = p.valor ? `R$ ${p.valor}` : "";
+              const dataStr = p.data ? p.data.split("-").slice(1).reverse().join("/") : "";
+              const extra = [valStr, dataStr].filter(Boolean).join(" - ");
+              return extra ? `${p.forma} (${extra})` : p.forma;
+            })
             .join(" | ");
         }
         if (pagamentos.length > 1 && (!meioMatch || meio === "Pix")) {
@@ -138,8 +145,9 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
     foundManual.push(m[0].trim());
     if (pagamentos.length < 5) {
       const formaIdent = normalizarForma(m[1]);
+      const valorIdent = m[2] ? m[2].trim() : "";
       const dataIdent = parseDataBR(m[3]);
-      pagamentos.push({ data: dataIdent, forma: formaIdent });
+      pagamentos.push({ data: dataIdent, forma: formaIdent, valor: valorIdent });
     }
   }
 
@@ -194,7 +202,12 @@ export function encodePagamentoSimples(
   if (Array.isArray(pagamentos) && pagamentos.length > 0) {
     parts.push(`[Pagamentos: ${JSON.stringify(pagamentos)}]`);
     const desc = pagamentos
-      .map((p) => `${p.forma} (${p.data ? p.data.split("-").slice(1).reverse().join("/") : ""})`)
+      .map((p) => {
+        const valStr = p.valor ? `R$ ${p.valor}` : "";
+        const dataStr = p.data ? p.data.split("-").slice(1).reverse().join("/") : "";
+        const extra = [valStr, dataStr].filter(Boolean).join(" - ");
+        return extra ? `${p.forma} (${extra})` : p.forma;
+      })
       .join(" | ");
     parts.push(`[PagamentoParcial: ${desc}]`);
   } else if (typeof pagamentos === "string" && pagamentos.trim()) {
@@ -212,11 +225,15 @@ export function encodePagamentoSimples(
 export function parsePagamentoSessao(raw?: string | null, _valorPadrao?: number, _dataPadrao?: string) {
   const parsed = parsePagamentoSimples(raw);
   const isParcial = parsed.isParcial || Boolean(parsed.pagamentoParcial);
+  const totalPago = parsed.pagamentos.reduce((acc, p) => {
+    const val = Number(String(p.valor || "").replace(",", ".")) || 0;
+    return acc + val;
+  }, 0);
   const info: InfoPagamentoSessao = {
     tipo: isParcial ? "parcial_dividido" : "unico",
     valorTotalSessao: 0,
     pagamentos: [],
-    totalPago: 0,
+    totalPago,
     saldoRestante: 0,
     isQuitado: !isParcial,
     isParcial,
