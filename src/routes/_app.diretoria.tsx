@@ -396,7 +396,9 @@ function DiretoriaPageContent() {
   const validInicio = effectiveInicio <= effectiveFim ? effectiveInicio : effectiveFim;
   const validFim = effectiveInicio <= effectiveFim ? effectiveFim : effectiveInicio;
   const compStart = validInicio ? `${validInicio.substring(0, 7)}-01` : validInicio;
-  const compEnd = validFim ? `${validFim.substring(0, 7)}-31` : validFim;
+  const compEnd = validFim
+    ? format(endOfMonth(new Date(validFim + "T12:00:00")), "yyyy-MM-dd")
+    : validFim;
 
   // Check if current inicio and fim match a single full month
   const currentMonthValue = useMemo(() => {
