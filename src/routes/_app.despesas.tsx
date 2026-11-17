@@ -89,6 +89,7 @@ import {
   parseDespesaMeta,
   encodeDespesaDescricao,
 } from "@/lib/despesasRecorrentes";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_app/despesas")({
   component: DespesasPage,
