@@ -1412,6 +1412,11 @@ function DiretoriaPageContent() {
     const p = fatura.paciente_id ? patientDetailsMap.get(fatura.paciente_id) : null;
     if (!p) return Number(fatura.valor) || 0;
     
+    // Para Lorenzo Braga Serra, na cobrança do paciente o pacote de Apoio é a soma integral de R$ 600,00
+    if (isLorenzoBragaPatient(p.nome)) {
+      return 600.00;
+    }
+
     const freq = p.apoio_frequencia || '2x';
     const customVal = p.apoio_valor_personalizado;
     
@@ -1941,8 +1946,11 @@ function DiretoriaPageContent() {
 
     let fatValue = 0;
     const isLorenzoForAcioniza = isLorenzoBragaPatient(p.nome) && isAcionizaProf(profissionalId);
+    const isLorenzoOtherApoio = isLorenzoBragaPatient(p.nome) && !isAcionizaProf(profissionalId);
     if (isLorenzoForAcioniza) {
       fatValue = 360.00;
+    } else if (isLorenzoOtherApoio) {
+      fatValue = 240.00;
     } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
       const numVal = Number(customVal);
       if (freq !== 'avulso' || numVal > 60) {
@@ -2190,8 +2198,11 @@ function DiretoriaPageContent() {
       if (!groups[pacId]) {
         let freqLabel = "";
         const isLorenzoForAcioniza = isApoio && isAcioniza && isLorenzoBragaPatient(pacName);
+        const isLorenzoOtherApoio = isApoio && !isAcioniza && isLorenzoBragaPatient(pacName);
         if (isLorenzoForAcioniza) {
           freqLabel = "Mensal (R$ 360.00/mês)";
+        } else if (isLorenzoOtherApoio) {
+          freqLabel = "Mensal (R$ 240.00/mês)";
         } else if (isApoio) {
           const p = patientDetailsMap.get(pacId);
           const freq = p?.apoio_frequencia || "2x";
@@ -2255,10 +2266,13 @@ function DiretoriaPageContent() {
         const freq = p?.apoio_frequencia || "2x";
         const customVal = p?.apoio_valor_personalizado;
         const isLorenzoForAcioniza = isAcioniza && isLorenzoBragaPatient(p.nome);
+        const isLorenzoOtherApoio = !isAcioniza && isLorenzoBragaPatient(p.nome);
 
         let freqLabel = "";
         if (isLorenzoForAcioniza) {
           freqLabel = "Mensal (R$ 360.00/mês)";
+        } else if (isLorenzoOtherApoio) {
+          freqLabel = "Mensal (R$ 240.00/mês)";
         } else if (freq === "avulso" && (!customVal || Number(customVal) <= 60)) {
           freqLabel = `Avulso (R$ ${customVal !== null && customVal !== undefined ? Number(customVal).toFixed(2) : "50.00"}/sessão)`;
         } else if (freq.startsWith("semana_toda")) {
@@ -2273,6 +2287,8 @@ function DiretoriaPageContent() {
         let planVal = 0;
         if (isLorenzoForAcioniza) {
           planVal = 360.00;
+        } else if (isLorenzoOtherApoio) {
+          planVal = 240.00;
         } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
           planVal = Number(customVal);
         } else if (freq === "avulso") {
@@ -2309,11 +2325,14 @@ function DiretoriaPageContent() {
       const patientDefault = customPatientDefaults[profId]?.[key];
 
       const isLorenzoForAcioniza = isApoio && isAcioniza && isLorenzoBragaPatient(data.pacienteNome);
+      const isLorenzoOtherApoio = isApoio && !isAcioniza && isLorenzoBragaPatient(data.pacienteNome);
 
       let defaultBaseValue = 0;
       if (isApoio) {
         if (isLorenzoForAcioniza) {
           defaultBaseValue = 360.00;
+        } else if (isLorenzoOtherApoio) {
+          defaultBaseValue = 240.00;
         } else if (data.totalVal > 0) {
           defaultBaseValue = data.totalVal;
         } else {
@@ -2335,7 +2354,9 @@ function DiretoriaPageContent() {
       const defaultBaseRate = isGabriela ? 100 : data.defaultRate;
       const currentDefaultValue = isLorenzoForAcioniza && (!patientDefault?.value || patientDefault.value === 240)
         ? 360.00
-        : (patientDefault?.value !== undefined ? patientDefault.value : defaultBaseValue);
+        : isLorenzoOtherApoio && (!patientDefault?.value || patientDefault.value === 360)
+          ? 240.00
+          : (patientDefault?.value !== undefined ? patientDefault.value : defaultBaseValue);
       const currentDefaultRate = isGabriela ? 100 : (patientDefault?.rate !== undefined ? patientDefault.rate : defaultBaseRate);
       
       const sessions = override?.sessions !== undefined ? override.sessions : data.sessions;
@@ -3300,13 +3321,16 @@ function DiretoriaPageContent() {
 
         if (isApoioSpec(data.spec)) {
           const isLorenzoForAcioniza = isAcioniza && isLorenzoBragaPatient(patientDetailsMap.get(data.pacId)?.nome);
-          let baseVal = isLorenzoForAcioniza ? 360.00 : data.totalVal;
+          const isLorenzoOtherApoio = !isAcioniza && isLorenzoBragaPatient(patientDetailsMap.get(data.pacId)?.nome);
+          let baseVal = isLorenzoForAcioniza ? 360.00 : isLorenzoOtherApoio ? 240.00 : data.totalVal;
           if (baseVal <= 0) {
             const p = patientDetailsMap.get(data.pacId);
             const freq = p?.apoio_frequencia || "2x";
             const customVal = p?.apoio_valor_personalizado;
             if (isLorenzoForAcioniza) {
               baseVal = 360.00;
+            } else if (isLorenzoOtherApoio) {
+              baseVal = 240.00;
             } else if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
               baseVal = Number(customVal);
             } else if (freq === "avulso") {
@@ -3317,7 +3341,9 @@ function DiretoriaPageContent() {
           }
           const defaultVal = isLorenzoForAcioniza && (!patientDefault?.value || patientDefault.value === 240)
             ? 360.00
-            : (patientDefault?.value !== undefined ? patientDefault.value : baseVal);
+            : isLorenzoOtherApoio && (!patientDefault?.value || patientDefault.value === 360)
+              ? 240.00
+              : (patientDefault?.value !== undefined ? patientDefault.value : baseVal);
           const totalVal = override?.value !== undefined ? override.value : defaultVal;
           const repVal = totalVal * (rate / 100);
 
@@ -4594,6 +4620,9 @@ function DiretoriaPageContent() {
     if (isApoioSpec(especialidade)) {
       const p = patientDetailsMap.get(pacienteId);
       if (p) {
+        if (isLorenzoBragaPatient(p.nome)) {
+          return 600.00;
+        }
         const freq = p.apoio_frequencia || '2x';
         const customVal = p.apoio_valor_personalizado;
         if (customVal !== null && customVal !== undefined && String(customVal) !== "") {
@@ -4975,11 +5004,14 @@ function DiretoriaPageContent() {
                         if (hasApoio) {
                           const freq = p?.apoio_frequencia || '2x';
                           const customVal = p?.apoio_valor_personalizado;
-                          const rate = (customVal !== null && customVal !== undefined && String(customVal) !== "")
+                          const isLorenzo = isLorenzoBragaPatient(p?.nome);
+                          const rate = isLorenzo ? 600.00 : ((customVal !== null && customVal !== undefined && String(customVal) !== "")
                             ? Number(customVal)
-                            : (APOIO_RATES_MAP[freq] || 240);
+                            : (APOIO_RATES_MAP[freq] || 240));
                           let label = "";
-                          if (freq === 'avulso' && (!customVal || Number(customVal) <= 60)) {
+                          if (isLorenzo) {
+                            label = `Apoio: Semana Inteira (${brl(rate)}/mês)`;
+                          } else if (freq === 'avulso' && (!customVal || Number(customVal) <= 60)) {
                             label = `Apoio: Avulso (${brl(rate)}/sessão)`;
                           } else {
                             const rawFreqName = (APOIO_FREQ_LABELS[freq] || "2x por semana")
