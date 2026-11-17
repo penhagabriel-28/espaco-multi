@@ -7,6 +7,11 @@ export type FormaPagamentoSessao =
   | "Boleto"
   | "Transferência";
 
+export interface ItemPagamentoParcial {
+  data: string;
+  forma: string;
+}
+
 export interface ParcelaPagamento {
   id: string;
   valor: number;
@@ -29,13 +34,39 @@ export interface InfoPagamentoSessao {
 export interface InfoPagamentoSimples {
   meio: string;
   pagamentoParcial: string;
+  pagamentos: ItemPagamentoParcial[];
   isParcial: boolean;
   cleanObservacoes: string;
 }
 
+function parseDataBR(str?: string): string {
+  if (!str) return new Date().toISOString().slice(0, 10);
+  const s = str.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+  if (m) {
+    const d = m[1].padStart(2, "0");
+    const mo = m[2].padStart(2, "0");
+    const y = m[3] ? (m[3].length === 2 ? `20${m[3]}` : m[3]) : String(new Date().getFullYear());
+    return `${y}-${mo}-${d}`;
+  }
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizarForma(raw?: string): string {
+  if (!raw) return "Pix";
+  const r = raw.trim().toLowerCase();
+  if (r.includes("esp") || r.includes("dinheiro")) return "Espécie";
+  if (r.includes("deb") || r.includes("déb")) return "Débito";
+  if (r.includes("cred") || r.includes("créd")) return "Crédito";
+  if (r.includes("bol")) return "Boleto";
+  if (r.includes("transf")) return "Transferência";
+  return "Pix";
+}
+
 export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples {
   if (!raw) {
-    return { meio: "Pix", pagamentoParcial: "", isParcial: false, cleanObservacoes: "" };
+    return { meio: "Pix", pagamentoParcial: "", pagamentos: [], isParcial: false, cleanObservacoes: "" };
   }
 
   let text = raw;
@@ -64,20 +95,30 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
     text = text.replace(parcialMatch[0], "");
   }
 
-  // Remove tag JSON legada se houver
+  const pagamentos: ItemPagamentoParcial[] = [];
+
+  // Remove tag JSON legada ou atual se houver
   const jsonMatch = text.match(/\[Pagamentos:\s*\[[\s\S]*?\]\]/i);
   if (jsonMatch) {
     try {
       const jsonContent = jsonMatch[0].replace(/^\[Pagamentos:\s*/i, "").replace(/\]$/, "");
       const parsed = JSON.parse(jsonContent);
       if (Array.isArray(parsed) && parsed.length > 0) {
+        parsed.forEach((p: any) => {
+          pagamentos.push({
+            data: p.data ? parseDataBR(p.data) : new Date().toISOString().slice(0, 10),
+            forma: p.forma || "Pix",
+          });
+        });
+        isParcial = true;
         if (!pagamentoParcial) {
-          pagamentoParcial = parsed
-            .map((p: any) => `${p.forma || "PG"}: R$ ${p.valor || 0}${p.data ? ` (${p.data})` : ""}`)
+          pagamentoParcial = pagamentos
+            .map((p) => `${p.forma} (${p.data.split("-").slice(1).reverse().join("/")})`)
             .join(" | ");
         }
-        if (parsed.length > 1 && (!meioMatch || meio === "Pix")) {
-          meio = "Pix + Espécie";
+        if (pagamentos.length > 1 && (!meioMatch || meio === "Pix")) {
+          const formasUnicas = Array.from(new Set(pagamentos.map((p) => p.forma)));
+          meio = formasUnicas.join(" + ");
         }
       }
     } catch {
@@ -95,6 +136,15 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
   let m: RegExpExecArray | null;
   while ((m = manualRegex.exec(text)) !== null) {
     foundManual.push(m[0].trim());
+    if (pagamentos.length < 5) {
+      const formaIdent = normalizarForma(m[1]);
+      const dataIdent = parseDataBR(m[3]);
+      pagamentos.push({ data: dataIdent, forma: formaIdent });
+    }
+  }
+
+  if (pagamentos.length > 0) {
+    isParcial = true;
   }
 
   if (!pagamentoParcial && foundManual.length > 0) {
@@ -107,13 +157,13 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
 
   const cleanObservacoes = text.replace(/^\s*[\r\n]/gm, "").trim();
 
-  return { meio, pagamentoParcial, isParcial, cleanObservacoes };
+  return { meio, pagamentoParcial, pagamentos, isParcial, cleanObservacoes };
 }
 
 export function encodePagamentoSimples(
   cleanObservacoes: string,
   meio: string,
-  pagamentoParcial?: string,
+  pagamentos?: ItemPagamentoParcial[] | string,
   isParcial?: boolean,
   tipoAgendamento?: string
 ): string {
@@ -141,8 +191,14 @@ export function encodePagamentoSimples(
     parts.push(`[StatusPagamento: parcial]`);
   }
 
-  if (pagamentoParcial && pagamentoParcial.trim()) {
-    parts.push(`[PagamentoParcial: ${pagamentoParcial.trim()}]`);
+  if (Array.isArray(pagamentos) && pagamentos.length > 0) {
+    parts.push(`[Pagamentos: ${JSON.stringify(pagamentos)}]`);
+    const desc = pagamentos
+      .map((p) => `${p.forma} (${p.data ? p.data.split("-").slice(1).reverse().join("/") : ""})`)
+      .join(" | ");
+    parts.push(`[PagamentoParcial: ${desc}]`);
+  } else if (typeof pagamentos === "string" && pagamentos.trim()) {
+    parts.push(`[PagamentoParcial: ${pagamentos.trim()}]`);
   }
 
   if (clean) {
