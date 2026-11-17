@@ -62,14 +62,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { parsePagamentoSessao } from "@/lib/pagamentoSessao";
+import { brl } from "@/lib/despesasRecorrentes";
 
 export const STATUS_LABEL: Record<string, string> = {
   pendente: "Pendente",
   confirmado: "Confirmado",
+  pago_parcial: "Pago Parcial",
+  pago: "Pago",
   cancelado: "Cancelado",
   realizado: "Realizado",
   falta: "Falta",
-  pago: "Pago",
   ferias: "Férias",
 };
 
@@ -171,8 +174,11 @@ export function cleanSessionMeta(raw?: string | null): string {
   let text = raw
     .replace(/\[Tipo:\s*[^\]]+\]/gi, "")
     .replace(/\[Meio:\s*[^\]]+\]/gi, "")
+    .replace(/\[Pagamentos:\s*\[[\s\S]*?\]\]/gi, "")
+    .replace(/\[StatusPagamento:\s*[^\]]+\]/gi, "")
     .replace(/\[Endereço:\s*[^\]]+\]/gi, "")
     .replace(/\[Email:\s*[^\]]+\]/gi, "")
+    .replace(/PG\s+(PIX|ESP|ESPÉCIE|ESPECIE|DINHEIRO|DÉBITO|DEBITO|CRÉDITO|CREDITO|BOL|BOLETO|TRANSF|TRANSFERÊNCIA)[-\s:]+R?\$?\s*([\d.,]+)(?:\s*\(([^)]+)\))?\n?/gi, "")
     .trim();
 
   // Remove cabeçalho redundante de sessões anteriores se houver
@@ -188,12 +194,16 @@ export function mergeSessionMeta(oldRaw: string | null | undefined, newText: str
   if (oldRaw) {
     const tipo = oldRaw.match(/\[Tipo:[^\]]+\]/i);
     if (tipo) meta.push(tipo[0]);
+    const pagamentos = oldRaw.match(/\[Pagamentos:\s*\[[\s\S]*?\]\]/i);
+    if (pagamentos) meta.push(pagamentos[0]);
+    const statusPag = oldRaw.match(/\[StatusPagamento:[^\]]+\]/i);
+    if (statusPag) meta.push(statusPag[0]);
     const meio = oldRaw.match(/\[Meio:[^\]]+\]/i);
     if (meio) meta.push(meio[0]);
   }
   const clean = newText.trim();
   if (meta.length > 0) {
-    return `${meta.join(" ")}\n${clean}`.trim();
+    return `${meta.join("\n")}\n${clean}`.trim();
   }
   return clean;
 }
@@ -832,40 +842,61 @@ export function ProntuarioRelatoriosDialog({
                               <span>{dataFormatada}</span>
                             </div>
 
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-[10px] py-0 px-1.5 font-medium uppercase tracking-wider",
-                                  ag.status === "confirmado" && "border-green-500/40 text-green-700 bg-green-50/70",
-                                  ag.status === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50/70",
-                                  ag.status === "cancelado" && "border-red-500/40 text-red-700 bg-red-50/70",
-                                  ag.status === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50/70",
-                                  ag.status === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50/70",
-                                  ag.status === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50/70",
-                                  ag.status === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50/70",
-                                  !ag.status && "text-muted-foreground",
-                                )}
-                              >
-                                {STATUS_LABEL[ag.status] || ag.status || "Pendente"}
-                              </Badge>
-                              {isReportFilled ? (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
-                                >
-                                  <FileCheck2 className="h-2.5 w-2.5 text-emerald-600" />
-                                  Preenchido
-                                </Badge>
-                              ) : (
-                                <Badge
-                                  variant="outline"
-                                  className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
-                                >
-                                  Pendente
-                                </Badge>
-                              )}
-                            </div>
+                            {(() => {
+                              const { info: pagInfo, statusPagamentoTag } = parsePagamentoSessao(ag.observacoes, undefined, ag.data_inicio);
+                              const isParcial = pagInfo.isParcial || statusPagamentoTag === "parcial" || ag.status === "pago_parcial";
+                              return (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {isParcial ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-bold uppercase tracking-wider border-amber-500/40 text-amber-700 bg-amber-50/70"
+                                      title={pagInfo.saldoRestante > 0 ? `Pago ${brl(pagInfo.totalPago)} de ${brl(pagInfo.valorTotalSessao)} (Falta ${brl(pagInfo.saldoRestante)})` : "Pagamento parcial registrado"}
+                                    >
+                                      Parcial {pagInfo.totalPago > 0 ? `(${brl(pagInfo.totalPago)})` : ""}
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-[10px] py-0 px-1.5 font-medium uppercase tracking-wider",
+                                        ag.status === "confirmado" && "border-green-500/40 text-green-700 bg-green-50/70",
+                                        ag.status === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50/70",
+                                        ag.status === "cancelado" && "border-red-500/40 text-red-700 bg-red-50/70",
+                                        ag.status === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50/70",
+                                        ag.status === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50/70",
+                                        ag.status === "pendente" && "border-yellow-500/40 text-yellow-700 bg-yellow-50/70",
+                                        ag.status === "ferias" && "border-sky-500/40 text-sky-700 bg-sky-50/70",
+                                        !ag.status && "text-muted-foreground",
+                                      )}
+                                    >
+                                      {STATUS_LABEL[ag.status] || ag.status || "Pendente"}
+                                    </Badge>
+                                  )}
+                                  {pagInfo.resumoMeios && (ag.status === "pago" || isParcial) && (
+                                    <Badge variant="secondary" className="text-[9px] py-0 px-1 font-semibold">
+                                      {pagInfo.resumoMeios}
+                                    </Badge>
+                                  )}
+                                  {isReportFilled ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 gap-1"
+                                    >
+                                      <FileCheck2 className="h-2.5 w-2.5 text-emerald-600" />
+                                      Preenchido
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] py-0 px-1.5 font-medium border-amber-500/40 text-amber-700 dark:text-amber-300 bg-amber-500/10"
+                                    >
+                                      Pendente
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
 
                           {/* Profissional e Especialidade */}
@@ -1659,7 +1690,11 @@ export function DetalhesSessaoDialog({
     if (!session) return;
     const cleaned = cleanSessionMeta(session.observacoes);
     setSessionNoteEdit(cleaned || "");
-    setSessionStatusEdit(session.status || "pendente");
+    const { info: pagInfo, statusPagamentoTag } = parsePagamentoSessao(session.observacoes, undefined, session.data_inicio);
+    const effectiveStatus = (statusPagamentoTag === "parcial" || (session.status !== "pago" && pagInfo.isParcial))
+      ? "pago_parcial"
+      : (session.status || "pendente");
+    setSessionStatusEdit(effectiveStatus);
   }, [session?.id, session?.observacoes, session?.status]);
 
   const handleCopyReport = async () => {
@@ -1722,11 +1757,12 @@ export function DetalhesSessaoDialog({
     setIsSavingSessionNote(true);
     try {
       const fullNote = mergeSessionMeta(session.observacoes, sessionNoteEdit);
+      const statusToSave = sessionStatusEdit === "pago_parcial" ? "confirmado" : sessionStatusEdit;
       const { error } = await supabase
         .from("agendamentos")
         .update({
           observacoes: fullNote,
-          status: sessionStatusEdit,
+          status: statusToSave as any,
         })
         .eq("id", session.id);
 
@@ -1769,6 +1805,7 @@ export function DetalhesSessaoDialog({
                     "h-7 w-[125px] text-[10px] font-bold uppercase cursor-pointer rounded-full px-2.5 transition-all shadow-2xs border",
                     sessionStatusEdit === "confirmado" && "border-green-500/40 text-green-700 bg-green-50 hover:bg-green-100/70",
                     sessionStatusEdit === "pago" && "border-emerald-500/40 text-emerald-700 bg-emerald-50 hover:bg-emerald-100/70",
+                    sessionStatusEdit === "pago_parcial" && "border-amber-500/40 text-amber-700 bg-amber-50 hover:bg-amber-100/70",
                     sessionStatusEdit === "cancelado" && "border-red-500/40 text-red-700 bg-red-50 hover:bg-red-100/70",
                     sessionStatusEdit === "realizado" && "border-blue-500/40 text-blue-700 bg-blue-50 hover:bg-blue-100/70",
                     sessionStatusEdit === "falta" && "border-orange-500/40 text-orange-700 bg-orange-50 hover:bg-orange-100/70",
@@ -1783,6 +1820,7 @@ export function DetalhesSessaoDialog({
                           "w-1.5 h-1.5 rounded-full shrink-0",
                           sessionStatusEdit === "confirmado" && "bg-green-500",
                           sessionStatusEdit === "pago" && "bg-emerald-500",
+                          sessionStatusEdit === "pago_parcial" && "bg-amber-500",
                           sessionStatusEdit === "cancelado" && "bg-red-500",
                           sessionStatusEdit === "realizado" && "bg-blue-500",
                           sessionStatusEdit === "falta" && "bg-orange-500",
@@ -1805,6 +1843,12 @@ export function DetalhesSessaoDialog({
                     <span className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-green-500" />
                       Confirmado
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="pago_parcial" className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-500" />
+                      Pago Parcial
                     </span>
                   </SelectItem>
                   <SelectItem value="pago" className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
