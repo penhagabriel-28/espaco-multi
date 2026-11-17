@@ -126,7 +126,7 @@ function Agenda() {
   const [dialog, setDialog] = useState<{
     open: boolean;
     editing?: any;
-    defaults?: { date: Date; hour: number };
+    defaults?: { date: Date; hour: number; professionalId?: string };
   }>({ open: false });
   const [cancelTarget, setCancelTarget] = useState<any>(null);
 
@@ -311,6 +311,27 @@ function Agenda() {
     }
     return result;
   }, [ags, selectedProfs, selectedPacs]);
+
+  const agIds = useMemo(() => {
+    return Array.isArray(ags) ? ags.map((a: any) => a.id).filter(Boolean) : [];
+  }, [ags]);
+
+  // Conexão com Diretoria: agendamentos vinculados a faturas pagas
+  const { data: paidFromDiretoriaIds = new Set<string>() } = useQuery({
+    queryKey: ["agenda-faturas-pagas-semana", agIds.sort().join(",")],
+    queryFn: async () => {
+      if (agIds.length === 0) return new Set<string>();
+      const { data, error } = await supabase
+        .from("fatura_itens")
+        .select("agendamento_id, faturas!inner(id, status)")
+        .in("agendamento_id", agIds)
+        .eq("faturas.status", "paga");
+      if (error || !data) return new Set<string>();
+      return new Set<string>(data.map((item: any) => item.agendamento_id));
+    },
+    enabled: agIds.length > 0,
+    staleTime: 30 * 1000,
+  });
 
   return (
     <div className="space-y-4">
@@ -608,6 +629,7 @@ function Agenda() {
                 h={h}
                 days={days}
                 ags={filteredAgs}
+                paidFromDiretoriaIds={paidFromDiretoriaIds}
                 onCellClick={(date: Date) =>
                   setDialog({
                     open: true,
@@ -807,7 +829,7 @@ const syncAgendamentoFinanceiro = async (
 };
 
 const FragmentRow = memo(
-  function FragmentRow({ h, days, ags, onCellClick, onEdit }: any) {
+  function FragmentRow({ h, days, ags, paidFromDiretoriaIds, onCellClick, onEdit }: any) {
     return (
       <>
         <div className="border-b border-r p-1 text-right text-xs text-muted-foreground">
@@ -846,12 +868,15 @@ const FragmentRow = memo(
                 const fimSessao = a.data_fim ? new Date(a.data_fim) : new Date(a.data_inicio);
                 const passouHorario = agora > fimSessao;
 
-                const pagParsed = parsePagamentoSimples(a.observacoes);
-                const isParcial = a.status === "pago_parcial" || pagParsed.isParcial || Boolean(pagParsed.pagamentoParcial);
-                const isQuitado = a.status === "pago" && !isParcial;
+                const isFaturaPagaNaDiretoria = paidFromDiretoriaIds?.has(a.id);
+                const isStatusPago = a.status === "pago" || isFaturaPagaNaDiretoria;
 
-                const naoPago = !isQuitado && a.status !== "cancelado" && a.status !== "ferias";
-                const isAtrasadoNaoPago = !isMensal && passouHorario && naoPago;
+                const pagParsed = parsePagamentoSimples(a.observacoes);
+                const isParcial = !isStatusPago && (a.status === "pago_parcial" || (pagParsed.isParcial && a.status !== "cancelado" && a.status !== "ferias"));
+                const isQuitado = isStatusPago;
+
+                const naoPago = !isQuitado && !isParcial && a.status !== "cancelado" && a.status !== "ferias";
+                const isAtrasadoNaoPago = !isMensal && passouHorario && (naoPago || isParcial);
 
                 const meio = pagParsed.meio;
 
@@ -932,7 +957,7 @@ const FragmentRow = memo(
                             "h-4 px-1 text-[8px] uppercase font-bold shrink-0 border",
                             a.status === "confirmado" &&
                               "border-green-500/30 text-green-600 bg-green-50/50",
-                            a.status === "pago" &&
+                            isStatusPago &&
                               "border-emerald-500/30 text-emerald-600 bg-emerald-50/50",
                             a.status === "cancelado" &&
                               "border-red-500/30 text-red-600 bg-red-50/50",
@@ -950,7 +975,7 @@ const FragmentRow = memo(
                               "border-sky-500/30 text-sky-600 bg-sky-50/50",
                           )}
                         >
-                          {STATUS_LABEL[a.status] || a.status}
+                          {isStatusPago ? "Pago" : (STATUS_LABEL[a.status] || a.status)}
                         </Badge>
                       )}
 
@@ -1037,10 +1062,14 @@ function AgendamentoDialog({
     editing?.status === "falta" && (initialPagParcial || editing?.observacoes?.includes("[Meio:")) ? "sim" : "nao";
   const [pacientePagouFalta, setPacientePagouFalta] = useState<"sim" | "nao">(initialPacientePagouFalta);
 
+  const isAlreadyPago = editing?.status === "pago";
+
   const initialStatus =
-    initialIsParcial || editing?.status === "pago_parcial"
-      ? "pago_parcial"
-      : editing?.status ?? "pendente";
+    isAlreadyPago
+      ? "pago"
+      : (editing?.status === "pago_parcial" || (initialIsParcial && editing?.status !== "realizado" && editing?.status !== "falta"))
+        ? "pago_parcial"
+        : editing?.status ?? "pendente";
 
   const defaultDateStr = initialStart ? initialStart.slice(0, 10) : new Date().toISOString().slice(0, 10);
   const initialPagamentosParciais: ItemPagamentoParcial[] =

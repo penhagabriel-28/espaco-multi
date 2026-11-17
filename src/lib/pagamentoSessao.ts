@@ -82,9 +82,12 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
 
   // Status parcial
   let isParcial = false;
+  let statusExplicit: "quitado" | "parcial" | "pendente" | null = null;
   const statusMatch = text.match(/\[StatusPagamento:\s*(quitado|parcial|pendente)\]/i);
   if (statusMatch) {
-    if (statusMatch[1].toLowerCase() === "parcial") isParcial = true;
+    const s = statusMatch[1].toLowerCase() as "quitado" | "parcial" | "pendente";
+    statusExplicit = s;
+    if (s === "parcial") isParcial = true;
     text = text.replace(statusMatch[0], "");
   }
 
@@ -93,6 +96,9 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
   const parcialMatch = text.match(/\[PagamentoParcial:\s*([^\]]+)\]/i);
   if (parcialMatch) {
     pagamentoParcial = parcialMatch[1].trim();
+    if (statusExplicit !== "quitado") {
+      isParcial = true;
+    }
     text = text.replace(parcialMatch[0], "");
   }
 
@@ -112,8 +118,10 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
             valor: p.valor != null ? String(p.valor) : "",
           });
         });
-        isParcial = true;
-        if (!pagamentoParcial) {
+        if (statusExplicit !== "quitado" && (statusExplicit === "parcial" || pagamentos.length > 1)) {
+          isParcial = true;
+        }
+        if (!pagamentoParcial && isParcial) {
           pagamentoParcial = pagamentos
             .map((p) => {
               const valStr = p.valor ? `R$ ${p.valor}` : "";
@@ -151,14 +159,25 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
     }
   }
 
-  if (pagamentos.length > 0) {
+  if (statusExplicit === "quitado") {
+    isParcial = false;
+  } else if (statusExplicit === "parcial") {
+    isParcial = true;
+  } else if (pagamentos.length > 1 || foundManual.length > 1) {
     isParcial = true;
   }
 
-  if (!pagamentoParcial && foundManual.length > 0) {
-    pagamentoParcial = foundManual.join(" | ");
+  if (isParcial) {
+    if (!pagamentoParcial && foundManual.length > 0) {
+      pagamentoParcial = foundManual.join(" | ");
+    }
     if (foundManual.length > 1 && (!meioMatch || meio === "Pix")) {
       meio = "Pix + Espécie";
+    }
+  } else {
+    pagamentoParcial = "";
+    if (foundManual.length === 1 && (!meioMatch || meio === "Pix")) {
+      meio = pagamentos[0]?.forma || normalizarForma(foundManual[0]);
     }
   }
   text = text.replace(manualRegex, "");
