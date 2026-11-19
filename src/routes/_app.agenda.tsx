@@ -79,7 +79,12 @@ export const Route = createFileRoute("/_app/agenda")({
   component: Agenda,
 });
 
-const HOURS = Array.from({ length: 13 }, (_, i) => i + 7); // 7h..19h
+const TIME_SLOTS = Array.from({ length: 24 }, (_, i) => {
+  const hour = Math.floor(i / 2) + 8; // 8h..19h (sem 7h)
+  const minute = (i % 2) * 30; // 30 em 30 minutos
+  const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return { hour, minute, label };
+});
 const STATUS_LABEL: Record<string, string> = {
   pendente: "Pendente",
   confirmado: "Confirmado",
@@ -126,7 +131,7 @@ function Agenda() {
   const [dialog, setDialog] = useState<{
     open: boolean;
     editing?: any;
-    defaults?: { date: Date; hour: number; professionalId?: string };
+    defaults?: { date: Date; hour: number; minute?: number; professionalId?: string };
   }>({ open: false });
   const [cancelTarget, setCancelTarget] = useState<any>(null);
 
@@ -623,10 +628,10 @@ function Agenda() {
                 </div>
               );
             })}
-            {HOURS.map((h) => (
+            {TIME_SLOTS.map((slot) => (
               <FragmentRow
-                key={h}
-                h={h}
+                key={slot.label}
+                slot={slot}
                 days={days}
                 ags={filteredAgs}
                 paidFromDiretoriaIds={paidFromDiretoriaIds}
@@ -634,8 +639,9 @@ function Agenda() {
                   setDialog({
                     open: true,
                     defaults: {
-                      date,
-                      hour: h,
+                      date: new Date(date.getTime()),
+                      hour: slot.hour,
+                      minute: slot.minute,
                       professionalId: selectedProfs.length === 1 ? selectedProfs[0] : undefined,
                     },
                   })
@@ -829,23 +835,26 @@ const syncAgendamentoFinanceiro = async (
 };
 
 const FragmentRow = memo(
-  function FragmentRow({ h, days, ags, paidFromDiretoriaIds, onCellClick, onEdit }: any) {
+  function FragmentRow({ slot, days, ags, paidFromDiretoriaIds, onCellClick, onEdit }: any) {
     return (
       <>
         <div className="border-b border-r p-1 text-right text-xs text-muted-foreground">
-          {String(h).padStart(2, "0")}:00
+          {slot.label}
         </div>
         {days.map((d: Date) => {
           const cellAgs = Array.isArray(ags)
             ? ags.filter((a: any) => {
                 const dt = new Date(a.data_inicio);
-                return isSameDay(dt, d) && dt.getHours() === h;
+                if (!isSameDay(dt, d)) return false;
+                const hour = dt.getHours();
+                const minute = dt.getMinutes();
+                return hour === slot.hour && (slot.minute === 0 ? minute < 30 : minute >= 30);
               })
             : [];
           return (
             <div
-              key={d.toString() + h}
-              className="group relative min-h-[60px] border-b border-r p-1 hover:bg-muted/10 transition-colors"
+              key={d.toString() + slot.label}
+              className="group relative min-h-[48px] border-b border-r p-1 hover:bg-muted/10 transition-colors"
             >
               <button
                 type="button"
@@ -1037,7 +1046,7 @@ function AgendamentoDialog({
     editing && editing.data_inicio
       ? safeFormatDate(editing.data_inicio, "yyyy-MM-dd'T'HH:mm")
       : defaults
-        ? format(new Date(defaults.date.setHours(defaults.hour, 0, 0, 0)), "yyyy-MM-dd'T'HH:mm")
+        ? format(new Date(defaults.date.setHours(defaults.hour, defaults.minute ?? 0, 0, 0)), "yyyy-MM-dd'T'HH:mm")
         : format(new Date(), "yyyy-MM-dd'T'HH:mm");
   const initialEnd =
     editing && editing.data_fim
