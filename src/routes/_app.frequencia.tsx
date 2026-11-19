@@ -208,8 +208,8 @@ const STATUS_LABEL: Record<string, string> = {
 function FrequenciaPage() {
   const qc = useQueryClient();
   const today = new Date();
-  const [inicio, setInicio] = useState(format(startOfMonth(today), "yyyy-MM-dd"));
-  const [fim, setFim] = useState(format(endOfMonth(today), "yyyy-MM-dd"));
+  const [inicio, setInicio] = useState(format(today, "yyyy-MM-dd"));
+  const [fim, setFim] = useState(format(today, "yyyy-MM-dd"));
 
   // Dialog States
   const [signDialog, setSignDialog] = useState<{ open: boolean; ag: any }>({
