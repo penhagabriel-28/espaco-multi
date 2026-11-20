@@ -18,6 +18,7 @@ const titles: Record<string, string> = {
   "/relatorios": "Relatórios",
   "/diretoria": "Diretoria",
   "/despesas": "Despesas",
+  "/marcacao-em-massa": "Central de Marcação em Massa",
 };
 
 function AppLayout() {

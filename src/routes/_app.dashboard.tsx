@@ -3,7 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Users, Stethoscope, CheckCircle2, Clock, XCircle, DoorOpen, DoorClosed, Cake, Gift } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calendar, Users, Stethoscope, CheckCircle2, Clock, XCircle, DoorOpen, DoorClosed, Cake, Gift, CalendarPlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { format } from "date-fns";
@@ -183,11 +184,22 @@ function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm text-muted-foreground">
-          {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}
-        </p>
-        <h2 className="text-2xl font-semibold">Visão geral</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <p className="text-sm text-muted-foreground">
+            {format(new Date(), "EEEE, d 'de' MMMM", { locale: ptBR })}
+          </p>
+          <h2 className="text-2xl font-semibold">Visão geral</h2>
+        </div>
+        <Button
+          asChild
+          size="default"
+          className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm font-medium"
+        >
+          <Link to="/marcacao-em-massa" target="_blank" rel="noopener noreferrer">
+            <CalendarPlus className="h-4 w-4" /> Central de Marcação em Massa
+          </Link>
+        </Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -516,21 +528,6 @@ function Dashboard() {
           )}
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <QuickLink
-          to="/pacientes"
-          icon={Users}
-          title="Gerenciar pacientes"
-          desc="Cadastros, responsáveis e histórico"
-        />
-        <QuickLink
-          to="/profissionais"
-          icon={Stethoscope}
-          title="Equipe"
-          desc="Profissionais, especialidades e cores"
-        />
-      </div>
     </div>
   );
 }

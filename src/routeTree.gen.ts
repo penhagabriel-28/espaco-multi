@@ -16,6 +16,7 @@ import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppDespesasRouteImport } from './routes/_app.despesas'
 import { Route as AppDiretoriaRouteImport } from './routes/_app.diretoria'
 import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
+import { Route as AppMarcacaoEmMassaRouteImport } from './routes/_app.marcacao-em-massa'
 import { Route as AppPacientesRouteImport } from './routes/_app.pacientes'
 import { Route as AppProfissionaisRouteImport } from './routes/_app.profissionais'
 import { Route as AppRelatoriosRouteImport } from './routes/_app.relatorios'
@@ -56,6 +57,11 @@ const AppFrequenciaRoute = AppFrequenciaRouteImport.update({
   path: '/frequencia',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMarcacaoEmMassaRoute = AppMarcacaoEmMassaRouteImport.update({
+  id: '/marcacao-em-massa',
+  path: '/marcacao-em-massa',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPacientesRoute = AppPacientesRouteImport.update({
   id: '/pacientes',
   path: '/pacientes',
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/despesas': typeof AppDespesasRoute
   '/diretoria': typeof AppDiretoriaRoute
   '/frequencia': typeof AppFrequenciaRoute
+  '/marcacao-em-massa': typeof AppMarcacaoEmMassaRoute
   '/pacientes': typeof AppPacientesRouteWithChildren
   '/profissionais': typeof AppProfissionaisRoute
   '/relatorios': typeof AppRelatoriosRoute
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/despesas': typeof AppDespesasRoute
   '/diretoria': typeof AppDiretoriaRoute
   '/frequencia': typeof AppFrequenciaRoute
+  '/marcacao-em-massa': typeof AppMarcacaoEmMassaRoute
   '/profissionais': typeof AppProfissionaisRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/pacientes/$id': typeof AppPacientesIdRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/_app/despesas': typeof AppDespesasRoute
   '/_app/diretoria': typeof AppDiretoriaRoute
   '/_app/frequencia': typeof AppFrequenciaRoute
+  '/_app/marcacao-em-massa': typeof AppMarcacaoEmMassaRoute
   '/_app/pacientes': typeof AppPacientesRouteWithChildren
   '/_app/profissionais': typeof AppProfissionaisRoute
   '/_app/relatorios': typeof AppRelatoriosRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | '/despesas'
     | '/diretoria'
     | '/frequencia'
+    | '/marcacao-em-massa'
     | '/pacientes'
     | '/profissionais'
     | '/relatorios'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/despesas'
     | '/diretoria'
     | '/frequencia'
+    | '/marcacao-em-massa'
     | '/profissionais'
     | '/relatorios'
     | '/pacientes/$id'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/_app/despesas'
     | '/_app/diretoria'
     | '/_app/frequencia'
+    | '/_app/marcacao-em-massa'
     | '/_app/pacientes'
     | '/_app/profissionais'
     | '/_app/relatorios'
@@ -220,6 +232,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFrequenciaRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/marcacao-em-massa': {
+      id: '/_app/marcacao-em-massa'
+      path: '/marcacao-em-massa'
+      fullPath: '/marcacao-em-massa'
+      preLoaderRoute: typeof AppMarcacaoEmMassaRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/pacientes': {
       id: '/_app/pacientes'
       path: '/pacientes'
@@ -278,6 +297,7 @@ interface AppRouteChildren {
   AppDespesasRoute: typeof AppDespesasRoute
   AppDiretoriaRoute: typeof AppDiretoriaRoute
   AppFrequenciaRoute: typeof AppFrequenciaRoute
+  AppMarcacaoEmMassaRoute: typeof AppMarcacaoEmMassaRoute
   AppPacientesRoute: typeof AppPacientesRouteWithChildren
   AppProfissionaisRoute: typeof AppProfissionaisRoute
   AppRelatoriosRoute: typeof AppRelatoriosRoute
@@ -289,6 +309,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDespesasRoute: AppDespesasRoute,
   AppDiretoriaRoute: AppDiretoriaRoute,
   AppFrequenciaRoute: AppFrequenciaRoute,
+  AppMarcacaoEmMassaRoute: AppMarcacaoEmMassaRoute,
   AppPacientesRoute: AppPacientesRouteWithChildren,
   AppProfissionaisRoute: AppProfissionaisRoute,
   AppRelatoriosRoute: AppRelatoriosRoute,
