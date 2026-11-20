@@ -665,8 +665,9 @@ function Agenda() {
               qc.invalidateQueries({ queryKey: ["faturas"] });
             }}
             onCancel={(a: any) => {
+              const currentDialog = { ...dialog };
               setDialog({ open: false });
-              setCancelTarget(a);
+              setCancelTarget({ ag: a, restoreDialog: currentDialog });
             }}
             triggerNewPatient={(defaultSpecialty, defaultProfessionalId, onSaved) => {
               const currentDialog = { ...dialog };
@@ -704,15 +705,33 @@ function Agenda() {
         )}
       </Dialog>
 
-      <Dialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
+      <Dialog
+        open={!!cancelTarget}
+        onOpenChange={(o) => {
+          if (!o) {
+            const restore = cancelTarget?.restoreDialog;
+            setCancelTarget(null);
+            if (restore && restore.open) {
+              setDialog(restore);
+            }
+          }
+        }}
+      >
         {cancelTarget && (
           <CancelDialog
-            ag={cancelTarget}
+            ag={cancelTarget?.ag || cancelTarget}
             onDone={() => {
               setCancelTarget(null);
               qc.invalidateQueries({ queryKey: ["ags"] });
               qc.invalidateQueries({ queryKey: ["patient-ags-dialog"] });
               qc.invalidateQueries({ queryKey: ["faturas"] });
+            }}
+            onDismiss={() => {
+              const restore = cancelTarget?.restoreDialog;
+              setCancelTarget(null);
+              if (restore && restore.open) {
+                setDialog(restore);
+              }
             }}
           />
         )}
@@ -2651,6 +2670,15 @@ Fico à disposição para qualquer dúvida!`;
                       <Select
                         value={form.status}
                         onValueChange={(v) => {
+                          if (v === "cancelado" && form.status !== "cancelado") {
+                            if (editing) {
+                              onCancel(editing);
+                              return;
+                            } else {
+                              toast.error("Para registrar um cancelamento, primeiro salve o agendamento.");
+                              return;
+                            }
+                          }
                           setForm((prev) => ({ ...prev, status: v as any }));
                         }}
                       >
@@ -2976,7 +3004,7 @@ Fico à disposição para qualquer dúvida!`;
   );
 }
 
-function CancelDialog({ ag, onDone }: any) {
+function CancelDialog({ ag, onDone, onDismiss }: any) {
   const [motivo, setMotivo] = useState("");
   const m = useMutation({
     mutationFn: async (cancelAllFuture: boolean) => {
@@ -3013,7 +3041,7 @@ function CancelDialog({ ag, onDone }: any) {
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Cancelar agendamento</DialogTitle>
+        <DialogTitle>Cancelar agendamento - PREENCHIMENTO OBRIGATÓRIO</DialogTitle>
       </DialogHeader>
       <form
         onSubmit={(e) => {
@@ -3028,7 +3056,7 @@ function CancelDialog({ ag, onDone }: any) {
         className="space-y-3"
       >
         <p className="text-sm text-muted-foreground">
-          Informe o motivo do cancelamento. Esta ação não pode ser desfeita.
+          Informe o motivo do cancelamento:
         </p>
         <Textarea
           required
@@ -3036,9 +3064,23 @@ function CancelDialog({ ag, onDone }: any) {
           onChange={(e) => setMotivo(e.target.value)}
           placeholder="Motivo…"
         />
-        <DialogFooter>
-          <Button type="submit" variant="destructive" disabled={m.isPending}>
-            Confirmar cancelamento
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              if (onDismiss) onDismiss();
+              else onDone();
+            }}
+          >
+            Sair sem cancelar
+          </Button>
+          <Button
+            type="submit"
+            variant="destructive"
+            disabled={!motivo.trim() || m.isPending}
+          >
+            confirmar cancelamento
           </Button>
         </DialogFooter>
       </form>
