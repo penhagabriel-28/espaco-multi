@@ -22,7 +22,18 @@ import {
   ExternalLink,
   ChevronRight,
   Info,
+  Pencil,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -90,7 +101,13 @@ const parseDiasFixos = (observacoes: string | null | undefined): DiaFixo[] => {
   const match = observacoes.match(/<!--DIAS_FIXOS:(.*?)-->/);
   if (match) {
     try {
-      return JSON.parse(match[1]);
+      const parsed = JSON.parse(match[1]);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: any, idx: number) => ({
+          ...item,
+          id: item.id || `slot_${idx}_${item.dia_semana}_${item.hora_inicio}`,
+        }));
+      }
     } catch (e) {
       console.error("Erro ao fazer parse dos dias fixos", e);
     }
@@ -174,6 +191,90 @@ function MarcacaoEmMassaPage() {
       return updated;
     });
     toast.success("Horário aplicado a todos os dias selecionados!");
+  };
+
+  // Estados para Edição e Exclusão de Horário Recorrente
+  const [editingSlot, setEditingSlot] = useState<{
+    paciente: any;
+    diaFixo: DiaFixo;
+  } | null>(null);
+  const [editProfId, setEditProfId] = useState<string>("");
+  const [editDiaSemana, setEditDiaSemana] = useState<number>(1);
+  const [editHoraInicio, setEditHoraInicio] = useState<string>("08:00");
+  const [editHoraFim, setEditHoraFim] = useState<string>("08:30");
+  const [editSalaId, setEditSalaId] = useState<string>("default");
+
+  const [deletingSlot, setDeletingSlot] = useState<{
+    paciente: any;
+    diaFixo: DiaFixo;
+  } | null>(null);
+
+  const handleStartEdit = (item: { paciente: any; diaFixo: DiaFixo }) => {
+    setEditingSlot({ paciente: item.paciente, diaFixo: item.diaFixo });
+    setEditProfId(item.diaFixo.profissional_id || "");
+    setEditDiaSemana(Number(item.diaFixo.dia_semana));
+    setEditHoraInicio(item.diaFixo.hora_inicio || "08:00");
+    setEditHoraFim(item.diaFixo.hora_fim || "08:30");
+    setEditSalaId(item.diaFixo.sala_id || "default");
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSlot) return;
+
+    const { paciente, diaFixo } = editingSlot;
+    const currentDfs = parseDiasFixos(paciente.observacoes);
+
+    const updatedDfs = currentDfs.map((df) => {
+      if (df.id === diaFixo.id) {
+        return {
+          ...df,
+          profissional_id: editProfId,
+          dia_semana: editDiaSemana,
+          hora_inicio: editHoraInicio,
+          hora_fim: editHoraFim,
+          sala_id: editSalaId === "default" ? null : editSalaId,
+        };
+      }
+      return df;
+    });
+
+    const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
+
+    const { error } = await supabase
+      .from("pacientes")
+      .update({ observacoes: newObs })
+      .eq("id", paciente.id);
+
+    if (error) {
+      toast.error(`Erro ao atualizar horário: ${error.message}`);
+    } else {
+      toast.success("Horário recorrente atualizado com sucesso!");
+      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
+      setEditingSlot(null);
+    }
+  };
+
+  const handleDeleteSlot = async () => {
+    if (!deletingSlot) return;
+    const { paciente, diaFixo } = deletingSlot;
+    const currentDfs = parseDiasFixos(paciente.observacoes);
+
+    const updatedDfs = currentDfs.filter((df) => df.id !== diaFixo.id);
+    const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
+
+    const { error } = await supabase
+      .from("pacientes")
+      .update({ observacoes: newObs })
+      .eq("id", paciente.id);
+
+    if (error) {
+      toast.error(`Erro ao excluir horário: ${error.message}`);
+    } else {
+      toast.success("Horário recorrente excluído com sucesso!");
+      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
+      setDeletingSlot(null);
+    }
   };
 
   // Estados da Aba 2: Escala dos Profissionais
@@ -867,8 +968,8 @@ function MarcacaoEmMassaPage() {
                           </div>
                         </div>
 
-                        {/* Status no Mês */}
-                        <div className="flex items-center gap-3 md:text-right shrink-0">
+                        {/* Status no Mês e Ações */}
+                        <div className="flex items-center gap-2 sm:gap-3 md:text-right shrink-0">
                           <div className="text-xs">
                             {novasDatas > 0 ? (
                               <Badge className="bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/20 font-medium">
@@ -885,6 +986,35 @@ function MarcacaoEmMassaPage() {
                                 ({agendadasDatas} já constam na agenda)
                               </div>
                             )}
+                          </div>
+
+                          <div className="flex items-center gap-1 border-l pl-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                              title="Editar horário recorrente"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEdit(item);
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              title="Excluir horário recorrente"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeletingSlot({ paciente: item.paciente, diaFixo: item.diaFixo });
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -1562,6 +1692,151 @@ function MarcacaoEmMassaPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Edição de Horário Recorrente */}
+      <Dialog open={!!editingSlot} onOpenChange={(open) => !open && setEditingSlot(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-primary" /> Editar Horário Recorrente
+            </DialogTitle>
+            <DialogDescription>
+              Altere o profissional, dia da semana, horários ou sala deste agendamento fixo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveEdit} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Paciente</Label>
+              <Input
+                value={editingSlot?.paciente?.nome || ""}
+                disabled
+                className="h-9 text-xs bg-muted/50 font-medium"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Profissional</Label>
+              <Select value={editProfId} onValueChange={setEditProfId}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Selecione o profissional..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {profissionais.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.nome} ({p.especialidade || "Geral"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Dia da Semana</Label>
+              <Select
+                value={String(editDiaSemana)}
+                onValueChange={(val) => setEditDiaSemana(Number(val))}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+                    <SelectItem key={d} value={String(d)}>
+                      {DIAS_SEMANA_NOMES[d]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Início</Label>
+                <Input
+                  type="time"
+                  value={editHoraInicio}
+                  onChange={(e) => setEditHoraInicio(e.target.value)}
+                  className="h-9 text-xs"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Fim</Label>
+                <Input
+                  type="time"
+                  value={editHoraFim}
+                  onChange={(e) => setEditHoraFim(e.target.value)}
+                  className="h-9 text-xs"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Sala (Opcional)</Label>
+              <Select value={editSalaId} onValueChange={setEditSalaId}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Sala Padrão..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Sala Padrão do Profissional</SelectItem>
+                  {salas.map((s: any) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <DialogFooter className="pt-3 border-t flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setEditingSlot(null)}>
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" className="gap-1.5" disabled={!editProfId}>
+                <Check className="h-4 w-4" />
+                Salvar Alterações
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmação de Exclusão de Horário Recorrente */}
+      <AlertDialog open={!!deletingSlot} onOpenChange={(open) => !open && setDeletingSlot(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" /> Excluir Horário Recorrente
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 pt-1 text-sm text-foreground/80">
+              <p>
+                Tem certeza que deseja remover o horário fixo de{" "}
+                <strong className="text-foreground">{deletingSlot?.paciente?.nome}</strong>?
+              </p>
+              {deletingSlot && (
+                <div className="p-2.5 rounded-md bg-muted text-xs text-muted-foreground space-y-0.5">
+                  <div><strong>Dia:</strong> {DIAS_SEMANA_NOMES[deletingSlot.diaFixo.dia_semana]}</div>
+                  <div><strong>Horário:</strong> {deletingSlot.diaFixo.hora_inicio} às {deletingSlot.diaFixo.hora_fim}</div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Esta ação remove o cadastro recorrente deste paciente. Agendamentos já lançados no calendário da Agenda não serão apagados.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteSlot}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir Horário
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
