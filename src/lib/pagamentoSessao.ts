@@ -180,7 +180,6 @@ export function parsePagamentoSimples(raw?: string | null): InfoPagamentoSimples
       meio = pagamentos[0]?.forma || normalizarForma(foundManual[0]);
     }
   }
-  text = text.replace(manualRegex, "");
 
   const cleanObservacoes = text.replace(/^\s*[\r\n]/gm, "").trim();
 
@@ -194,14 +193,13 @@ export function encodePagamentoSimples(
   isParcial?: boolean,
   tipoAgendamento?: string
 ): string {
-  // Limpar texto de tags existentes para evitar duplicidade
+  // Limpar texto de tags existentes para evitar duplicidade, mantendo anotações manuais de pagamento
   const clean = (cleanObservacoes || "")
     .replace(/^\[Tipo:\s*(Anamnese|Sessão Padrão)\]\n?/gi, "")
     .replace(/\[StatusPagamento:\s*(quitado|parcial|pendente)\]\n?/gi, "")
     .replace(/\[Meio:\s*[^\]]+\]\n?/gi, "")
     .replace(/\[PagamentoParcial:\s*[^\]]+\]\n?/gi, "")
     .replace(/\[Pagamentos:\s*\[[\s\S]*?\]\]\n?/gi, "")
-    .replace(/PG\s+(PIX|ESP|ESPÉCIE|ESPECIE|DINHEIRO|DÉBITO|DEBITO|CRÉDITO|CREDITO|BOL|BOLETO|TRANSF|TRANSFERÊNCIA)[-\s:]+R?\$?\s*([\d.,]+)(?:\s*\(([^)]+)\))?\n?/gi, "")
     .trim();
 
   const parts: string[] = [];

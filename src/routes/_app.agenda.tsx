@@ -934,6 +934,11 @@ const FragmentRow = memo(
                         {getEspecialidade(a)}
                       </div>
                     )}
+                    {pagParsed.cleanObservacoes && (
+                      <div className="truncate text-[9px] text-muted-foreground italic font-normal" title={pagParsed.cleanObservacoes}>
+                        {pagParsed.cleanObservacoes}
+                      </div>
+                    )}
                     <div className="flex items-center gap-1 mt-1 flex-wrap">
                       {/* Modalidade de Pagamento */}
                       {isMensal ? (
