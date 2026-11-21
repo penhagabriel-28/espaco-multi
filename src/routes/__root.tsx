@@ -53,7 +53,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
     error?.message?.includes("error loading dynamically imported module") ||
     error?.message?.includes("Importing a module script failed") ||
     error?.message?.includes("Loading chunk") ||
-    error?.message?.includes("dynamically imported module");
+    error?.message?.includes("dynamically imported module") ||
+    error?.message?.includes("reading 'component'") ||
+    error?.message?.includes("reading 'default'");
 
   useEffect(() => {
     if (isDynamicImportError && typeof window !== "undefined") {

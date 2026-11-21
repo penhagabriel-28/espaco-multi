@@ -1840,3 +1840,5 @@ function MarcacaoEmMassaPage() {
     </div>
   );
 }
+
+export default MarcacaoEmMassaPage;
