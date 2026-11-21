@@ -124,6 +124,58 @@ function MarcacaoEmMassaPage() {
   const [addFixSlotOpen, setAddFixSlotOpen] = useState(false);
   const [targetPatientForSlot, setTargetPatientForSlot] = useState<any>(null);
 
+  // Estados do formulário de cadastro de horário recorrente
+  const [newSlotPatientId, setNewSlotPatientId] = useState<string>("");
+  const [newSlotProfId, setNewSlotProfId] = useState<string>("");
+  const [newSlotSalaId, setNewSlotSalaId] = useState<string>("default");
+  const [newSlotDays, setNewSlotDays] = useState<number[]>([1]);
+  const [newSlotGlobalTime, setNewSlotGlobalTime] = useState<{ inicio: string; fim: string }>({
+    inicio: "08:00",
+    fim: "08:30",
+  });
+  const [newSlotDayTimes, setNewSlotDayTimes] = useState<Record<number, { inicio: string; fim: string }>>({
+    1: { inicio: "08:00", fim: "08:30" },
+    2: { inicio: "08:00", fim: "08:30" },
+    3: { inicio: "08:00", fim: "08:30" },
+    4: { inicio: "08:00", fim: "08:30" },
+    5: { inicio: "08:00", fim: "08:30" },
+    6: { inicio: "08:00", fim: "08:30" },
+    0: { inicio: "08:00", fim: "08:30" },
+  });
+
+  const handleOpenAddFixSlot = (paciente?: any) => {
+    setTargetPatientForSlot(paciente || null);
+    setNewSlotPatientId(paciente?.id || "");
+    setNewSlotProfId("");
+    setNewSlotSalaId("default");
+    setNewSlotDays([1]);
+    setNewSlotGlobalTime({ inicio: "08:00", fim: "08:30" });
+    setNewSlotDayTimes({
+      1: { inicio: "08:00", fim: "08:30" },
+      2: { inicio: "08:00", fim: "08:30" },
+      3: { inicio: "08:00", fim: "08:30" },
+      4: { inicio: "08:00", fim: "08:30" },
+      5: { inicio: "08:00", fim: "08:30" },
+      6: { inicio: "08:00", fim: "08:30" },
+      0: { inicio: "08:00", fim: "08:30" },
+    });
+    setAddFixSlotOpen(true);
+  };
+
+  const handleApplySameTimeToAllDays = () => {
+    setNewSlotDayTimes((prev) => {
+      const updated = { ...prev };
+      for (const d of newSlotDays) {
+        updated[d] = {
+          inicio: newSlotGlobalTime.inicio,
+          fim: newSlotGlobalTime.fim,
+        };
+      }
+      return updated;
+    });
+    toast.success("Horário aplicado a todos os dias selecionados!");
+  };
+
   // Estados da Aba 2: Escala dos Profissionais
   const [escalaProfId, setEscalaProfId] = useState<string>("");
   const [escalaDiasSelecionados, setEscalaDiasSelecionados] = useState<number[]>([]);
@@ -693,10 +745,7 @@ function MarcacaoEmMassaPage() {
                     variant="outline"
                     size="sm"
                     className="gap-1.5"
-                    onClick={() => {
-                      setTargetPatientForSlot(null);
-                      setAddFixSlotOpen(true);
-                    }}
+                    onClick={() => handleOpenAddFixSlot()}
                   >
                     <Plus className="h-4 w-4" /> Novo Horário Recorrente
                   </Button>
@@ -1207,147 +1256,307 @@ function MarcacaoEmMassaPage() {
 
       {/* Dialog para Cadastrar Novo Horário Recorrente */}
       <Dialog open={addFixSlotOpen} onOpenChange={setAddFixSlotOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[92vh] flex flex-col p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Cadastrar Horário Recorrente</DialogTitle>
             <DialogDescription>
-              Vincule um horário fixo semanal para o paciente. Ele será adicionado à lista da Central de Marcação.
+              Vincule horários fixos semanais para o paciente. Escolha múltiplos dias da semana e configure os horários de forma unificada ou individual.
             </DialogDescription>
           </DialogHeader>
 
           <form
             onSubmit={async (e) => {
               e.preventDefault();
-              const formEl = e.currentTarget;
-              const formData = new FormData(formEl);
-              const pacId = formData.get("paciente_id") as string;
-              const profId = formData.get("profissional_id") as string;
-              const diaSemana = Number(formData.get("dia_semana"));
-              const horaInicio = formData.get("hora_inicio") as string;
-              const horaFim = formData.get("hora_fim") as string;
-              const salaId = (formData.get("sala_id") as string) || null;
-
-              if (!pacId || !profId) {
+              if (!newSlotPatientId || !newSlotProfId) {
                 toast.error("Selecione o paciente e o profissional.");
                 return;
               }
+              if (newSlotDays.length === 0) {
+                toast.error("Selecione pelo menos um dia da semana.");
+                return;
+              }
 
-              const targetPac = pacientes.find((p: any) => p.id === pacId);
+              const targetPac = pacientes.find((p: any) => p.id === newSlotPatientId);
               if (!targetPac) return;
 
               const currentDfs = parseDiasFixos(targetPac.observacoes);
-              const newSlot: DiaFixo = {
+              const newSlots: DiaFixo[] = newSlotDays.map((d) => ({
                 id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
-                profissional_id: profId,
+                profissional_id: newSlotProfId,
                 servico_id: null,
-                sala_id: salaId === "default" ? null : salaId,
-                dia_semana: diaSemana,
-                hora_inicio: horaInicio,
-                hora_fim: horaFim,
-              };
+                sala_id: newSlotSalaId === "default" ? null : newSlotSalaId,
+                dia_semana: d,
+                hora_inicio: newSlotDayTimes[d]?.inicio || newSlotGlobalTime.inicio,
+                hora_fim: newSlotDayTimes[d]?.fim || newSlotGlobalTime.fim,
+              }));
 
-              const updatedDfs = [...currentDfs, newSlot];
+              const updatedDfs = [...currentDfs, ...newSlots];
               const newObs = serializeObservacoes(targetPac.observacoes, updatedDfs);
 
               const { error } = await supabase
                 .from("pacientes")
                 .update({ observacoes: newObs })
-                .eq("id", pacId);
+                .eq("id", newSlotPatientId);
 
               if (error) {
                 toast.error(`Erro ao salvar: ${error.message}`);
               } else {
-                toast.success("Horário recorrente cadastrado com sucesso!");
+                toast.success(
+                  newSlots.length === 1
+                    ? "Horário recorrente cadastrado com sucesso!"
+                    : `${newSlots.length} horários recorrentes cadastrados com sucesso!`
+                );
                 qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
                 setAddFixSlotOpen(false);
               }
             }}
-            className="space-y-4"
+            className="flex flex-col flex-1 overflow-hidden"
           >
-            <div className="space-y-1.5">
-              <Label className="text-xs">Paciente</Label>
-              <Select name="paciente_id" defaultValue={targetPatientForSlot?.id}>
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Selecione o paciente..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {pacientes
-                    .filter((p: any) => p.status === "ativo")
-                    .map((p: any) => (
+            <div className="space-y-4 max-h-[62vh] overflow-y-auto pr-1 pb-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Paciente</Label>
+                <Select value={newSlotPatientId} onValueChange={setNewSlotPatientId}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecione o paciente..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pacientes
+                      .filter((p: any) => p.status === "ativo")
+                      .map((p: any) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Profissional</Label>
+                <Select value={newSlotProfId} onValueChange={setNewSlotProfId}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecione o profissional..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profissionais.map((p: any) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.nome}
+                        {p.nome} ({p.especialidade || "Geral"})
                       </SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Profissional</Label>
-              <Select name="profissional_id">
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Selecione o profissional..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {profissionais.map((p: any) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nome} ({p.especialidade || "Geral"})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs">Dia da Semana</Label>
-              <Select name="dia_semana" defaultValue="1">
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DIAS_SEMANA_NOMES.map((nome, idx) => (
-                    <SelectItem key={idx} value={String(idx)}>
-                      {nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Início</Label>
-                <Input type="time" name="hora_inicio" defaultValue="08:00" required className="h-9 text-xs" />
+                  </SelectContent>
+                </Select>
               </div>
+
+              {/* Seleção de Múltiplos Dias da Semana */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">
+                    Dias da Semana ({newSlotDays.length} selecionado(s))
+                  </Label>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px]"
+                      onClick={() => setNewSlotDays([1, 3, 5])}
+                    >
+                      Seg/Qua/Sex
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px]"
+                      onClick={() => setNewSlotDays([2, 4])}
+                    >
+                      Ter/Qui
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px]"
+                      onClick={() => setNewSlotDays([1, 2, 3, 4, 5])}
+                    >
+                      Seg a Sex
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-1.5 text-[11px] text-rose-500 hover:text-rose-600"
+                      onClick={() => setNewSlotDays([])}
+                    >
+                      Limpar
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Botões dos 7 dias da semana */}
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                  {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                    const isSelected = newSlotDays.includes(d);
+                    return (
+                      <button
+                        type="button"
+                        key={d}
+                        onClick={() => {
+                          setNewSlotDays((prev) =>
+                            prev.includes(d)
+                              ? prev.filter((x) => x !== d)
+                              : [...prev, d].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b))
+                          );
+                        }}
+                        className={`h-9 px-2 rounded-lg border text-xs font-medium transition-all flex items-center justify-center gap-1 select-none ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground border-primary shadow-sm font-semibold"
+                            : "bg-background text-muted-foreground hover:bg-muted/50 border-input"
+                        }`}
+                      >
+                        {isSelected && <Check className="h-3 w-3" />}
+                        {DIAS_SEMANA_NOMES[d].split("-")[0]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Botão e campos para unificar o mesmo horário para todos os dias escolhidos */}
+              <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg space-y-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-primary">
+                    <Clock className="h-4 w-4 shrink-0" />
+                    <span>Definir mesmo horário para todos:</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 text-xs gap-1 border border-primary/20 bg-background hover:bg-primary hover:text-primary-foreground transition-colors shrink-0"
+                    disabled={newSlotDays.length === 0}
+                    onClick={handleApplySameTimeToAllDays}
+                  >
+                    <Check className="h-3.5 w-3.5" /> Replicar para os dias escolhidos
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <span className="text-[11px] text-muted-foreground">Início Padrão</span>
+                    <Input
+                      type="time"
+                      value={newSlotGlobalTime.inicio}
+                      onChange={(e) => setNewSlotGlobalTime((prev) => ({ ...prev, inicio: e.target.value }))}
+                      className="h-8 text-xs bg-background"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[11px] text-muted-foreground">Fim Padrão</span>
+                    <Input
+                      type="time"
+                      value={newSlotGlobalTime.fim}
+                      onChange={(e) => setNewSlotGlobalTime((prev) => ({ ...prev, fim: e.target.value }))}
+                      className="h-8 text-xs bg-background"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Horários individuais por dia selecionado */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Horários específicos por dia:
+                </Label>
+                {newSlotDays.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-muted-foreground bg-muted/20 border border-dashed rounded-lg">
+                    Nenhum dia selecionado. Escolha ao menos um dia da semana acima.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {newSlotDays
+                      .slice()
+                      .sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b))
+                      .map((d) => (
+                        <div
+                          key={d}
+                          className="flex items-center justify-between gap-2 p-2 rounded-lg border bg-muted/20 hover:bg-muted/30 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-[110px]">
+                            <span className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                            <span className="text-xs font-semibold text-foreground">
+                              {DIAS_SEMANA_NOMES[d]}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground">Início</span>
+                              <Input
+                                type="time"
+                                value={newSlotDayTimes[d]?.inicio || newSlotGlobalTime.inicio}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setNewSlotDayTimes((prev) => ({
+                                    ...prev,
+                                    [d]: { ...(prev[d] || newSlotGlobalTime), inicio: val },
+                                  }));
+                                }}
+                                className="h-7 w-20 text-xs bg-background px-1.5"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[10px] text-muted-foreground">Fim</span>
+                              <Input
+                                type="time"
+                                value={newSlotDayTimes[d]?.fim || newSlotGlobalTime.fim}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setNewSlotDayTimes((prev) => ({
+                                    ...prev,
+                                    [d]: { ...(prev[d] || newSlotGlobalTime), fim: val },
+                                  }));
+                                }}
+                                className="h-7 w-20 text-xs bg-background px-1.5"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1.5">
-                <Label className="text-xs">Fim</Label>
-                <Input type="time" name="hora_fim" defaultValue="08:30" required className="h-9 text-xs" />
+                <Label className="text-xs font-medium">Sala (Opcional)</Label>
+                <Select value={newSlotSalaId} onValueChange={setNewSlotSalaId}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Sala Padrão..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Sala Padrão do Profissional</SelectItem>
+                    {salas.map((s: any) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs">Sala (Opcional)</Label>
-              <Select name="sala_id" defaultValue="default">
-                <SelectTrigger className="h-9 text-xs">
-                  <SelectValue placeholder="Sala Padrão..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="default">Sala Padrão do Profissional</SelectItem>
-                  {salas.map((s: any) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-3 border-t mt-3 flex items-center justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setAddFixSlotOpen(false)}>
                 Cancelar
               </Button>
-              <Button type="submit" size="sm">
-                Salvar Horário Recorrente
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!newSlotPatientId || !newSlotProfId || newSlotDays.length === 0}
+                className="gap-1.5"
+              >
+                <Check className="h-4 w-4" />
+                Salvar Horário Recorrente {newSlotDays.length > 1 ? `(${newSlotDays.length} dias)` : ""}
               </Button>
             </DialogFooter>
           </form>
