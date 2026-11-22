@@ -716,7 +716,7 @@ function MarcacaoEmMassaPage() {
             data_fim: occEnd.toISOString(),
             status: "confirmado",
             recorrencia: "unica",
-            observacoes: "Gerado via Central de Marcação em Massa",
+            observacoes: null,
           });
         }
       }
