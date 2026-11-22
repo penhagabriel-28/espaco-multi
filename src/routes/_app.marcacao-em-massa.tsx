@@ -340,6 +340,10 @@ function MarcacaoEmMassaPage() {
     diaFixo: DiaFixo;
   } | null>(null);
 
+  // Estados para Exclusão em Massa de Horários Recorrentes
+  const [batchDeletingOpen, setBatchDeletingOpen] = useState(false);
+  const [batchDeleteIsAll, setBatchDeleteIsAll] = useState(false);
+
   const handleStartEdit = (item: { paciente: any; diaFixo: DiaFixo }) => {
     setEditingSlot({ paciente: item.paciente, diaFixo: item.diaFixo });
     setEditProfId(item.diaFixo.profissional_id || "");
@@ -449,6 +453,56 @@ function MarcacaoEmMassaPage() {
       setDeletingSlot(null);
     }
   };
+
+  // Exclusão em massa de múltiplos ou todos os horários recorrentes selecionados
+  const batchDeleteMutation = useMutation({
+    mutationFn: async (itemsToDelete: Array<{ paciente: any; diaFixo: DiaFixo }>) => {
+      if (itemsToDelete.length === 0) {
+        throw new Error("Nenhum horário selecionado para exclusão.");
+      }
+
+      // Agrupar por paciente para realizar uma única atualização por paciente
+      const byPatient = new Map<string, { paciente: any; slotIds: Set<string> }>();
+      for (const item of itemsToDelete) {
+        if (!byPatient.has(item.paciente.id)) {
+          byPatient.set(item.paciente.id, {
+            paciente: item.paciente,
+            slotIds: new Set<string>(),
+          });
+        }
+        byPatient.get(item.paciente.id)!.slotIds.add(item.diaFixo.id);
+      }
+
+      const updatePromises = Array.from(byPatient.values()).map(async ({ paciente, slotIds }) => {
+        const currentDfs = parseDiasFixos(paciente.observacoes);
+        const updatedDfs = currentDfs.filter((df) => !slotIds.has(df.id));
+        const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
+
+        const { error } = await supabase
+          .from("pacientes")
+          .update({ observacoes: newObs })
+          .eq("id", paciente.id);
+
+        if (error) throw error;
+      });
+
+      await Promise.all(updatePromises);
+      return itemsToDelete.length;
+    },
+    onSuccess: (count) => {
+      toast.success(
+        count === 1
+          ? "1 horário recorrente excluído com sucesso!"
+          : `${count} horários recorrentes excluídos com sucesso!`
+      );
+      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
+      setBatchDeletingOpen(false);
+      setSelectedSlots({});
+    },
+    onError: (e: any) => {
+      toast.error(`Erro ao excluir horários em massa: ${e.message}`);
+    },
+  });
 
   // Estados da Aba 2: Escala dos Profissionais
   const [escalaProfId, setEscalaProfId] = useState<string>("");
@@ -591,6 +645,11 @@ function MarcacaoEmMassaPage() {
       }
     }
     return count;
+  }, [allPatientSlots, selectedSlots]);
+
+  // Lista de itens atualmente selecionados na tabela
+  const selectedSlotsList = useMemo(() => {
+    return allPatientSlots.filter((item) => selectedSlots[item.key] !== false);
   }, [allPatientSlots, selectedSlots]);
 
   // Alternar seleção de todos os itens
@@ -971,10 +1030,26 @@ function MarcacaoEmMassaPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {selectedSlotsList.length > 0 && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-1.5 h-8 text-xs"
+                      onClick={() => {
+                        setBatchDeleteIsAll(selectedSlotsList.length === allPatientSlots.length);
+                        setBatchDeletingOpen(true);
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {selectedSlotsList.length === allPatientSlots.length
+                        ? `Excluir Todos (${allPatientSlots.length})`
+                        : `Excluir Selecionados (${selectedSlotsList.length})`}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
+                    className="gap-1.5 h-8 text-xs"
                     onClick={() => handleOpenAddFixSlot()}
                   >
                     <Plus className="h-4 w-4" /> Novo Horário Recorrente
@@ -1029,22 +1104,69 @@ function MarcacaoEmMassaPage() {
                 </div>
               ) : (
                 <div className="divide-y overflow-x-auto">
-                  {/* Linha de seleção geral */}
-                  <div className="bg-muted/40 px-4 py-2.5 flex items-center justify-between text-xs font-medium text-muted-foreground">
-                    <div className="flex items-center gap-2.5">
-                      <Checkbox
-                        id="select-all"
-                        checked={
-                          allPatientSlots.length > 0 &&
-                          allPatientSlots.every((item) => selectedSlots[item.key] !== false)
-                        }
-                        onCheckedChange={(checked) => handleToggleSelectAll(Boolean(checked))}
-                      />
-                      <label htmlFor="select-all" className="cursor-pointer font-medium text-foreground">
-                        Selecionar Todos
-                      </label>
+                  {/* Linha de seleção geral e ações em massa */}
+                  <div className="bg-muted/40 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="select-all"
+                          checked={
+                            allPatientSlots.length > 0 &&
+                            allPatientSlots.every((item) => selectedSlots[item.key] !== false)
+                          }
+                          onCheckedChange={(checked) => handleToggleSelectAll(Boolean(checked))}
+                        />
+                        <label htmlFor="select-all" className="cursor-pointer font-medium text-foreground">
+                          Selecionar Todos
+                        </label>
+                      </div>
+
+                      <span className="text-muted-foreground text-[11px]">
+                        ({selectedSlotsList.length} de {allPatientSlots.length} selecionado{allPatientSlots.length > 1 ? "s" : ""})
+                      </span>
                     </div>
-                    <div>Situação no Mês Selecionado</div>
+
+                    <div className="flex items-center gap-2">
+                      {selectedSlotsList.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          className="h-7 text-xs gap-1.5"
+                          onClick={() => {
+                            setBatchDeleteIsAll(
+                              selectedSlotsList.length === allPatientSlots.length
+                            );
+                            setBatchDeletingOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {selectedSlotsList.length === allPatientSlots.length
+                            ? `Excluir Todos (${allPatientSlots.length})`
+                            : `Excluir Selecionados (${selectedSlotsList.length})`}
+                        </Button>
+                      )}
+
+                      {selectedSlotsList.length < allPatientSlots.length && allPatientSlots.length > 0 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
+                          onClick={() => {
+                            setBatchDeleteIsAll(true);
+                            setBatchDeletingOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Excluir Todos ({allPatientSlots.length})
+                        </Button>
+                      )}
+
+                      <span className="hidden md:inline-block text-muted-foreground pl-2 border-l">
+                        Situação no Mês Selecionado
+                      </span>
+                    </div>
                   </div>
 
                   {allPatientSlots.map((item) => {
@@ -1154,9 +1276,29 @@ function MarcacaoEmMassaPage() {
             </CardContent>
 
             <CardFooter className="p-4 sm:p-6 bg-muted/30 border-t flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="text-xs text-muted-foreground">
-                Total a ser lançado na Agenda:{" "}
-                <strong className="text-foreground text-sm">{totalNovosAgendamentos} sessões</strong>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-xs text-muted-foreground">
+                  Total a ser lançado na Agenda:{" "}
+                  <strong className="text-foreground text-sm">{totalNovosAgendamentos} sessões</strong>
+                </div>
+
+                {selectedSlotsList.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 gap-1.5"
+                    onClick={() => {
+                      setBatchDeleteIsAll(selectedSlotsList.length === allPatientSlots.length);
+                      setBatchDeletingOpen(true);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    {selectedSlotsList.length === allPatientSlots.length
+                      ? `Excluir Todos (${allPatientSlots.length})`
+                      : `Excluir Selecionados (${selectedSlotsList.length})`}
+                  </Button>
+                )}
               </div>
 
               <Button
@@ -2120,6 +2262,80 @@ function MarcacaoEmMassaPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir Horário
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmação de Exclusão em Massa de Horários Recorrentes */}
+      <AlertDialog open={batchDeletingOpen} onOpenChange={setBatchDeletingOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              {batchDeleteIsAll
+                ? `Excluir Todos os ${allPatientSlots.length} Horários Recorrentes`
+                : `Excluir ${selectedSlotsList.length} Horários Recorrentes Selecionados`}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 pt-1 text-sm text-foreground/80">
+              <p>
+                {batchDeleteIsAll ? (
+                  <>
+                    Tem certeza que deseja remover{" "}
+                    <strong className="text-destructive font-semibold">
+                      TODOS os {allPatientSlots.length} horários fixos
+                    </strong>{" "}
+                    exibidos?
+                  </>
+                ) : (
+                  <>
+                    Tem certeza que deseja remover os{" "}
+                    <strong className="text-foreground font-semibold">
+                      {selectedSlotsList.length} horários fixos
+                    </strong>{" "}
+                    selecionados?
+                  </>
+                )}
+              </p>
+
+              {/* Prévia dos horários que serão excluídos */}
+              <div className="max-h-48 overflow-y-auto rounded-md bg-muted/60 p-2.5 text-xs divide-y divide-border/60">
+                {(batchDeleteIsAll ? allPatientSlots : selectedSlotsList).map((item) => (
+                  <div key={item.key} className="py-1.5 first:pt-0 last:pb-0 flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-foreground">{item.paciente.nome}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {DIAS_SEMANA_NOMES[item.diaFixo.dia_semana]} • {item.diaFixo.hora_inicio} às {item.diaFixo.hora_fim}
+                      </div>
+                    </div>
+                    <div className="text-right text-[11px] text-muted-foreground">
+                      {item.servico?.nome || item.profissional?.nome || "Profissional"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-muted-foreground">
+                Esta ação remove o cadastro recorrente desses pacientes. Agendamentos que já constam no calendário da Agenda não serão apagados.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={batchDeleteMutation.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                batchDeleteMutation.mutate(batchDeleteIsAll ? allPatientSlots : selectedSlotsList);
+              }}
+              disabled={batchDeleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
+            >
+              <Trash2 className="h-4 w-4" />
+              {batchDeleteMutation.isPending
+                ? "Excluindo..."
+                : batchDeleteIsAll
+                ? `Confirmar Exclusão de Todos (${allPatientSlots.length})`
+                : `Excluir Selecionados (${selectedSlotsList.length})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
