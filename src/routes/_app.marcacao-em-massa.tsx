@@ -450,6 +450,20 @@ function MarcacaoEmMassaPage() {
     }
   };
 
+  // Estados da Aba 2: Escala dos Profissionais
+  const [escalaProfId, setEscalaProfId] = useState<string>("");
+  const [escalaDiasSelecionados, setEscalaDiasSelecionados] = useState<number[]>([]);
+  const [escalaSlots, setEscalaSlots] = useState<
+    Array<{
+      id: string;
+      hora_inicio: string;
+      hora_fim: string;
+      paciente_id: string;
+      servico_id: string | null;
+      sala_id: string | null;
+    }>
+  >([]);
+
   // Intervalo do mês selecionado
   const monthStart = useMemo(() => startOfMonth(selectedMonthDate), [selectedMonthDate]);
   const monthEnd = useMemo(() => endOfMonth(selectedMonthDate), [selectedMonthDate]);
