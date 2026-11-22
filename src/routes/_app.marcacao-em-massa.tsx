@@ -43,7 +43,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -137,160 +139,6 @@ function MarcacaoEmMassaPage() {
   // Itens selecionados para geração na aba recorrentes (chave: `${pacienteId}_${diaFixoId}`)
   const [selectedSlots, setSelectedSlots] = useState<Record<string, boolean>>({});
 
-  // Modal para adicionar/editar horário fixo
-  const [addFixSlotOpen, setAddFixSlotOpen] = useState(false);
-  const [targetPatientForSlot, setTargetPatientForSlot] = useState<any>(null);
-
-  // Estados do formulário de cadastro de horário recorrente
-  const [newSlotPatientId, setNewSlotPatientId] = useState<string>("");
-  const [newSlotProfId, setNewSlotProfId] = useState<string>("");
-  const [newSlotSalaId, setNewSlotSalaId] = useState<string>("default");
-  const [newSlotDays, setNewSlotDays] = useState<number[]>([1]);
-  const [newSlotGlobalTime, setNewSlotGlobalTime] = useState<{ inicio: string; fim: string }>({
-    inicio: "08:00",
-    fim: "08:30",
-  });
-  const [newSlotDayTimes, setNewSlotDayTimes] = useState<Record<number, { inicio: string; fim: string }>>({
-    1: { inicio: "08:00", fim: "08:30" },
-    2: { inicio: "08:00", fim: "08:30" },
-    3: { inicio: "08:00", fim: "08:30" },
-    4: { inicio: "08:00", fim: "08:30" },
-    5: { inicio: "08:00", fim: "08:30" },
-    6: { inicio: "08:00", fim: "08:30" },
-    0: { inicio: "08:00", fim: "08:30" },
-  });
-
-  const handleOpenAddFixSlot = (paciente?: any) => {
-    setTargetPatientForSlot(paciente || null);
-    setNewSlotPatientId(paciente?.id || "");
-    setNewSlotProfId("");
-    setNewSlotSalaId("default");
-    setNewSlotDays([1]);
-    setNewSlotGlobalTime({ inicio: "08:00", fim: "08:30" });
-    setNewSlotDayTimes({
-      1: { inicio: "08:00", fim: "08:30" },
-      2: { inicio: "08:00", fim: "08:30" },
-      3: { inicio: "08:00", fim: "08:30" },
-      4: { inicio: "08:00", fim: "08:30" },
-      5: { inicio: "08:00", fim: "08:30" },
-      6: { inicio: "08:00", fim: "08:30" },
-      0: { inicio: "08:00", fim: "08:30" },
-    });
-    setAddFixSlotOpen(true);
-  };
-
-  const handleApplySameTimeToAllDays = () => {
-    setNewSlotDayTimes((prev) => {
-      const updated = { ...prev };
-      for (const d of newSlotDays) {
-        updated[d] = {
-          inicio: newSlotGlobalTime.inicio,
-          fim: newSlotGlobalTime.fim,
-        };
-      }
-      return updated;
-    });
-    toast.success("Horário aplicado a todos os dias selecionados!");
-  };
-
-  // Estados para Edição e Exclusão de Horário Recorrente
-  const [editingSlot, setEditingSlot] = useState<{
-    paciente: any;
-    diaFixo: DiaFixo;
-  } | null>(null);
-  const [editProfId, setEditProfId] = useState<string>("");
-  const [editDiaSemana, setEditDiaSemana] = useState<number>(1);
-  const [editHoraInicio, setEditHoraInicio] = useState<string>("08:00");
-  const [editHoraFim, setEditHoraFim] = useState<string>("08:30");
-  const [editSalaId, setEditSalaId] = useState<string>("default");
-
-  const [deletingSlot, setDeletingSlot] = useState<{
-    paciente: any;
-    diaFixo: DiaFixo;
-  } | null>(null);
-
-  const handleStartEdit = (item: { paciente: any; diaFixo: DiaFixo }) => {
-    setEditingSlot({ paciente: item.paciente, diaFixo: item.diaFixo });
-    setEditProfId(item.diaFixo.profissional_id || "");
-    setEditDiaSemana(Number(item.diaFixo.dia_semana));
-    setEditHoraInicio(item.diaFixo.hora_inicio || "08:00");
-    setEditHoraFim(item.diaFixo.hora_fim || "08:30");
-    setEditSalaId(item.diaFixo.sala_id || "default");
-  };
-
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingSlot) return;
-
-    const { paciente, diaFixo } = editingSlot;
-    const currentDfs = parseDiasFixos(paciente.observacoes);
-
-    const updatedDfs = currentDfs.map((df) => {
-      if (df.id === diaFixo.id) {
-        return {
-          ...df,
-          profissional_id: editProfId,
-          dia_semana: editDiaSemana,
-          hora_inicio: editHoraInicio,
-          hora_fim: editHoraFim,
-          sala_id: editSalaId === "default" ? null : editSalaId,
-        };
-      }
-      return df;
-    });
-
-    const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
-
-    const { error } = await supabase
-      .from("pacientes")
-      .update({ observacoes: newObs })
-      .eq("id", paciente.id);
-
-    if (error) {
-      toast.error(`Erro ao atualizar horário: ${error.message}`);
-    } else {
-      toast.success("Horário recorrente atualizado com sucesso!");
-      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
-      setEditingSlot(null);
-    }
-  };
-
-  const handleDeleteSlot = async () => {
-    if (!deletingSlot) return;
-    const { paciente, diaFixo } = deletingSlot;
-    const currentDfs = parseDiasFixos(paciente.observacoes);
-
-    const updatedDfs = currentDfs.filter((df) => df.id !== diaFixo.id);
-    const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
-
-    const { error } = await supabase
-      .from("pacientes")
-      .update({ observacoes: newObs })
-      .eq("id", paciente.id);
-
-    if (error) {
-      toast.error(`Erro ao excluir horário: ${error.message}`);
-    } else {
-      toast.success("Horário recorrente excluído com sucesso!");
-      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
-      setDeletingSlot(null);
-    }
-  };
-
-  // Estados da Aba 2: Escala dos Profissionais
-  const [escalaProfId, setEscalaProfId] = useState<string>("");
-  const [escalaDiasSelecionados, setEscalaDiasSelecionados] = useState<number[]>([]);
-  const [escalaSlots, setEscalaSlots] = useState<
-    Array<{
-      id: string;
-      hora_inicio: string;
-      hora_fim: string;
-      paciente_id: string;
-      servico_id: string | null;
-      sala_id: string | null;
-    }>
-  >([]);
-
   // Carregar Pacientes
   const { data: pacientes = [], isLoading: loadingPacientes } = useQuery({
     queryKey: ["massa-pacientes"],
@@ -341,6 +189,266 @@ function MarcacaoEmMassaPage() {
     },
     staleTime: 10 * 60 * 1000,
   });
+
+  // Helper para obter especialidades vinculadas ao profissional e serviços da clínica
+  const getProfSpecialties = (profId?: string, currentServicoId?: string | null) => {
+    if (!profId) {
+      return { matchedServices: [], otherServices: servicos };
+    }
+
+    const prof = profissionais.find((p: any) => p.id === profId);
+    const profSpecs = prof?.especialidade
+      ? prof.especialidade
+          .split(",")
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    const matchedServices: any[] = [];
+    const addedIds = new Set<string>();
+    const addedNames = new Set<string>();
+
+    // 1. Se já tem currentServicoId selecionado, garantir que apareça nas opções
+    if (currentServicoId) {
+      const cur = servicos.find((s: any) => s.id === currentServicoId);
+      if (cur) {
+        matchedServices.push(cur);
+        addedIds.add(cur.id);
+        addedNames.add(cur.nome.toLowerCase());
+      }
+    }
+
+    // 2. Especialidades registradas na ficha do profissional
+    for (const spec of profSpecs) {
+      const specLower = spec.toLowerCase();
+      if (addedNames.has(specLower)) continue;
+
+      const s =
+        servicos.find((srv: any) => srv.nome.toLowerCase() === specLower && srv.ativo !== false) ||
+        servicos.find((srv: any) => srv.nome.toLowerCase() === specLower);
+      if (s && !addedIds.has(s.id)) {
+        matchedServices.push(s);
+        addedIds.add(s.id);
+        addedNames.add(specLower);
+      }
+    }
+
+    // 3. Demais serviços da clínica (deduplicados por nome)
+    const otherServices: any[] = [];
+    for (const s of servicos) {
+      const lower = s.nome.toLowerCase();
+      if (!addedIds.has(s.id) && !addedNames.has(lower)) {
+        otherServices.push(s);
+        addedIds.add(s.id);
+        addedNames.add(lower);
+      }
+    }
+
+    return { matchedServices, otherServices };
+  };
+
+  // Modal para adicionar/editar horário fixo
+  const [addFixSlotOpen, setAddFixSlotOpen] = useState(false);
+  const [targetPatientForSlot, setTargetPatientForSlot] = useState<any>(null);
+
+  // Estados do formulário de cadastro de horário recorrente
+  const [newSlotPatientId, setNewSlotPatientId] = useState<string>("");
+  const [newSlotProfId, setNewSlotProfId] = useState<string>("");
+  const [newSlotServicoId, setNewSlotServicoId] = useState<string>("");
+  const [newSlotSalaId, setNewSlotSalaId] = useState<string>("default");
+  const [newSlotDays, setNewSlotDays] = useState<number[]>([1]);
+  const [newSlotGlobalTime, setNewSlotGlobalTime] = useState<{ inicio: string; fim: string }>({
+    inicio: "08:00",
+    fim: "08:30",
+  });
+  const [newSlotDayTimes, setNewSlotDayTimes] = useState<Record<number, { inicio: string; fim: string }>>({
+    1: { inicio: "08:00", fim: "08:30" },
+    2: { inicio: "08:00", fim: "08:30" },
+    3: { inicio: "08:00", fim: "08:30" },
+    4: { inicio: "08:00", fim: "08:30" },
+    5: { inicio: "08:00", fim: "08:30" },
+    6: { inicio: "08:00", fim: "08:30" },
+    0: { inicio: "08:00", fim: "08:30" },
+  });
+
+  const handleOpenAddFixSlot = (paciente?: any) => {
+    setTargetPatientForSlot(paciente || null);
+    setNewSlotPatientId(paciente?.id || "");
+    setNewSlotProfId("");
+    setNewSlotServicoId("");
+    setNewSlotSalaId("default");
+    setNewSlotDays([1]);
+    setNewSlotGlobalTime({ inicio: "08:00", fim: "08:30" });
+    setNewSlotDayTimes({
+      1: { inicio: "08:00", fim: "08:30" },
+      2: { inicio: "08:00", fim: "08:30" },
+      3: { inicio: "08:00", fim: "08:30" },
+      4: { inicio: "08:00", fim: "08:30" },
+      5: { inicio: "08:00", fim: "08:30" },
+      6: { inicio: "08:00", fim: "08:30" },
+      0: { inicio: "08:00", fim: "08:30" },
+    });
+    setAddFixSlotOpen(true);
+  };
+
+  const handleNewSlotProfChange = (profId: string) => {
+    setNewSlotProfId(profId);
+    const defaultRoomId = getDefaultRoomIdForProfessional(profId, profissionais, salas);
+    if (defaultRoomId) {
+      setNewSlotSalaId(defaultRoomId);
+    }
+    const prof = profissionais.find((p: any) => p.id === profId);
+    const specs = prof?.especialidade
+      ? prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [];
+    if (specs.length === 1) {
+      const match = servicos.find((s: any) => s.nome.toLowerCase() === specs[0].toLowerCase());
+      setNewSlotServicoId(match?.id || "");
+    } else {
+      setNewSlotServicoId("");
+    }
+  };
+
+  const handleApplySameTimeToAllDays = () => {
+    setNewSlotDayTimes((prev) => {
+      const updated = { ...prev };
+      for (const d of newSlotDays) {
+        updated[d] = {
+          inicio: newSlotGlobalTime.inicio,
+          fim: newSlotGlobalTime.fim,
+        };
+      }
+      return updated;
+    });
+    toast.success("Horário aplicado a todos os dias selecionados!");
+  };
+
+  // Estados para Edição e Exclusão de Horário Recorrente
+  const [editingSlot, setEditingSlot] = useState<{
+    paciente: any;
+    diaFixo: DiaFixo;
+  } | null>(null);
+  const [editProfId, setEditProfId] = useState<string>("");
+  const [editServicoId, setEditServicoId] = useState<string>("");
+  const [editDiaSemana, setEditDiaSemana] = useState<number>(1);
+  const [editHoraInicio, setEditHoraInicio] = useState<string>("08:00");
+  const [editHoraFim, setEditHoraFim] = useState<string>("08:30");
+  const [editSalaId, setEditSalaId] = useState<string>("default");
+
+  const [deletingSlot, setDeletingSlot] = useState<{
+    paciente: any;
+    diaFixo: DiaFixo;
+  } | null>(null);
+
+  const handleStartEdit = (item: { paciente: any; diaFixo: DiaFixo }) => {
+    setEditingSlot({ paciente: item.paciente, diaFixo: item.diaFixo });
+    setEditProfId(item.diaFixo.profissional_id || "");
+    setEditDiaSemana(Number(item.diaFixo.dia_semana));
+    setEditHoraInicio(item.diaFixo.hora_inicio || "08:00");
+    setEditHoraFim(item.diaFixo.hora_fim || "08:30");
+    setEditSalaId(item.diaFixo.sala_id || "default");
+
+    let initialServId = item.diaFixo.servico_id || "";
+    if (!initialServId && item.diaFixo.profissional_id) {
+      const prof = profissionais.find((p: any) => p.id === item.diaFixo.profissional_id);
+      if (prof?.especialidade) {
+        const specs = prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean);
+        // Se a duração for de 90 minutos e o profissional tiver AT ABA, sugerir AT ABA
+        const [sh, sm] = (item.diaFixo.hora_inicio || "08:00").split(":").map(Number);
+        const [eh, em] = (item.diaFixo.hora_fim || "08:30").split(":").map(Number);
+        const diffMin = eh * 60 + em - (sh * 60 + sm);
+        if (diffMin === 90 && specs.some((s: string) => s.toLowerCase() === "at aba")) {
+          const atAba = servicos.find((s: any) => s.nome.toLowerCase() === "at aba");
+          if (atAba) initialServId = atAba.id;
+        } else if (specs.length === 1) {
+          const match = servicos.find((s: any) => s.nome.toLowerCase() === specs[0].toLowerCase());
+          if (match) initialServId = match.id;
+        }
+      }
+    }
+    setEditServicoId(initialServId);
+  };
+
+  const handleEditProfChange = (profId: string) => {
+    setEditProfId(profId);
+    const defaultRoomId = getDefaultRoomIdForProfessional(profId, profissionais, salas);
+    if (defaultRoomId && editSalaId === "default") {
+      setEditSalaId(defaultRoomId);
+    }
+    const prof = profissionais.find((p: any) => p.id === profId);
+    const specs = prof?.especialidade
+      ? prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean)
+      : [];
+    if (specs.length === 1) {
+      const match = servicos.find((s: any) => s.nome.toLowerCase() === specs[0].toLowerCase());
+      setEditServicoId(match?.id || "");
+    } else {
+      const curServ = servicos.find((s: any) => s.id === editServicoId);
+      if (curServ && !specs.some((spec: string) => spec.toLowerCase() === curServ.nome.toLowerCase())) {
+        setEditServicoId("");
+      }
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSlot) return;
+
+    const { paciente, diaFixo } = editingSlot;
+    const currentDfs = parseDiasFixos(paciente.observacoes);
+
+    const updatedDfs = currentDfs.map((df) => {
+      if (df.id === diaFixo.id) {
+        return {
+          ...df,
+          profissional_id: editProfId,
+          servico_id: editServicoId || null,
+          dia_semana: editDiaSemana,
+          hora_inicio: editHoraInicio,
+          hora_fim: editHoraFim,
+          sala_id: editSalaId === "default" ? null : editSalaId,
+        };
+      }
+      return df;
+    });
+
+    const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
+
+    const { error } = await supabase
+      .from("pacientes")
+      .update({ observacoes: newObs })
+      .eq("id", paciente.id);
+
+    if (error) {
+      toast.error(`Erro ao atualizar horário: ${error.message}`);
+    } else {
+      toast.success("Horário recorrente atualizado com sucesso!");
+      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
+      setEditingSlot(null);
+    }
+  };
+
+  const handleDeleteSlot = async () => {
+    if (!deletingSlot) return;
+    const { paciente, diaFixo } = deletingSlot;
+    const currentDfs = parseDiasFixos(paciente.observacoes);
+
+    const updatedDfs = currentDfs.filter((df) => df.id !== diaFixo.id);
+    const newObs = serializeObservacoes(paciente.observacoes, updatedDfs);
+
+    const { error } = await supabase
+      .from("pacientes")
+      .update({ observacoes: newObs })
+      .eq("id", paciente.id);
+
+    if (error) {
+      toast.error(`Erro ao excluir horário: ${error.message}`);
+    } else {
+      toast.success("Horário recorrente excluído com sucesso!");
+      qc.invalidateQueries({ queryKey: ["massa-pacientes"] });
+      setDeletingSlot(null);
+    }
+  };
 
   // Intervalo do mês selecionado
   const monthStart = useMemo(() => startOfMonth(selectedMonthDate), [selectedMonthDate]);
@@ -398,7 +506,13 @@ function MarcacaoEmMassaPage() {
 
         const prof = profissionais.find((p: any) => p.id === df.profissional_id);
         const sala = salas.find((s: any) => s.id === df.sala_id);
-        const serv = servicos.find((s: any) => s.id === df.servico_id);
+        let serv = servicos.find((s: any) => s.id === df.servico_id);
+        if (!serv && prof?.especialidade) {
+          const specs = prof.especialidade.split(",").map((s: string) => s.trim()).filter(Boolean);
+          if (specs.length === 1) {
+            serv = servicos.find((s: any) => s.nome.toLowerCase() === specs[0].toLowerCase());
+          }
+        }
 
         // Encontrar todas as datas do mês que caem no dia da semana especificado
         const matchingDates = daysInMonth.filter((d) => getDay(d) === df.dia_semana);
@@ -496,8 +610,9 @@ function MarcacaoEmMassaPage() {
         // Fallback de serviço se nulo
         const effectiveServicoId =
           item.diaFixo.servico_id ||
+          item.servico?.id ||
           servicos.find((s: any) =>
-            s.nome.toLowerCase().includes(item.profissional?.especialidade?.toLowerCase() || "")
+            s.nome.toLowerCase() === item.profissional?.especialidade?.toLowerCase()
           )?.id ||
           null;
 
@@ -1311,6 +1426,60 @@ function MarcacaoEmMassaPage() {
                           </Select>
                         </div>
 
+                        <div className="w-full md:w-44">
+                          <Select
+                            value={slot.servico_id || "default"}
+                            onValueChange={(val) => {
+                              setEscalaSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, servico_id: val === "default" ? null : val } : s
+                                )
+                              );
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Especialidade..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="default">Padrão do Profissional</SelectItem>
+                              {(() => {
+                                const { matchedServices, otherServices } = getProfSpecialties(
+                                  escalaProfId,
+                                  slot.servico_id
+                                );
+                                return (
+                                  <>
+                                    {matchedServices.length > 0 && (
+                                      <SelectGroup>
+                                        <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1">
+                                          Especialidades do Profissional
+                                        </SelectLabel>
+                                        {matchedServices.map((s: any) => (
+                                          <SelectItem key={s.id} value={s.id}>
+                                            {s.nome}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectGroup>
+                                    )}
+                                    {otherServices.length > 0 && (
+                                      <SelectGroup>
+                                        <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1">
+                                          Outros Serviços
+                                        </SelectLabel>
+                                        {otherServices.map((s: any) => (
+                                          <SelectItem key={s.id} value={s.id}>
+                                            {s.nome}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectGroup>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
                         <div className="flex items-center gap-2">
                           <Select
                             value={slot.sala_id || "default"}
@@ -1413,7 +1582,7 @@ function MarcacaoEmMassaPage() {
               const newSlots: DiaFixo[] = newSlotDays.map((d) => ({
                 id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
                 profissional_id: newSlotProfId,
-                servico_id: null,
+                servico_id: newSlotServicoId || null,
                 sala_id: newSlotSalaId === "default" ? null : newSlotSalaId,
                 dia_semana: d,
                 hora_inicio: newSlotDayTimes[d]?.inicio || newSlotGlobalTime.inicio,
@@ -1463,7 +1632,7 @@ function MarcacaoEmMassaPage() {
 
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Profissional</Label>
-                <Select value={newSlotProfId} onValueChange={setNewSlotProfId}>
+                <Select value={newSlotProfId} onValueChange={handleNewSlotProfChange}>
                   <SelectTrigger className="h-9 text-xs">
                     <SelectValue placeholder="Selecione o profissional..." />
                   </SelectTrigger>
@@ -1473,6 +1642,61 @@ function MarcacaoEmMassaPage() {
                         {p.nome} ({p.especialidade || "Geral"})
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Especialidade / Serviço</Label>
+                <Select
+                  value={newSlotServicoId}
+                  onValueChange={setNewSlotServicoId}
+                  disabled={!newSlotProfId}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue
+                      placeholder={
+                        newSlotProfId
+                          ? "Selecione a especialidade..."
+                          : "Selecione o profissional primeiro"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(() => {
+                      const { matchedServices, otherServices } = getProfSpecialties(
+                        newSlotProfId,
+                        newSlotServicoId
+                      );
+                      return (
+                        <>
+                          {matchedServices.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1">
+                                Especialidades do Profissional
+                              </SelectLabel>
+                              {matchedServices.map((s: any) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.nome}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                          {otherServices.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1">
+                                Outros Serviços da Clínica
+                              </SelectLabel>
+                              {otherServices.map((s: any) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.nome}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+                        </>
+                      );
+                    })()}
                   </SelectContent>
                 </Select>
               </div>
@@ -1717,7 +1941,7 @@ function MarcacaoEmMassaPage() {
 
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">Profissional</Label>
-              <Select value={editProfId} onValueChange={setEditProfId}>
+              <Select value={editProfId} onValueChange={handleEditProfChange}>
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Selecione o profissional..." />
                 </SelectTrigger>
@@ -1727,6 +1951,55 @@ function MarcacaoEmMassaPage() {
                       {p.nome} ({p.especialidade || "Geral"})
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Especialidade / Serviço</Label>
+              <Select
+                value={editServicoId}
+                onValueChange={setEditServicoId}
+                disabled={!editProfId}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Selecione a especialidade..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {(() => {
+                    const { matchedServices, otherServices } = getProfSpecialties(
+                      editProfId,
+                      editServicoId
+                    );
+                    return (
+                      <>
+                        {matchedServices.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1">
+                              Especialidades do Profissional
+                            </SelectLabel>
+                            {matchedServices.map((s: any) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {otherServices.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1">
+                              Outros Serviços da Clínica
+                            </SelectLabel>
+                            {otherServices.map((s: any) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                      </>
+                    );
+                  })()}
                 </SelectContent>
               </Select>
             </div>
