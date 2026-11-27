@@ -70,7 +70,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { PacienteFormDialog } from "@/components/PacienteFormDialog";
 import { AnamneseFormDialog } from "@/components/AnamneseFormDialog";
-import { DetalhesSessaoDialog } from "@/components/ProntuarioRelatoriosDialog";
+import { DetalhesSessaoDialog, mergeSessionMeta } from "@/components/ProntuarioRelatoriosDialog";
 
 const normalizeString = (str: string) =>
   str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
@@ -934,11 +934,16 @@ const FragmentRow = memo(
                         {getEspecialidade(a)}
                       </div>
                     )}
-                    {pagParsed.cleanObservacoes && (
-                      <div className="truncate text-[9px] text-muted-foreground italic font-normal" title={pagParsed.cleanObservacoes}>
-                        {pagParsed.cleanObservacoes}
-                      </div>
-                    )}
+                    {(() => {
+                      const obsDisplay =
+                        pagParsed.cleanObservacoes ||
+                        (a.status === "cancelado" ? (a.motivo_cancelamento || "").trim() : "");
+                      return obsDisplay ? (
+                        <div className="truncate text-[9px] text-muted-foreground italic font-normal" title={obsDisplay}>
+                          {obsDisplay}
+                        </div>
+                      ) : null;
+                    })()}
                     <div className="flex items-center gap-1 mt-1 flex-wrap">
                       {/* Modalidade de Pagamento */}
                       {isMensal ? (
@@ -1112,7 +1117,9 @@ function AgendamentoDialog({
 
   const [pagamentosParciais, setPagamentosParciais] = useState<ItemPagamentoParcial[]>(initialPagamentosParciais);
 
-  const initialObservacoes = initialParsedCleanObs;
+  const initialObservacoes =
+    initialParsedCleanObs ||
+    (editing?.status === "cancelado" ? (editing?.motivo_cancelamento || "").trim() : "");
 
   const initialProfId = editing?.profissional_id ?? defaults?.professionalId ?? "";
 
@@ -1707,6 +1714,9 @@ Fico à disposição para qualquer dúvida!`;
           form.sala_id !== (editing.sala_id ?? "");
         void hasOtherFieldsChanged;
 
+        const motivoCancelamentoSynced =
+          statusToSave === "cancelado" ? form.observacoes.trim() || null : null;
+
         const explicitPayload = {
           paciente_id: form.paciente_id,
           profissional_id: form.profissional_id,
@@ -1718,6 +1728,7 @@ Fico à disposição para qualquer dúvida!`;
           observacoes: finalObservacoes,
           sala_id: form.sala_id || null,
           plano_aba: form.plano_aba,
+          motivo_cancelamento: motivoCancelamentoSynced,
         };
 
         if (updateAllFuture) {
@@ -1751,6 +1762,7 @@ Fico à disposição para qualquer dúvida!`;
                 recorrencia: form.recorrencia,
                 observacoes: finalObservacoes,
                 plano_aba: form.plano_aba,
+                motivo_cancelamento: motivoCancelamentoSynced,
               })
               .eq("id", occ.id);
             if (error) throw error;
@@ -1894,6 +1906,17 @@ Fico à disposição para qualquer dúvida!`;
     },
     onError: (e: any) => toast.error(e.message),
   });
+
+  const triggerCancelModal = () => {
+    if (!editing) {
+      toast.error("Para registrar um cancelamento, primeiro salve o agendamento.");
+      return;
+    }
+    onCancel({
+      ...editing,
+      _draftMotivo: form.observacoes !== initialObservacoes ? form.observacoes : undefined,
+    });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2676,13 +2699,8 @@ Fico à disposição para qualquer dúvida!`;
                         value={form.status}
                         onValueChange={(v) => {
                           if (v === "cancelado" && form.status !== "cancelado") {
-                            if (editing) {
-                              onCancel(editing);
-                              return;
-                            } else {
-                              toast.error("Para registrar um cancelamento, primeiro salve o agendamento.");
-                              return;
-                            }
+                            triggerCancelModal();
+                            return;
                           }
                           setForm((prev) => ({ ...prev, status: v as any }));
                         }}
@@ -2922,7 +2940,7 @@ Fico à disposição para qualquer dúvida!`;
                         type="button"
                         variant="outline"
                         className="gap-1.5 text-muted-foreground hover:text-destructive"
-                        onClick={() => onCancel(editing)}
+                        onClick={triggerCancelModal}
                       >
                         <X className="h-4 w-4" /> Cancelar agendamento
                       </Button>
@@ -3009,30 +3027,77 @@ Fico à disposição para qualquer dúvida!`;
   );
 }
 
+function buildCancelObservacoes(
+  existingRawObs: string | null | undefined,
+  motivoText: string,
+  oldMotivo?: string | null,
+): string {
+  const trimmedMotivo = motivoText.trim();
+  const existingClean = parsePagamentoSimples(existingRawObs).cleanObservacoes.trim();
+
+  let nextClean = trimmedMotivo;
+  if (existingClean) {
+    if (existingClean.toLowerCase() === trimmedMotivo.toLowerCase()) {
+      nextClean = trimmedMotivo;
+    } else if (oldMotivo && existingClean.includes(oldMotivo.trim())) {
+      nextClean = existingClean.replace(oldMotivo.trim(), trimmedMotivo).trim();
+    } else if (!existingClean.toLowerCase().includes(trimmedMotivo.toLowerCase())) {
+      nextClean = `${existingClean}\n${trimmedMotivo}`.trim();
+    } else {
+      nextClean = existingClean;
+    }
+  }
+
+  return mergeSessionMeta(existingRawObs, nextClean);
+}
+
 function CancelDialog({ ag, onDone, onDismiss }: any) {
-  const [motivo, setMotivo] = useState("");
+  const [motivo, setMotivo] = useState(
+    () => (ag?._draftMotivo ?? ag?.motivo_cancelamento ?? "").trim(),
+  );
   const m = useMutation({
     mutationFn: async (cancelAllFuture: boolean) => {
-      if (!motivo.trim()) throw new Error("Informe o motivo");
+      const trimmedMotivo = motivo.trim();
+      if (!trimmedMotivo) throw new Error("Informe o motivo");
       if (cancelAllFuture && ag.recorrencia_grupo) {
-        const { data: futureAgs } = await supabase
+        const { data: futureAgs, error: fetchErr } = await supabase
           .from("agendamentos")
-          .select(
-            "id, data_inicio, observacoes, paciente_id, profissional_id, servicos(nome), pacientes(cids_secundarios), profissionais(especialidade)",
-          )
+          .select("id, observacoes, motivo_cancelamento")
           .eq("recorrencia_grupo", ag.recorrencia_grupo)
           .gte("data_inicio", ag.data_inicio);
+        if (fetchErr) throw fetchErr;
 
-        const { error } = await supabase
-          .from("agendamentos")
-          .update({ status: "cancelado", motivo_cancelamento: motivo })
-          .eq("recorrencia_grupo", ag.recorrencia_grupo)
-          .gte("data_inicio", ag.data_inicio);
-        if (error) throw error;
+        const targets = futureAgs && futureAgs.length > 0 ? futureAgs : [ag];
+        const updates = targets.map(async (occ: any) => {
+          const updatedObs = buildCancelObservacoes(
+            occ.observacoes,
+            trimmedMotivo,
+            occ.motivo_cancelamento,
+          );
+          const { error } = await supabase
+            .from("agendamentos")
+            .update({
+              status: "cancelado",
+              motivo_cancelamento: trimmedMotivo,
+              observacoes: updatedObs,
+            })
+            .eq("id", occ.id);
+          if (error) throw error;
+        });
+        await Promise.all(updates);
       } else {
+        const updatedObs = buildCancelObservacoes(
+          ag.observacoes,
+          trimmedMotivo,
+          ag.motivo_cancelamento,
+        );
         const { error } = await supabase
           .from("agendamentos")
-          .update({ status: "cancelado", motivo_cancelamento: motivo })
+          .update({
+            status: "cancelado",
+            motivo_cancelamento: trimmedMotivo,
+            observacoes: updatedObs,
+          })
           .eq("id", ag.id);
         if (error) throw error;
       }
