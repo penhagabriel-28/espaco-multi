@@ -26,7 +26,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Table,
@@ -256,11 +255,7 @@ function FrequenciaPage() {
     }
   }, [pacsPopoverOpen]);
 
-  // Reset filters when date range changes
-  useEffect(() => {
-    setSelectedProfs([]);
-    setSelectedPacs([]);
-  }, [inicio, fim]);
+  const [deleteConfirmAgId, setDeleteConfirmAgId] = useState<string | null>(null);
 
   // Fetch Professionals
   const { data: profissionais = [] } = useQuery({
@@ -273,6 +268,7 @@ function FrequenciaPage() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   // Fetch Patients
@@ -286,6 +282,7 @@ function FrequenciaPage() {
       if (error) throw error;
       return data ?? [];
     },
+    staleTime: 5 * 60 * 1000,
   });
 
   const activeProfissionais = useMemo(() => {
@@ -332,44 +329,76 @@ function FrequenciaPage() {
     );
   }, [sortedPacientesList, pacSearch]);
 
+  const isDateInputComplete = (d: string) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(d) && Number(d.slice(0, 4)) >= 2000;
+  const hasCompleteDates = isDateInputComplete(inicio) && isDateInputComplete(fim);
+
   // Fetch Appointments (Lightweight payload without heavy Base64 signature strings)
-  const { data: agendamentos = [], isLoading: loadingAgs } = useQuery({
-    queryKey: ["freq-agendamentos", inicio, fim],
+  const { data: agendamentos = [], isLoading: loadingAgs, isFetching: fetchingAgs } = useQuery({
+    queryKey: ["freq-agendamentos", inicio, fim, selectedPacs, selectedProfs],
+    enabled: hasCompleteDates,
+    staleTime: 30 * 1000,
+    placeholderData: (prev: any) => prev,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("agendamentos")
-        .select(`
-          id,
-          paciente_id,
-          profissional_id,
-          servico_id,
-          sala_id,
-          data_inicio,
-          data_fim,
-          status,
-          nome_assinante,
-          data_assinatura,
-          observacoes,
-          pacientes (
+      if (inicio > fim) return [];
+
+      const fetchPage = async (from: number, to: number) => {
+        let query = supabase
+          .from("agendamentos")
+          .select(`
             id,
-            nome
-          ),
-          profissionais (
-            id,
-            nome,
-            cor,
-            especialidade
-          ),
-          servicos (
-            id,
-            nome
-          )
-        `)
-        .gte("data_inicio", `${inicio}T00:00:00`)
-        .lte("data_inicio", `${fim}T23:59:59`)
-        .order("data_inicio", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+            paciente_id,
+            profissional_id,
+            servico_id,
+            sala_id,
+            data_inicio,
+            data_fim,
+            status,
+            nome_assinante,
+            data_assinatura,
+            observacoes,
+            pacientes (
+              id,
+              nome
+            ),
+            profissionais (
+              id,
+              nome,
+              cor,
+              especialidade
+            ),
+            servicos (
+              id,
+              nome
+            )
+          `)
+          .gte("data_inicio", `${inicio}T00:00:00`)
+          .lte("data_inicio", `${fim}T23:59:59`);
+
+        if (selectedPacs.length > 0) {
+          query = query.in("paciente_id", selectedPacs);
+        }
+        if (selectedProfs.length > 0) {
+          query = query.in("profissional_id", selectedProfs);
+        }
+
+        const { data, error } = await query
+          .order("data_inicio", { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return data ?? [];
+      };
+
+      const allRows: any[] = [];
+      let offset = 0;
+      const pageSize = 1000;
+      while (true) {
+        const batch = await fetchPage(offset, offset + pageSize - 1);
+        allRows.push(...batch);
+        if (batch.length < pageSize || offset >= 4000) break;
+        offset += pageSize;
+      }
+      return allRows;
     },
   });
 
@@ -679,6 +708,26 @@ function FrequenciaPage() {
     });
   };
 
+  const renderFilterTriggerLabel = (defaultLabel: string, selectedIds: string[], items: any[]) => {
+    if (selectedIds.length === 1) {
+      const found = items.find((item: any) => item.id === selectedIds[0]);
+      return <span className="truncate font-medium">{found?.nome || "1 selecionado"}</span>;
+    }
+    return (
+      <>
+        <span>{defaultLabel}</span>
+        {selectedIds.length > 1 && (
+          <>
+            <div className="h-3.5 w-[1px] bg-border mx-1 shrink-0" />
+            <Badge variant="secondary" className="rounded-sm px-1 font-normal h-4 text-[9px] min-w-[16px] justify-center shrink-0">
+              {selectedIds.length}
+            </Badge>
+          </>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Selection Header */}
@@ -726,20 +775,12 @@ function FrequenciaPage() {
                 <Button
                   variant="outline"
                   className={cn(
-                    "h-10 gap-1.5 text-xs transition-all hover:bg-accent border-dashed min-w-[160px] justify-between",
+                    "h-10 gap-1.5 text-xs transition-all hover:bg-accent border-dashed min-w-[160px] max-w-[240px] justify-between",
                     selectedProfs.length > 0 && "border-solid border-primary bg-primary/5 text-primary",
                   )}
                 >
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span>Profissionais</span>
-                    {selectedProfs.length > 0 && (
-                      <>
-                        <div className="h-3.5 w-[1px] bg-border mx-1" />
-                        <Badge variant="secondary" className="rounded-sm px-1 font-normal h-4 text-[9px] min-w-[16px] justify-center">
-                          {selectedProfs.length}
-                        </Badge>
-                      </>
-                    )}
+                  <div className="flex items-center gap-1.5 truncate min-w-0">
+                    {renderFilterTriggerLabel("Profissionais", selectedProfs, profissionais)}
                   </div>
                 </Button>
               </PopoverTrigger>
@@ -815,20 +856,12 @@ function FrequenciaPage() {
                 <Button
                   variant="outline"
                   className={cn(
-                    "h-10 gap-1.5 text-xs transition-all hover:bg-accent border-dashed min-w-[160px] justify-between",
+                    "h-10 gap-1.5 text-xs transition-all hover:bg-accent border-dashed min-w-[160px] max-w-[260px] justify-between",
                     selectedPacs.length > 0 && "border-solid border-primary bg-primary/5 text-primary",
                   )}
                 >
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span>Pacientes</span>
-                    {selectedPacs.length > 0 && (
-                      <>
-                        <div className="h-3.5 w-[1px] bg-border mx-1" />
-                        <Badge variant="secondary" className="rounded-sm px-1 font-normal h-4 text-[9px] min-w-[16px] justify-center">
-                          {selectedPacs.length}
-                        </Badge>
-                      </>
-                    )}
+                  <div className="flex items-center gap-1.5 truncate min-w-0">
+                    {renderFilterTriggerLabel("Pacientes", selectedPacs, pacientes)}
                   </div>
                 </Button>
               </PopoverTrigger>
@@ -906,20 +939,40 @@ function FrequenciaPage() {
       </Card>
 
       {/* Main Content Area */}
-      <Card className="border-border shadow-sm">
+      <Card className="border-border shadow-sm relative overflow-hidden">
+        {fetchingAgs && (
+          <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/20 overflow-hidden z-20 pointer-events-none">
+            <div className="h-full bg-primary animate-pulse w-full" />
+          </div>
+        )}
         <CardHeader className="pb-3 border-b border-border/60">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle className="text-lg">Controle de Frequência</CardTitle>
-              <CardDescription>
-                Profissional:{" "}
-                <span className="font-semibold text-foreground">
-                  {selectedProfs.length === 0
-                    ? "Todos"
-                    : selectedProfs.length === 1
-                    ? profissionais.find((p: any) => p.id === selectedProfs[0])?.nome
-                    : `${selectedProfs.length} selecionados`}
+              <CardTitle className="text-lg flex items-center gap-2">
+                <span>Controle de Frequência</span>
+                {fetchingAgs && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+              </CardTitle>
+              <CardDescription className="flex flex-wrap items-center gap-x-2">
+                <span>
+                  Profissional:{" "}
+                  <span className="font-semibold text-foreground">
+                    {selectedProfs.length === 0
+                      ? "Todos"
+                      : selectedProfs.length === 1
+                      ? profissionais.find((p: any) => p.id === selectedProfs[0])?.nome
+                      : `${selectedProfs.length} selecionados`}
+                  </span>
                 </span>
+                {selectedPacs.length > 0 && (
+                  <span>
+                    • Paciente:{" "}
+                    <span className="font-semibold text-foreground">
+                      {selectedPacs.length === 1
+                        ? pacientes.find((p: any) => p.id === selectedPacs[0])?.nome
+                        : `${selectedPacs.length} selecionados`}
+                    </span>
+                  </span>
+                )}
               </CardDescription>
             </div>
               <div className="flex gap-2">
@@ -1049,35 +1102,15 @@ function FrequenciaPage() {
                               </SelectContent>
                             </Select>
 
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="Excluir Sessão"
-                                  className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Excluir Sessão</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Tem certeza que deseja excluir esta sessão? Esta ação é irreversível e excluirá qualquer registro de faturamento associado.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                    onClick={() => deleteAgendamentoMutation.mutate(a.id)}
-                                  >
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Excluir Sessão"
+                              onClick={() => setDeleteConfirmAgId(a.id)}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
 
@@ -1299,35 +1332,15 @@ function FrequenciaPage() {
                                   <FileText className="h-3.5 w-3.5" />
                                   <span className="hidden lg:inline">Ficha</span>
                                 </Button>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="Excluir Sessão"
-                                      className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Excluir Sessão</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      Tem certeza que deseja excluir esta sessão? Esta ação é irreversível e excluirá qualquer registro de faturamento associado.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                      onClick={() => deleteAgendamentoMutation.mutate(a.id)}
-                                    >
-                                      Excluir
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Excluir Sessão"
+                                  onClick={() => setDeleteConfirmAgId(a.id)}
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
                             </div>
                           </TableCell>
                           </TableRow>
@@ -1719,6 +1732,35 @@ function FrequenciaPage() {
           }}
         />
       )}
+
+      {/* Global Shared Delete Session Confirmation */}
+      <AlertDialog
+        open={!!deleteConfirmAgId}
+        onOpenChange={(open) => !open && setDeleteConfirmAgId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Sessão</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir esta sessão? Esta ação é irreversível e excluirá qualquer registro de faturamento associado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+              onClick={() => {
+                if (deleteConfirmAgId) {
+                  deleteAgendamentoMutation.mutate(deleteConfirmAgId);
+                  setDeleteConfirmAgId(null);
+                }
+              }}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Global CSS for Print */}
       <style>{`
